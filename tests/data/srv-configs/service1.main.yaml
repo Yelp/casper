@@ -1,0 +1,5 @@
+uncacheable_headers:
+    - 'XY1'
+
+cached_endpoints:
+    test_cache: {ttl: 123, pattern: ^abc$}

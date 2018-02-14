@@ -1,0 +1,85 @@
+version: '2'
+
+services:
+    spectre:
+        cap_add:
+            - NET_ADMIN
+        image: spectre-dev-${USER}
+        depends_on:
+            - syslog2scribe
+        environment:
+            - ITEST=1
+            - MARATHON_HOST=itest_host
+            - PAASTA_SERVICE=spectre
+            - PAASTA_INSTANCE=itest
+            - SRV_CONFIGS_PATH=/code/itest/data/srv-configs
+            - SERVICES_YAML_PATH=/code/itest/data/services.yaml
+            - CASSANDRA_CLUSTER_CONFIG=/code/itest/data/synapse/services/cassandra_spectre.main.json
+            - CASSANDRA_NUM_RETRIES=3
+            # These values can be low, we'll retry up to 3 times
+            - CASSANDRA_READ_TIMEOUT_MS=100
+            - CASSANDRA_WRITE_TIMEOUT_MS=500
+            - CASSANDRA_CONNECT_TIMEOUT_MS=500
+            - WORKER_PROCESSES=4
+        volumes:
+            - /var/log/nginx
+            - /nail/etc:/nail/etc:ro
+            - ./drop_all.sh:/opt/drop_all.sh
+        networks:
+            spectre_net:
+                ipv4_address: 10.5.0.2
+
+    backend:
+        build: ./backend
+        environment:
+            - SRV_CONFIGS_PATH=/code/srv-configs
+        networks:
+            spectre_net:
+                ipv4_address: 10.5.0.3
+        volumes:
+            - ./data/srv-configs:/code/srv-configs:ro
+
+    syslog2scribe:
+        build: ./syslog2scribe
+        depends_on:
+            - scribe-host
+        networks:
+            spectre_net:
+                ipv4_address: 10.5.0.5
+
+    scribe-host:
+        build: ./scribe-host
+        volumes:
+            - /var/log/scribe
+        networks:
+            spectre_net:
+                ipv4_address: 10.5.0.6
+
+    cassandra:
+        build:
+            context: ./cassandra
+        ports:
+            - '9042:9042'
+        networks:
+            spectre_net:
+                ipv4_address: 10.5.0.7
+
+    test:
+        build: ./test
+        volumes_from:
+            - spectre
+            - scribe-host
+        depends_on:
+            - spectre
+            - backend
+        networks:
+            spectre_net:
+                ipv4_address: 10.5.0.4
+
+networks:
+    spectre_net:
+        driver: bridge
+        ipam:
+            config:
+                - subnet: 10.5.0.0/16
+                  gateway: 10.5.0.1

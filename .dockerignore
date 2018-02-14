@@ -1,0 +1,9 @@
+.git*
+.dockerignore
+.tox
+.ycp_playground
+.idea
+tests/
+acceptance/
+data/
+playground/

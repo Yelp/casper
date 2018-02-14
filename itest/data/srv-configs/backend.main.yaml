@@ -1,0 +1,16 @@
+uncacheable_headers:
+    - 'Uncacheable-Header'
+
+cached_endpoints:
+    timestamp: {ttl: 2, pattern: '^/timestamp/.*$', vary_headers: ['X-Mode', 'accept-encoding']}
+    long_ttl: {ttl: 30, pattern: '^/long_ttl/.*$'}
+    gzipped_response: {ttl: 2, pattern: '^/gzipped$'}
+    happy_cache: {ttl: 10, pattern: '^/happy/\\?.*$'}
+      # bulk endpoint caching regex
+    get_user_info: {ttl: 30, pattern: "^/get_user_info/v1(\\?|\\?.*&)ids=[0-9]+(&.*$|$)"}
+    bulk_requester_does_not_cache_missing_ids: {ttl: 30, pattern: "(^/bulk_requester(?:\\?|\\?.*&)ids=)((?:\\S|%2C)+)(.*$)", bulk_support: true, id_identifier: 'bulk_id', dont_cache_missing_ids: true}
+    bulk_requester_default: {ttl: 30, pattern: "(^/bulk_requester_2/)((?:\\d|,)+)(/v1.*$)", bulk_support: true, id_identifier: 'bulk_id'}
+    forbidden: {ttl: 30, pattern: "(^/not_authorized\\?ids=)((?:\\d|%2C)+)(.*$)", bulk_support: true, id_identifier: 'id'}
+# Default Vary headers. Can be overridden by pattern specific Vary headers
+vary_headers:
+    - 'Accept-Encoding'
