@@ -16,7 +16,10 @@ zipkin['ZIPKIN_HEADERS'] = {
 
 local sock = socket.udp()
 sock:setsockname("*", 0)
-sock:setpeername(os.getenv("SYSLOG_HOST"), 1514)
+sock:setpeername(
+    os.getenv("SYSLOG_HOST"),
+    os.getenv("SYSLOG_PORT")
+)
 
 
 -- Generate random 16 character string

@@ -1,16 +1,18 @@
-FROM docker-dev.yelpcorp.com/xenial_yelp:latest
-MAINTAINER Performance Team <team-perf@yelp.com>
+FROM ubuntu:xenial
+LABEL maintainer="Yelp Performance Team"
 
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    python \
+    python-dev \
     python-setuptools \
-    python-pkg-resources \
     python-pip && \
     apt-get clean
 
-RUN pip install pytest
-RUN pip install requests
-RUN pip install -i https://pypi.yelpcorp.com/simple/ thriftpy bravado bravado-decorators
+RUN pip install -U pip wheel
+
+RUN pip install \
+    bravado \
+    pytest \
+    requests
 
 RUN mkdir -p /code
 WORKDIR /code

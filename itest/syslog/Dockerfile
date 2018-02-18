@@ -2,14 +2,8 @@ FROM ubuntu:xenial
 LABEL maintainer="Yelp Performance Team"
 
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    python \
-    python-yaml && \
-    apt-get clean
+    syslog-ng
 
-RUN mkdir -p /code
-WORKDIR /code
+COPY syslog-ng.conf /etc/syslog-ng/syslog-ng.conf
 
-ADD . /code
-RUN chmod 777 -R /code
-
-CMD python echo_server.py
+CMD syslog-ng && while true; do sleep 1; done
