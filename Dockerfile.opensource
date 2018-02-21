@@ -36,7 +36,7 @@ RUN dpkg -i dumb-init_*.deb
 
 RUN apt-get clean
 
-# We directly pin both lua and python dependencies to allow for reproducible
+# We directly pin both lua dependencies to allow for reproducible
 # deploy builds.
 RUN luarocks install lyaml 6.1.1-4
 RUN luarocks install luasocket 3.0rc1-2
