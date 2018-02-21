@@ -65,8 +65,5 @@ discuss your feature request, bug fix or enhancement by opening a Github issue.
 
 ## TODOs
 
-* verify `make test`
-* integrate with TravisCI
-* sort out pypi.yelpcorp.com in tox.ini
-* get acceptance target out of tox.ini?
-* what about syslog2scribe? Are we okay with this?
+* [ ] verify `make test`
+* [ ] try out the instructions to run Casper on a stock macbook
