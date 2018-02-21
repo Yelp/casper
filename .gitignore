@@ -1,8 +1,2 @@
-*.pyc
 *.sw[a-z]
-/.tox
-.cache
-.ycp_playground
-playground
-.idea
-pgctl.yaml
+bin/docker-compose*

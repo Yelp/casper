@@ -7,7 +7,8 @@ export SRV_CONFIGS_PATH_FOR_TESTS=$(PWD)/tests/data/srv-configs
 export SMARTSTACK_CONFIG_PATH_FOR_TESTS=$(PWD)/tests/data/services.yaml
 export GIT_SHA ?= $(shell git rev-parse --short HEAD)
 
-DOCKER_COMPOSE := .tox/docker-compose/bin/docker-compose
+DOCKER_COMPOSE_VERSION := 1.19.0
+DOCKER_COMPOSE := bin/docker-compose-$(DOCKER_COMPOSE_VERSION)
 
 .PHONY: all
 all: test itest dev
@@ -53,8 +54,11 @@ unittest:
 	@# "grep -n" returns the line number, then we print all successive lines with awk
 	@awk "NR>$$(grep -n 'Summary' luacov.report.out | cut -d':' -f1)" luacov.report.out
 
-$(DOCKER_COMPOSE): tox.ini
-	tox -e docker-compose --notest
+$(DOCKER_COMPOSE):
+	# From https://docs.docker.com/compose/install/#prerequisites
+	# docker-compose is a statically linked go binary, so we can simply download the binary and use it
+	curl -L https://github.com/docker/compose/releases/download/$(DOCKER_COMPOSE_VERSION)/docker-compose-`uname -s`-`uname -m` -o $(DOCKER_COMPOSE)
+	chmod +x $(DOCKER_COMPOSE)
 
 .PHONY: itest
 itest: clean-docker $(DOCKER_COMPOSE) cook-image run-itest
@@ -77,7 +81,6 @@ cook-image: clean-docker
 .PHONY: clean
 clean: clean-docker
 	rm -rf .cache
-	rm -rf .tox
 
 .PHONY: clean-docker
 clean-docker: $(DOCKER_COMPOSE)
