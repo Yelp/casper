@@ -5,6 +5,8 @@ services:
         cap_add:
             - NET_ADMIN
         image: spectre-dev-${USER}
+        depends_on:
+            - syslog
         environment:
             - ITEST=1
             - MARATHON_HOST=itest_host
@@ -58,7 +60,6 @@ services:
         depends_on:
             - backend
             - spectre
-            - syslog
         networks:
             spectre_net:
                 ipv4_address: 10.5.0.4

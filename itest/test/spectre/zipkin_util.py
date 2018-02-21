@@ -14,13 +14,15 @@ regex = re.compile(
 
 def load_zipkin_spans(log_path):
     """Deserialize the zipkin log lines from log_path"""
+    # We generate the zipkin span after returning the response, so we need to sleep for
+    # a bit here to make sure spectre had time to do it
     time.sleep(0.2)
     with open(log_path) as fd:
         lines = fd.readlines()
-        return [decode_zipkin_log_line(line) for line in lines]
+        return [get_zipkin_span_from_line(line) for line in lines]
 
 
-def decode_zipkin_log_line(line):
+def get_zipkin_span_from_line(line):
     match = re.search(regex, line)
     return Span(
         trace_id=match.group(1),
