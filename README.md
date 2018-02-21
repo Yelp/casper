@@ -8,7 +8,7 @@ ecosystem.
 
 _Important note about naming: Casper was initially baptized "Spectre"
 internally._ It's only after the [Spectre/Meltdown](https://spectreattack.com/)
-vulnerabilities were published that we decided to chang the name to "Casper", a
+vulnerabilities were published that we decided to change the name to "Casper", a
 more friendly and less confusing name for the outside world. If you see
 remnants of "Spectre" in the code, that's why!
 
