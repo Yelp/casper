@@ -1,0 +1,13 @@
+sudo: required
+
+language: generic
+
+services:
+    - docker
+
+before_script:
+    - make cook-image
+
+script:
+    - make test
+    - make itest

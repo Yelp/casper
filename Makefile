@@ -64,7 +64,7 @@ $(DOCKER_COMPOSE):
 itest: clean-docker $(DOCKER_COMPOSE) cook-image run-itest
 
 .PHONY: run-itest
-run-itest:
+run-itest: $(DOCKER_COMPOSE)
 	$(DOCKER_COMPOSE) -f $(DOCKER_COMPOSE_YML) build
 	$(DOCKER_COMPOSE) -f $(DOCKER_COMPOSE_YML) up -d spectre backend cassandra syslog
 	$(DOCKER_COMPOSE) -f $(DOCKER_COMPOSE_YML) exec -T cassandra /opt/setup.sh
