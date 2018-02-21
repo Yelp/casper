@@ -8,11 +8,6 @@ export SMARTSTACK_CONFIG_PATH_FOR_TESTS=$(PWD)/tests/data/services.yaml
 export GIT_SHA ?= $(shell git rev-parse --short HEAD)
 
 DOCKER_COMPOSE := .tox/docker-compose/bin/docker-compose
-ifeq ($(findstring .yelpcorp.com,$(shell hostname -f)), .yelpcorp.com)
-	DOCKERFILE ?= Dockerfile
-else
-	DOCKERFILE ?= Dockerfile.opensource
-endif
 
 .PHONY: all
 all: test itest dev
@@ -37,7 +32,10 @@ inspect:
 	docker exec -ti $(DOCKER_TAG) bash -c 'apt-get install -y --no-install-recommends vim && bash'
 
 .PHONY: test
-test: cook-image
+test: cook-image run-test
+
+.PHONY: run-test
+run-test:
 	docker run -t -v $(PWD)/tests:/code/tests -v /nail/etc:/nail/etc:ro $(DOCKER_TAG) bash -c 'make unittest'
 
 .PHONY: unittest
@@ -58,12 +56,11 @@ unittest:
 $(DOCKER_COMPOSE): tox.ini
 	tox -e docker-compose --notest
 
-.PHONY: docker_push
-docker_push:
-	tox -e docker-push
-
 .PHONY: itest
-itest: clean-docker $(DOCKER_COMPOSE) cook-image
+itest: clean-docker $(DOCKER_COMPOSE) cook-image run-itest
+
+.PHONY: run-itest
+run-itest:
 	$(DOCKER_COMPOSE) -f $(DOCKER_COMPOSE_YML) build
 	$(DOCKER_COMPOSE) -f $(DOCKER_COMPOSE_YML) up -d spectre backend syslog2scribe scribe-host cassandra
 	$(DOCKER_COMPOSE) -f $(DOCKER_COMPOSE_YML) exec -T cassandra /opt/setup.sh
@@ -73,28 +70,13 @@ itest: clean-docker $(DOCKER_COMPOSE) cook-image
 	$(DOCKER_COMPOSE) -f $(DOCKER_COMPOSE_YML) kill
 	$(DOCKER_COMPOSE) -f $(DOCKER_COMPOSE_YML) rm -f
 
-.PHONY: acceptance
-acceptance: cook-image
-	tox -e acceptance
-
 .PHONY: cook-image
 cook-image: clean-docker
-	docker build -f $(DOCKERFILE) -t $(DOCKER_TAG) .
-
-.PHONY: push-swagger-spec-to-registry
-push-swagger-spec-to-registry:
-	/usr/bin/sensu-shell-helper \
-		-t "performance" \
-		-n spectre_jenkins_swagger_post \
-		-c 100 \
-		-j '"email": "True", "runbook": "y/rb-swagger-registry", "source": "yelpsoa-configs.spectre.deploy",' \
-		-- swagger post spectre api_docs/swagger.json
+	docker build -f Dockerfile.opensource -t $(DOCKER_TAG) .
 
 .PHONY: clean
 clean: clean-docker
-	rm -rf playground
 	rm -rf .cache
-	rm -rf .ycp_playground
 	rm -rf .tox
 
 .PHONY: clean-docker
