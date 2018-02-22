@@ -6,9 +6,10 @@ from collections import namedtuple
 Span = namedtuple('Span', ['trace_id', 'id', 'parent_id'])
 
 regex = re.compile(
-    'spectre/zipkin ([a-fA-F0-9]*) ([a-fA-F0-9]*) ([a-fA-F0-9]*) 0 ([01]) ([0-9]*) ([0-9]*)'
-    '[^,]*, client: ([0-9\.]*), server: [^,]*, '
-    'request: "([A-Z]*) ([^ "]*) ([^ "]*)"'
+    'spectre/zipkin (?P<trace_id>[a-fA-F0-9]*) (?P<id>[a-fA-F0-9]*) (?P<parent_id>[a-fA-F0-9]*) '
+    '0 (?P<sampled>[01]) (?P<start_time_us>[0-9]*) (?P<end_time_us>[0-9]*)'
+    '[^,]*, client: (?P<client>[0-9\.]*), server: [^,]*, '
+    'request: "[A-Z]* [^ "]* (?P<method>[^ "]*)"'
 )
 
 
@@ -25,7 +26,7 @@ def load_zipkin_spans(log_path):
 def get_zipkin_span_from_line(line):
     match = re.search(regex, line)
     return Span(
-        trace_id=match.group(1),
-        id=match.group(2),
-        parent_id=match.group(3),
+        trace_id=match.group('trace_id'),
+        id=match.group('id'),
+        parent_id=match.group('parent_id'),
     )
