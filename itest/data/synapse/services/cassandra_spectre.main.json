@@ -1,1 +1,1 @@
-[{"name": "cassandra-spectre-itest","host": "10.5.0.7","port": 9042,"id": 1,"weight": 10}]
+[{"name": "cassandra-spectre-itest","host": "10.5.0.5","port": 9042,"id": 1,"weight": 10}]

@@ -2,8 +2,6 @@ import time
 
 import requests
 from bravado.client import SwaggerClient
-from bravado_decorators.retry import RetryConfig
-from bravado_decorators.retry import SmartStackClient as RetryDecorator
 
 # Defined by config/nginx.conf (`listen` directive)
 SPECTRE_PORT = 8888
@@ -21,23 +19,7 @@ HAPROXY_ADDED_HEADERS = {
 NUM_ATTEMPTS_WHEN_GETTING_FROM_CACHE = 2
 
 def get_spectre_swagger_client():
-    client = SwaggerClient.from_url(SPECTRE_BASE_URL + '/swagger.json')
-    retry_config = RetryConfig(
-        timeout=1,
-        connect_timeout=1,
-        retry_delay=1,
-        retry_delay_multiplier=1,
-        retries_on_connect_failure=3,
-        retries_on_http_timeout=3,
-        retries_on_app_failure=3,
-        idempotent_http_methods=('GET', 'DELETE'),
-    )
-    return  RetryDecorator(
-        client,
-        retry_config=retry_config,
-        client_name='spectre_itest',
-        service_name='spectre',
-    )
+    return SwaggerClient.from_url(SPECTRE_BASE_URL + '/swagger.json')
 
 spectre_swagger_client = get_spectre_swagger_client()
 

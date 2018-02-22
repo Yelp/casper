@@ -1,26 +1,32 @@
-"""
-Utilities for parsing zipkin log lines, which are base64 and thrift encoded.
-"""
-import base64
 import os
+import re
+import time
+from collections import namedtuple
 
-import thriftpy
-from thriftpy.utils import deserialize
+Span = namedtuple('Span', ['trace_id', 'id', 'parent_id'])
 
-filepath = os.path.join(os.path.dirname(__file__), 'zipkinCore.thrift')
-zipkin_core = thriftpy.load(filepath, module_name='zipkinCore_thrift')
+regex = re.compile(
+    'spectre/zipkin (?P<trace_id>[a-fA-F0-9]*) (?P<id>[a-fA-F0-9]*) (?P<parent_id>[a-fA-F0-9]*) '
+    '0 (?P<sampled>[01]) (?P<start_time_us>[0-9]*) (?P<end_time_us>[0-9]*)'
+    '[^,]*, client: (?P<client>[0-9\.]*), server: [^,]*, '
+    'request: "[A-Z]* [^ "]* (?P<method>[^ "]*)"'
+)
 
 
 def load_zipkin_spans(log_path):
     """Deserialize the zipkin log lines from log_path"""
+    # We generate the zipkin span after returning the response, so we need to sleep for
+    # a bit here to make sure spectre had time to do it
+    time.sleep(0.2)
     with open(log_path) as fd:
         lines = fd.readlines()
-        return [decode_zipkin_log_line(line) for line in lines]
+        return [get_zipkin_span_from_line(line) for line in lines]
 
 
-def decode_zipkin_log_line(line):
-    return deserialize(zipkin_core.Span(), base64.b64decode(line))
-
-
-def int2hex(num):
-    return "{:016x}".format((num + (1 << 64)) % (1 << 64))
+def get_zipkin_span_from_line(line):
+    match = re.search(regex, line)
+    return Span(
+        trace_id=match.group('trace_id'),
+        id=match.group('id'),
+        parent_id=match.group('parent_id'),
+    )

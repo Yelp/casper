@@ -6,7 +6,7 @@ services:
             - NET_ADMIN
         image: spectre-dev-${USER}
         depends_on:
-            - syslog2scribe
+            - syslog
         environment:
             - ITEST=1
             - MARATHON_HOST=itest_host
@@ -18,9 +18,13 @@ services:
             - CASSANDRA_NUM_RETRIES=3
             # These values can be low, we'll retry up to 3 times
             - CASSANDRA_READ_TIMEOUT_MS=100
-            - CASSANDRA_WRITE_TIMEOUT_MS=500
+            - CASSANDRA_WRITE_TIMEOUT_MS=1000
             - CASSANDRA_CONNECT_TIMEOUT_MS=500
-            - WORKER_PROCESSES=4
+            - WORKER_PROCESSES=1
+            # Lower http timeout to test that we return a 504 on timeouts
+            - HTTP_TIMEOUT_MS=1000
+            - SYSLOG_HOST=10.5.0.6
+            - SYSLOG_PORT=514
         volumes:
             - /var/log/nginx
             - /nail/etc:/nail/etc:ro
@@ -39,22 +43,6 @@ services:
         volumes:
             - ./data/srv-configs:/code/srv-configs:ro
 
-    syslog2scribe:
-        build: ./syslog2scribe
-        depends_on:
-            - scribe-host
-        networks:
-            spectre_net:
-                ipv4_address: 10.5.0.5
-
-    scribe-host:
-        build: ./scribe-host
-        volumes:
-            - /var/log/scribe
-        networks:
-            spectre_net:
-                ipv4_address: 10.5.0.6
-
     cassandra:
         build:
             context: ./cassandra
@@ -62,19 +50,27 @@ services:
             - '9042:9042'
         networks:
             spectre_net:
-                ipv4_address: 10.5.0.7
+                ipv4_address: 10.5.0.5
 
     test:
         build: ./test
         volumes_from:
             - spectre
-            - scribe-host
+            - syslog
         depends_on:
-            - spectre
             - backend
+            - spectre
         networks:
             spectre_net:
                 ipv4_address: 10.5.0.4
+
+    syslog:
+      build: ./syslog
+      volumes:
+        - /var/log/syslog
+      networks:
+        spectre_net:
+          ipv4_address: 10.5.0.6
 
 networks:
     spectre_net:

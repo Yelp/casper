@@ -1,16 +1,14 @@
 import codecs
 import re
 import os
-import time
 
 import pytest
 
 from util import get_through_spectre
-from zipkin_util import int2hex
 from zipkin_util import load_zipkin_spans
 
-ERROR_LOG_FILE = '/var/log/scribe/zipkin/zipkin_00000'
-SCRIBE_DELAY = 5
+SYSLOG_FILE = '/var/log/syslog/spectre.log'
+
 
 class TestZipkinLogging(object):
 
@@ -18,8 +16,8 @@ class TestZipkinLogging(object):
     def clean_log_files(self):
         # Clean the log file to avoid pollution
         # We can't delete it because scribe doesn't recreate it
-        if os.path.isfile(ERROR_LOG_FILE):
-            fp = open(ERROR_LOG_FILE, 'w')
+        if os.path.isfile(SYSLOG_FILE):
+            fp = open(SYSLOG_FILE, 'w')
             fp.close()
         yield
 
@@ -77,20 +75,20 @@ class TestZipkinLogging(object):
         assert backend_headers['x-b3-spanid'] != incoming_span_id
 
     def _assert_span_not_in_logs(self, trace_id, span_id, parent_span_id):
-        time.sleep(SCRIBE_DELAY)
-        assert load_zipkin_spans(ERROR_LOG_FILE) == []
+        assert load_zipkin_spans(SYSLOG_FILE) == []
 
-    def _check_span_logs(self, trace_id, span_id, parent_span_id):
+    def _check_span_logs(self, trace_id, span_id, parent_span_id, num_lines=1):
         """Check that Zipkin span information is logged to the local error log
         file. We clear out the error file's contents before individual tests,
         so we only check for single log lines.
         """
         # This file path is specified in docker-compose.yml
-        time.sleep(SCRIBE_DELAY)
-        span = load_zipkin_spans(ERROR_LOG_FILE)[-1]
-        assert int2hex(span.trace_id) == trace_id
-        assert int2hex(span.id) == span_id
-        assert int2hex(span.parent_id) == parent_span_id
+        spans = load_zipkin_spans(SYSLOG_FILE)
+        assert len(spans) == num_lines
+
+        assert spans[-1].trace_id == trace_id
+        assert spans[-1].id == span_id
+        assert spans[-1].parent_id == parent_span_id
 
     def test_logs_zipkin_info_to_error_log(self, clean_log_files):
         trace_id, span_id, parent_span_id = self._get_random_zipkin_ids()
@@ -155,4 +153,4 @@ class TestZipkinLogging(object):
         # header. In the uncached case, that's the responsibility of the
         # backend service to set it themselves.
         assert cached_response.headers['X-Zipkin-Id'] == trace_id
-        self._check_span_logs(trace_id, span_id, parent_span_id)
+        self._check_span_logs(trace_id, span_id, parent_span_id, num_lines=2)
