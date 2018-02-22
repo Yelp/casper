@@ -2,6 +2,10 @@ sudo: required
 
 language: generic
 
+env:
+    - TEST_SUITE=test
+    - TEST_SUITE=itest
+
 services:
     - docker
 
@@ -9,4 +13,4 @@ before_script:
     - make cook-image
 
 script:
-    - make test
+    - make $TEST_SUITE
