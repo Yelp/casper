@@ -37,7 +37,10 @@ test: cook-image run-test
 
 .PHONY: run-test
 run-test:
-	docker run -t -v $(PWD)/tests:/code/tests -v /nail/etc:/nail/etc:ro $(DOCKER_TAG) bash -c 'make unittest'
+	docker run -t \
+		-v $(PWD)/tests:/code/tests \
+		-v $(CURDIR)/tests/data/etc:/nail/etc \
+		$(DOCKER_TAG) bash -c 'make unittest'
 
 .PHONY: unittest
 unittest:
