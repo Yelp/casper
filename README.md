@@ -57,6 +57,25 @@ To run integration tests:
 
     $ make itest
 
+## Contributors
+
+Casper was built and developed internally for about a year before being
+opensourced. In addition to the [contributors listed on
+Github](https://github.com/Yelp/casper/graphs/contributors), here is a list
+of people who contributed to Casper before its public life:
+
+* Angelo Licastro (@angelolicastro)
+* Anthony Tan (@DevelopingCoder)
+* Arnaud Brousseau (@arnaudbrousseau)
+* Avadhut Phatarpekar (@avadhutp)
+* Bai Li (@luckytoilet)
+* Ben Plotnick (@bplotnick)
+* Chris Kuehl (@chriskuehl)
+* Daniele Rolando (@drolando)
+* Ishan Vashishtha
+* Mayank Sindwani (@msindwan)
+* Michael Bryant (@mjbryant)
+
 ## Contributing
 
 We welcome contributions to Casper, but keep in mind that this is a production
