@@ -95,10 +95,10 @@ class TestZipkinLogging(object):
         self._call_with_zipkin(trace_id, span_id, parent_span_id, sampled='1')
         self._check_span_logs(trace_id, span_id, parent_span_id)
 
-    def test_doesnt_log_if_not_sampled(self, clean_log_files):
+    def test_still_log_even_if_not_sampled(self, clean_log_files):
         trace_id, span_id, parent_span_id = self._get_random_zipkin_ids()
         self._call_with_zipkin(trace_id, span_id, parent_span_id, sampled='0')
-        self._assert_span_not_in_logs(trace_id, span_id, parent_span_id)
+        self._check_span_logs(trace_id, span_id, parent_span_id)
 
     def test_propagates_zipkin_headers(self, clean_log_files):
         """Make sure Spectre passes properly transformed Zipkin headers

@@ -70,36 +70,34 @@ end
 -- microseconds.
 function zipkin.emit_syslog(headers, start_time, end_time)
     local sampled = headers['X-B3-Sampled']
-    if sampled == '1' then
-        local request_string = string.format('"%s %s %s"',
-            ngx.var.request_method,
-            ngx.var.request_uri,
-            ngx.var.server_protocol
+    local request_string = string.format('"%s %s %s"',
+        ngx.var.request_method,
+        ngx.var.request_uri,
+        ngx.var.server_protocol
 	)
-        local message = string.format(
-            'spectre/zipkin %s %s %s %s %s %d %d, client: %s, server: , request: %s',
-            headers['X-B3-TraceId'],
-            headers['X-B3-SpanId'],
-            headers['X-B3-ParentSpanId'],
-            headers['X-B3-Flags'],
-            sampled,
-            start_time * 1000000,
-            end_time * 1000000,
-            ngx.var.remote_addr,
-            request_string
-        )
+    local message = string.format(
+        'spectre/zipkin %s %s %s %s %s %d %d, client: %s, server: , request: %s',
+        headers['X-B3-TraceId'],
+        headers['X-B3-SpanId'],
+        headers['X-B3-ParentSpanId'],
+        headers['X-B3-Flags'],
+        sampled,
+        start_time * 1000000,
+        end_time * 1000000,
+        ngx.var.remote_addr,
+        request_string
+    )
 
 	-- RFC5424 is the syslog format. We encode the message and send it along to syslog2scribe
-        local encoded_message = rfc5424.encode(
-           "LOCAL0",
-           "INFO",
-           ngx.var.hostname,
-           ngx.var.pid,
-           "nginx_spectre",
-           message
-        )
-        sock:send(encoded_message)
-    end
+    local encoded_message = rfc5424.encode(
+        "LOCAL0",
+        "INFO",
+        ngx.var.hostname,
+        ngx.var.pid,
+        "nginx_spectre",
+        message
+    )
+    sock:send(encoded_message)
 end
 
 return zipkin
