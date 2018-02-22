@@ -27,7 +27,7 @@ services:
             - SYSLOG_PORT=514
         volumes:
             - /var/log/nginx
-            - /nail/etc:/nail/etc:ro
+            - ./data/etc:/nail/etc:ro
             - ./drop_all.sh:/opt/drop_all.sh
         networks:
             spectre_net:

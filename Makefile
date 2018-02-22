@@ -37,7 +37,10 @@ test: cook-image run-test
 
 .PHONY: run-test
 run-test:
-	docker run -t -v $(PWD)/tests:/code/tests -v /nail/etc:/nail/etc:ro $(DOCKER_TAG) bash -c 'make unittest'
+	docker run -t \
+		-v $(PWD)/tests:/code/tests \
+		-v $(CURDIR)/tests/data/etc:/nail/etc \
+		$(DOCKER_TAG) bash -c 'make unittest'
 
 .PHONY: unittest
 unittest:
@@ -64,7 +67,7 @@ $(DOCKER_COMPOSE):
 itest: clean-docker $(DOCKER_COMPOSE) cook-image run-itest
 
 .PHONY: run-itest
-run-itest:
+run-itest: $(DOCKER_COMPOSE)
 	$(DOCKER_COMPOSE) -f $(DOCKER_COMPOSE_YML) build
 	$(DOCKER_COMPOSE) -f $(DOCKER_COMPOSE_YML) up -d spectre backend cassandra syslog
 	$(DOCKER_COMPOSE) -f $(DOCKER_COMPOSE_YML) exec -T cassandra /opt/setup.sh
