@@ -74,7 +74,7 @@ class TestZipkinLogging(object):
         assert backend_headers['x-b3-spanid'] != incoming_parent_id
         assert backend_headers['x-b3-spanid'] != incoming_span_id
 
-    def _assert_span_not_in_logs(self, trace_id, span_id, parent_span_id):
+    def _assert_no_span_in_logs(self):
         assert load_zipkin_spans(SYSLOG_FILE) == []
 
     def _check_span_logs(self, trace_id, span_id, parent_span_id, num_lines=1):
@@ -95,10 +95,10 @@ class TestZipkinLogging(object):
         self._call_with_zipkin(trace_id, span_id, parent_span_id, sampled='1')
         self._check_span_logs(trace_id, span_id, parent_span_id)
 
-    def test_doesnt_log_if_not_sampled(self, clean_log_files):
+    def test_still_log_even_if_not_sampled(self, clean_log_files):
         trace_id, span_id, parent_span_id = self._get_random_zipkin_ids()
         self._call_with_zipkin(trace_id, span_id, parent_span_id, sampled='0')
-        self._assert_span_not_in_logs(trace_id, span_id, parent_span_id)
+        self._check_span_logs(trace_id, span_id, parent_span_id)
 
     def test_propagates_zipkin_headers(self, clean_log_files):
         """Make sure Spectre passes properly transformed Zipkin headers
@@ -154,3 +154,11 @@ class TestZipkinLogging(object):
         # backend service to set it themselves.
         assert cached_response.headers['X-Zipkin-Id'] == trace_id
         self._check_span_logs(trace_id, span_id, parent_span_id, num_lines=2)
+
+    def test_dont_emit_span_if_no_headers(self, clean_log_files):
+        response = get_through_spectre(
+            '/not_cacheable',
+        )
+        assert response.status_code == 200
+
+        self._assert_no_span_in_logs()
