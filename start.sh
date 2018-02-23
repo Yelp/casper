@@ -6,8 +6,8 @@ CASSANDRA_CLUSTER_CONFIG=${CASSANDRA_CLUSTER_CONFIG:-/var/run/synapse/services/c
 SYSLOG_HOST=${SYSLOG_HOST:-169.254.255.254}
 SYSLOG_PORT=${SYSLOG_PORT:-1514}
 METEORITE_WORKER_PORT=${METEORITE_WORKER_PORT:-$(cat /nail/etc/services/statsite/port)}
-# We run 4 workers in production. See yelpsoa-configs repo.
-WORKER_PROCESSES=${WORKER_PROCESSES:-4}
+# We run 1 worker per container in production
+WORKER_PROCESSES=${WORKER_PROCESSES:-1}
 
 if [ $ACCEPTANCE ]; then
     # Cassandra ip is automatically generated
