@@ -65,15 +65,13 @@ function zipkin.inject_zipkin_headers(incoming_zipkin_headers)
     return headers
 end
 
--- If Zipkin headers exist, then log them to syslog.
--- Start and end times are in epoch seconds, but Zipkin wants them in
--- microseconds.
+-- If Zipkin headers exist, then log them to syslog. X-B3-Flags and X-B3-Sampled
+-- are optional in the Zipkin spec, so we'll emit a '-' if they're not present.
+-- Start and end times are in epoch seconds, but Zipkin wants them in microseconds.
 function zipkin.emit_syslog(headers, start_time, end_time)
     if headers['X-B3-TraceId'] ~= nil and
             headers['X-B3-SpanId'] ~= nil and
-            headers['X-B3-ParentSpanId'] ~= nil and
-            headers['X-B3-Flags'] ~= nil and
-            headers['X-B3-Sampled'] ~= nil then
+            headers['X-B3-ParentSpanId'] ~= nil then
 
         local request_string = string.format('"%s %s %s"',
             ngx.var.request_method,
@@ -86,8 +84,8 @@ function zipkin.emit_syslog(headers, start_time, end_time)
             headers['X-B3-TraceId'],
             headers['X-B3-SpanId'],
             headers['X-B3-ParentSpanId'],
-            headers['X-B3-Flags'],
-            headers['X-B3-Sampled'],
+            headers['X-B3-Flags'] or '-',
+            headers['X-B3-Sampled'] or '-',
             start_time * 1000000,
             end_time * 1000000,
             ngx.var.remote_addr,
