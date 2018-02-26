@@ -64,17 +64,17 @@ opensourced. In addition to the [contributors listed on
 Github](https://github.com/Yelp/casper/graphs/contributors), here is a list
 of people who contributed to Casper before its public life:
 
-* Angelo Licastro (@angelolicastro)
-* Anthony Tan (@DevelopingCoder)
-* Arnaud Brousseau (@arnaudbrousseau)
-* Avadhut Phatarpekar (@avadhutp)
-* Bai Li (@luckytoilet)
-* Ben Plotnick (@bplotnick)
-* Chris Kuehl (@chriskuehl)
-* Daniele Rolando (@drolando)
+* Angelo Licastro ([@angelolicastro](https://github.com/angelolicastro))
+* Anthony Tan ([@DevelopingCoder](https://github.com/DevelopingCoder))
+* Arnaud Brousseau ([@arnaudbrousseau](https://github.com/arnaudbrousseau))
+* Avadhut Phatarpekar ([@avadhutp](https://github.com/avadhutp))
+* Bai Li ([@luckytoilet](https://github.com/luckytoilet))
+* Ben Plotnick ([@bplotnick](https://github.com/bplotnick))
+* Chris Kuehl ([@chriskuehl](https://github.com/chriskuehl))
+* Daniele Rolando ([@drolando](https://github.com/drolando))
 * Ishan Vashishtha
-* Mayank Sindwani (@msindwan)
-* Michael Bryant (@mjbryant)
+* Mayank Sindwani ([@msindwan](https://github.com/msindwan))
+* Michael Bryant ([@mjbryant](https://github.com/mjbryant))
 
 ## Contributing
 
