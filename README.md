@@ -72,7 +72,7 @@ of people who contributed to Casper before its public life:
 * Ben Plotnick ([@bplotnick](https://github.com/bplotnick))
 * Chris Kuehl ([@chriskuehl](https://github.com/chriskuehl))
 * Daniele Rolando ([@drolando](https://github.com/drolando))
-* Ishan Vashishtha
+* Ishan Vashishtha ([@ishanvas](https://github.com/ishanvas))
 * Mayank Sindwani ([@msindwan](https://github.com/msindwan))
 * Michael Bryant ([@mjbryant](https://github.com/mjbryant))
 
