@@ -14,14 +14,11 @@ remnants of "Spectre" in the code, that's why!
 
 ## Requirements
 
-Casper uses Docker. Make sure it's installed on your system by following the
+* `docker`: make sure it's installed on your system by following the
 instruction for your platform [here](https://docs.docker.com/install/).
-
-We also use `make` targets to test and build Casper (see below), so ensure you
-can run make targets with your OS (on Windows, use `nmake`.)
+* `make`: ensure you can run `make` targets with your OS (on Windows, use `nmake`.)
 
 ## Building locally
-
 
 To start Casper, run
 
@@ -81,8 +78,3 @@ of people who contributed to Casper before its public life:
 We welcome contributions to Casper, but keep in mind that this is a production
 system run inside of Yelp's infrastructure. Please get in touch with us to
 discuss your feature request, bug fix or enhancement by opening a Github issue.
-
-## TODOs
-
-* [ ] verify `make test`
-* [ ] try out the instructions to run Casper on a stock macbook
