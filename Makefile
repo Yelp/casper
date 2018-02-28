@@ -17,7 +17,6 @@ all: test itest dev
 dev: cook-image
 	docker run -d -t \
 		-p $(PORT):8888 \
-		-e "MARATHON_HOST=$(shell hostname)" \
 		-e "PAASTA_SERVICE=spectre" \
 		-e "PAASTA_INSTANCE=test" \
 		-v /nail/etc:/nail/etc:ro \
