@@ -76,7 +76,7 @@ local function status_handler(_)
     for namespace in pairs(config_loader.get_all_spectre_configs()) do
         if namespace ~= 1 then
             local info = config_loader.get_smartstack_info_for_namespace(namespace)
-            if info == nil then
+            if info == nil and namespace ~= 'spectre.internal' then
                 proxied_services[namespace] = 'missing'
                 status = ngx.HTTP_INTERNAL_SERVER_ERROR
             else

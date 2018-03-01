@@ -41,6 +41,6 @@ class TestConfigs(object):
         assert status['smartstack_configs'] == {
             u'backend.main': {u'host': u'10.5.0.3', u'port': 9080},
         }
-        # services.yaml and backend.main.yaml
-        assert len(status['mod_time_table']) == 2
+        # services.yaml, backend.main.yaml and spectre.internal.yaml
+        assert len(status['mod_time_table']) == 3
         assert isinstance(status['worker_id'], int)

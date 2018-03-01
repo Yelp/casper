@@ -7,21 +7,12 @@ local C32 = require 'crc32'
 local metrics_helper = require 'metrics_helper'
 local socket = require 'socket'
 local spectre_common = require 'spectre_common'
+local config_loader = require 'config_loader'
 
 -- cassandra_helper provides capabilities to use Cassandra as a Spectre datastore
 local cassandra_helper = {
-    CASSANDRA_CLUSTER_CONFIG = os.getenv('CASSANDRA_CLUSTER_CONFIG'),
-    CASSANDRA_CONNECT_TIMEOUT_MS = os.getenv('CASSANDRA_CONNECT_TIMEOUT_MS') or 100,
-    CASSANDRA_KEYSPACE = 'spectre_db',
-    CASSANDRA_LOCAL_REGION = os.getenv('CASSANDRA_LOCAL_REGION') or '.*',  -- e.g. uswest1
-    CASSANDRA_MAX_BUCKETS = 1000,
-    CASSANDRA_READ_TIMEOUT_MS = os.getenv('CASSANDRA_READ_TIMEOUT_MS') or 15,
-    CASSANDRA_WRITE_TIMEOUT_MS = os.getenv('CASSANDRA_WRITE_TIMEOUT_MS') or 1000,
-    CASSANDRA_NUM_RETRIES = tonumber(os.getenv('CASSANDRA_NUM_RETRIES')) or 0,
-    CASSANDRA_RETRY_ON_TIMEOUT = false,
     READ_CONN = 'read_connection',
     WRITE_CONN = 'write_connection',
-    WRITE_CONSISTENCY = os.getenv('WRITE_CONSISTENCY') or 'all'
 }
 
 json.decodeNumbersAsObjects = true
@@ -53,11 +44,12 @@ end
 -- Discovers cassandra cluster hosts for Spectre's Cassandra cluster
 -- Ananlogous in function to yelp_cassandra.connection.get_cassandra_cluster_hosts
 function cassandra_helper.get_cluster_hosts()
-    local contents = io.open(cassandra_helper.CASSANDRA_CLUSTER_CONFIG):read()
+    local configs = config_loader.get_spectre_config_for_namespace('spectre.internal')['cassandra']
+    local contents = io.open(configs['seeds_file']):read()
     local hosts = {}
 
     for _,v in pairs(json:decode(contents)) do
-        if string.match(v['name'], cassandra_helper.CASSANDRA_LOCAL_REGION) then
+        if string.match(v['name'], configs['local_region']) then
             -- We should only use local nodes to initialize the cluster. The driver picks
             -- a random node from this list and connects to it to get the updated topology.
             -- If it chooses a remote node it'll timeout since the cross-dc latency is very high.
@@ -98,6 +90,7 @@ function cassandra_helper.init()
 end
 
 function cassandra_helper.create_cluster(cluster_module, shm, timeout)
+    local configs = config_loader.get_spectre_config_for_namespace('spectre.internal')['cassandra']
     local hosts = cassandra_helper.get_cluster_hosts()
     spectre_common.log(ngx.WARN, { err='init ' .. shm .. ' cluster with timeout ' .. timeout, critical=false })
     -- Use datacenter-aware load balancing policy
@@ -105,13 +98,13 @@ function cassandra_helper.create_cluster(cluster_module, shm, timeout)
     local cluster, err = cluster_module.new {
         shm = shm,
         contact_points = hosts,
-        keyspace = cassandra_helper.CASSANDRA_KEYSPACE,
+        keyspace = configs['keyspace'],
         lb_policy = dc_rr.new(dc_name),
         lock_timeout = timeout,
-        timeout_connect = tonumber(cassandra_helper.CASSANDRA_CONNECT_TIMEOUT_MS),
+        timeout_connect = tonumber(configs['connect_timeout_ms']),
         timeout_read = timeout,
-        retry_on_timeout = cassandra_helper.CASSANDRA_RETRY_ON_TIMEOUT,
-        retry_policy = cassandra_helper.retry_policy(cassandra_helper.CASSANDRA_NUM_RETRIES)
+        retry_on_timeout = configs['retry_on_timeout'],
+        retry_policy = cassandra_helper.retry_policy(configs['num_retries'])
     }
 
     if err ~= nil then
@@ -129,15 +122,16 @@ end
 
 -- Creates the Cassandra cluster tables to serve as the clients for subsequent queries
 function cassandra_helper.init_with_cluster(cluster_module)
+    local configs = config_loader.get_spectre_config_for_namespace('spectre.internal')['cassandra']
     ngx.shared.cassandra_read_cluster = cassandra_helper.create_cluster(
         cluster_module,
         'cassandra_read_conn',
-        tonumber(cassandra_helper.CASSANDRA_READ_TIMEOUT_MS)
+        tonumber(configs['read_timeout_ms'])
     )
     ngx.shared.cassandra_write_cluster = cassandra_helper.create_cluster(
         cluster_module,
         'cassandra_write_conn',
-        tonumber(cassandra_helper.CASSANDRA_WRITE_TIMEOUT_MS)
+        tonumber(configs['write_timeout_ms'])
     )
 end
 
@@ -180,10 +174,11 @@ end
 -- Checks to see if Cassandra is available and the required keyspace and table are present
 -- used with the /status endpoint
 function cassandra_helper.healthcheck(cluster)
+    local configs = config_loader.get_spectre_config_for_namespace('spectre.internal')['cassandra']
     local db_check = cassandra_helper.execute(
         cluster,
         'select * from system.schema_keyspaces where keyspace_name = ?',
-        {cassandra_helper.CASSANDRA_KEYSPACE},
+        {configs['keyspace']},
         {
             consistency = cassandra.consistencies.local_one
         }
@@ -203,7 +198,8 @@ function cassandra_helper.get_bucket(key, id, cache_name, namespace, num_buckets
         0,
         table.concat({unique_id, cache_name, namespace}, '::')
     )
-    local max_buckets = num_buckets or cassandra_helper.CASSANDRA_MAX_BUCKETS
+    local configs = config_loader.get_spectre_config_for_namespace('spectre.internal')['cassandra']
+    local max_buckets = num_buckets or configs['default_num_buckets']
     return hash % max_buckets
 end
 
@@ -211,8 +207,9 @@ end
 function cassandra_helper.store_body_and_headers(cluster, ids, cache_key, namespace, cache_name,
                                                  body, headers, vary_headers, ttl, num_buckets)
 
+    local configs = config_loader.get_spectre_config_for_namespace('spectre.internal')['cassandra']
     local bucket = cassandra_helper.get_bucket(cache_key, ids[1], cache_name, namespace, num_buckets)
-    local consistency = cassandra.consistencies[cassandra_helper.WRITE_CONSISTENCY]
+    local consistency = cassandra.consistencies[configs['write_consistency']]
     local stmt = 'INSERT INTO cache_store (bucket, namespace, cache_name, id, key, vary_headers, body, headers)\
                      VALUES (?, ?, ?, ?, ?, ?, ?, ?) USING TTL ?'
     local args = {
@@ -300,8 +297,9 @@ function cassandra_helper.purge(cluster, namespace, cache_name, id)
     local delete_statement = 'DELETE FROM cache_store WHERE bucket = ? AND cache_name = ? AND namespace = ?'
     local statement_args = {nil, cache_name, namespace}
 
+    local configs = config_loader.get_spectre_config_for_namespace('spectre.internal')['cassandra']
     local bucket_min = 0
-    local bucket_max = cassandra_helper.CASSANDRA_MAX_BUCKETS-1
+    local bucket_max = configs['default_num_buckets']-1
 
     if id then
         delete_statement = delete_statement .. ' AND id = ?'
