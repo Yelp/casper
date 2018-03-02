@@ -48,10 +48,18 @@ end
 
 -- Respond to requests for caching normal endpoints (non-bulk)
 function caching_handlers._caching_handler(request_info, cacheability_info)
+    local id = 'null'
+    if cacheability_info.enable_invalidation then
+        id = caching_handlers._extract_ids_from_uri(
+            request_info.normalized_uri,
+            cacheability_info.pattern
+        )[1]
+    end
+
     -- Check if datastore already has url cached
     local cached_value = spectre_common.fetch_from_cache(
         cassandra_helper,
-        'null',
+        id,
         request_info.normalized_uri,
         request_info.destination,
         cacheability_info.cache_name,
