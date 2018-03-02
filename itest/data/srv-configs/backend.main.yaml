@@ -21,7 +21,7 @@ cached_endpoints:
     url_with_id_extraction:
         pattern: "^/biz\\?(?:.*&)?business_id=(\\d+)(?:&.*$|$)"
         ttl: 30
-        enable_invalidation: true
+        enable_id_extraction: true
     # bulk endpoint caching regex
     bulk_requester_does_not_cache_missing_ids:
         bulk_support: true

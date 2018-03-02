@@ -102,7 +102,7 @@ local function determine_if_cacheable(url, namespace, request_headers)
                 bulk_support = cache_entry['bulk_support'],
                 id_identifier = cache_entry['id_identifier'],
                 dont_cache_missing_ids = cache_entry['dont_cache_missing_ids'],
-                enable_invalidation = cache_entry['enable_invalidation'],
+                enable_id_extraction = cache_entry['enable_id_extraction'],
                 refresh_cache = false,
                 num_buckets = cache_entry['buckets'],
             }

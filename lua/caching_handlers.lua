@@ -18,7 +18,7 @@ end
 -- Callback to save response to cache, to be executed after the response has been sent
 function caching_handlers._post_request_callback(response, request_info, cacheability_info)
     local ids = {'null'}
-    if cacheability_info.enable_invalidation then
+    if cacheability_info.enable_id_extraction then
         ids = caching_handlers._extract_ids_from_uri(
             request_info.normalized_uri,
             cacheability_info.pattern
@@ -49,7 +49,7 @@ end
 -- Respond to requests for caching normal endpoints (non-bulk)
 function caching_handlers._caching_handler(request_info, cacheability_info)
     local id = 'null'
-    if cacheability_info.enable_invalidation then
+    if cacheability_info.enable_id_extraction then
         id = caching_handlers._extract_ids_from_uri(
             request_info.normalized_uri,
             cacheability_info.pattern
