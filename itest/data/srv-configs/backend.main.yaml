@@ -2,15 +2,44 @@ uncacheable_headers:
     - 'Uncacheable-Header'
 
 cached_endpoints:
-    timestamp: {ttl: 2, pattern: '^/timestamp/.*$', vary_headers: ['X-Mode', 'accept-encoding']}
-    long_ttl: {ttl: 30, pattern: '^/long_ttl/.*$'}
-    gzipped_response: {ttl: 2, pattern: '^/gzipped$'}
-    happy_cache: {ttl: 10, pattern: '^/happy/\\?.*$'}
-      # bulk endpoint caching regex
-    get_user_info: {ttl: 30, pattern: "^/get_user_info/v1(\\?|\\?.*&)ids=[0-9]+(&.*$|$)"}
-    bulk_requester_does_not_cache_missing_ids: {ttl: 30, pattern: "(^/bulk_requester(?:\\?|\\?.*&)ids=)((?:\\S|%2C)+)(.*$)", bulk_support: true, id_identifier: 'bulk_id', dont_cache_missing_ids: true}
-    bulk_requester_default: {ttl: 30, pattern: "(^/bulk_requester_2/)((?:\\d|,)+)(/v1.*$)", bulk_support: true, id_identifier: 'bulk_id'}
-    forbidden: {ttl: 30, pattern: "(^/not_authorized\\?ids=)((?:\\d|%2C)+)(.*$)", bulk_support: true, id_identifier: 'id'}
+    timestamp:
+        pattern: '^/timestamp/.*$'
+        ttl: 2
+        vary_headers: ['X-Mode', 'accept-encoding']
+    long_ttl:
+        pattern: '^/long_ttl/.*$'
+        ttl: 30
+    gzipped_response:
+        pattern: '^/gzipped$'
+        ttl: 2
+    happy_cache:
+        pattern: '^/happy/\\?.*$'
+        ttl: 10
+    get_user_info:
+        pattern: "^/get_user_info/v1(\\?|\\?.*&)ids=[0-9]+(&.*$|$)"
+        ttl: 30
+    url_with_id_extraction:
+        pattern: "^/biz\\?(?:.*&)?business_id=(\\d+)(?:&.*$|$)"
+        ttl: 30
+        enable_id_extraction: true
+    # bulk endpoint caching regex
+    bulk_requester_does_not_cache_missing_ids:
+        bulk_support: true
+        dont_cache_missing_ids: true
+        id_identifier: 'bulk_id'
+        pattern: "(^/bulk_requester(?:\\?|\\?.*&)ids=)((?:\\S|%2C)+)(.*$)"
+        ttl: 30
+    bulk_requester_default:
+        bulk_support: true
+        id_identifier: 'bulk_id'
+        pattern: "(^/bulk_requester_2/)((?:\\d|,)+)(/v1.*$)"
+        ttl: 30
+    forbidden:
+        bulk_support: true
+        id_identifier: 'id'
+        pattern: "(^/not_authorized\\?ids=)((?:\\d|%2C)+)(.*$)"
+        ttl: 30
+
 # Default Vary headers. Can be overridden by pattern specific Vary headers
 vary_headers:
     - 'Accept-Encoding'

@@ -184,6 +184,24 @@ class TestGetMethod(object):
         assert response.text == 'Error requesting /timestamp/cached?drop_connection=true: closed'
         assert response.status_code == 502
 
+    def test_caching_works_with_id_extraction(self):
+        response = get_through_spectre('/biz?foo=bar&business_id=1234')
+        assert response.headers['Spectre-Cache-Status'] == 'miss'
+
+        # ensure extracting the id is not messing up the caching logic
+        assert_is_in_spectre_cache('/biz?foo=bar&business_id=1234')
+
+        # check that invalidation is actually supported
+        purge_resource({
+            'namespace': 'backend.main',
+            'cache_name': 'url_with_id_extraction',
+            'id': '1234',
+        })
+
+        # now this should be a cache miss
+        response = get_through_spectre('/biz?foo=bar&business_id=1234')
+        assert response.headers['Spectre-Cache-Status'] == 'miss'
+
 
 class TestPostMethod(object):
 

@@ -139,7 +139,7 @@ insulate('caching_handlers', function()
                 },
                 {
                     cache_name = 'test_cache',
-                    enable_invalidation = true,
+                    enable_id_extraction = true,
                     pattern = '^/uri\\?ids=((?:\\d|%2C)+)&.*$',
                     ttl = 10,
                     num_buckets = 500,
