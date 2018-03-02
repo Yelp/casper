@@ -44,7 +44,7 @@ end
 -- Discovers cassandra cluster hosts for Spectre's Cassandra cluster
 -- Ananlogous in function to yelp_cassandra.connection.get_cassandra_cluster_hosts
 function cassandra_helper.get_cluster_hosts()
-    local configs = config_loader.get_spectre_config_for_namespace('spectre.internal')['cassandra']
+    local configs = config_loader.get_spectre_config_for_namespace('casper.internal')['cassandra']
     local contents = io.open(configs['seeds_file']):read()
     local hosts = {}
 
@@ -90,7 +90,7 @@ function cassandra_helper.init()
 end
 
 function cassandra_helper.create_cluster(cluster_module, shm, timeout)
-    local configs = config_loader.get_spectre_config_for_namespace('spectre.internal')['cassandra']
+    local configs = config_loader.get_spectre_config_for_namespace('casper.internal')['cassandra']
     local hosts = cassandra_helper.get_cluster_hosts()
     spectre_common.log(ngx.WARN, { err='init ' .. shm .. ' cluster with timeout ' .. timeout, critical=false })
     -- Use datacenter-aware load balancing policy
@@ -122,7 +122,7 @@ end
 
 -- Creates the Cassandra cluster tables to serve as the clients for subsequent queries
 function cassandra_helper.init_with_cluster(cluster_module)
-    local configs = config_loader.get_spectre_config_for_namespace('spectre.internal')['cassandra']
+    local configs = config_loader.get_spectre_config_for_namespace('casper.internal')['cassandra']
     ngx.shared.cassandra_read_cluster = cassandra_helper.create_cluster(
         cluster_module,
         'cassandra_read_conn',
@@ -174,7 +174,7 @@ end
 -- Checks to see if Cassandra is available and the required keyspace and table are present
 -- used with the /status endpoint
 function cassandra_helper.healthcheck(cluster)
-    local configs = config_loader.get_spectre_config_for_namespace('spectre.internal')['cassandra']
+    local configs = config_loader.get_spectre_config_for_namespace('casper.internal')['cassandra']
     local db_check = cassandra_helper.execute(
         cluster,
         'select * from system.schema_keyspaces where keyspace_name = ?',
@@ -198,7 +198,7 @@ function cassandra_helper.get_bucket(key, id, cache_name, namespace, num_buckets
         0,
         table.concat({unique_id, cache_name, namespace}, '::')
     )
-    local configs = config_loader.get_spectre_config_for_namespace('spectre.internal')['cassandra']
+    local configs = config_loader.get_spectre_config_for_namespace('casper.internal')['cassandra']
     local max_buckets = num_buckets or configs['default_num_buckets']
     return hash % max_buckets
 end
@@ -207,7 +207,7 @@ end
 function cassandra_helper.store_body_and_headers(cluster, ids, cache_key, namespace, cache_name,
                                                  body, headers, vary_headers, ttl, num_buckets)
 
-    local configs = config_loader.get_spectre_config_for_namespace('spectre.internal')['cassandra']
+    local configs = config_loader.get_spectre_config_for_namespace('casper.internal')['cassandra']
     local bucket = cassandra_helper.get_bucket(cache_key, ids[1], cache_name, namespace, num_buckets)
     local consistency = cassandra.consistencies[configs['write_consistency']]
     local stmt = 'INSERT INTO cache_store (bucket, namespace, cache_name, id, key, vary_headers, body, headers)\
@@ -297,7 +297,7 @@ function cassandra_helper.purge(cluster, namespace, cache_name, id)
     local delete_statement = 'DELETE FROM cache_store WHERE bucket = ? AND cache_name = ? AND namespace = ?'
     local statement_args = {nil, cache_name, namespace}
 
-    local configs = config_loader.get_spectre_config_for_namespace('spectre.internal')['cassandra']
+    local configs = config_loader.get_spectre_config_for_namespace('casper.internal')['cassandra']
     local bucket_min = 0
     local bucket_max = configs['default_num_buckets']-1
 
