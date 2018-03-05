@@ -176,5 +176,7 @@ return {
     get_spectre_config_for_namespace = get_spectre_config_for_namespace,
     set_spectre_config_for_namespace = set_spectre_config_for_namespace,
     get_all_spectre_configs = get_all_spectre_configs,
-    has_spectre_configs = has_spectre_configs
+    has_spectre_configs = has_spectre_configs,
+
+    CASPER_INTERNAL_NAMESPACE = CASPER_INTERNAL_NAMESPACE,
 }
