@@ -1,0 +1,11 @@
+cassandra:
+    seeds_file: '/code/tests/data/synapse/services/cassandra_casper.main.json'
+    connect_timeout_ms: 100
+    default_num_buckets: 1000
+    keyspace: 'spectre_db'
+    local_region: '.*'
+    num_retries: 3
+    read_timeout_ms: 15
+    retry_on_timeout: false
+    write_consistency: 'all'
+    write_timeout_ms: 1000
