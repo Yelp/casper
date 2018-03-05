@@ -4,6 +4,7 @@ local util = require 'util'
 
 local SRV_CONFIGS_PATH = os.getenv('SRV_CONFIGS_PATH')
 local SERVICES_YAML_PATH = os.getenv('SERVICES_YAML_PATH')
+local CASPER_INTERNAL_NAMESPACE = 'casper.internal'
 
 local RELOAD_DELAY = 30  -- seconds
 
