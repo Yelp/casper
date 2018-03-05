@@ -11,7 +11,7 @@ local function get_system_dimension(name)
 end
 
 local default_dimensions = {
-    {"habitat", tostring(get_system_dimension('habitat'))},
+    {"habitat", get_system_dimension('habitat')},
     {"service_name", os.getenv('PAASTA_SERVICE')},
     {"instance_name", os.getenv('PAASTA_INSTANCE')}
 }

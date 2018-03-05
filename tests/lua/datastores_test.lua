@@ -6,10 +6,23 @@ describe('cassandra_helper', function()
     local cassandra_helper
     local metrics_helper
     local spectre_common
-    local config_loader
-    local configs
 
     setup(function()
+        _G.os.getenv = function(e)
+            if e == 'CASSANDRA_READ_TIMEOUT_MS' then
+                return 50
+            elseif e == 'CASSANDRA_READ_TIMEOUT_MS' then
+                return 50
+            elseif e == 'CASSANDRA_CONNECT_TIMEOUT_MS' then
+                return 50
+            elseif e == 'CASSANDRA_LOCAL_REGION' then
+                return '.*'
+            elseif e == 'WRITE_CONSISTENCY' then
+                return 'all'
+            end
+            return e
+        end
+
         _G.package.loaded.socket = {
             dns = {
                 toip = function(_)
@@ -29,100 +42,111 @@ describe('cassandra_helper', function()
         cassandra_helper = datastores.cassandra_helper
         metrics_helper = require 'metrics_helper'
 
-        config_loader = require 'config_loader'
-        config_loader.load_services_configs('/code/tests/data/srv-configs')
-        configs = config_loader.get_spectre_config_for_namespace('casper.internal')['cassandra']
-
         stub(ngx, 'log')
     end)
 
-    describe('get_cluster_hosts', function()
-        it('returns the Cassandra connection string', function()
-            local actual = cassandra_helper.get_cluster_hosts()
-            local expected = {'10.56.6.22:31321','10.40.25.42:31725'}
-
-            assert.are.same(expected, actual)
-        end)
-
-        it('only uses local nodes', function()
-            local old_region = configs['local_region']
-            configs['local_region'] = 'uswest1'
-            local actual = cassandra_helper.get_cluster_hosts()
-            local expected = {'10.40.25.42:31725' }
-            configs['local_region'] = old_region
-
-            assert.are.same(expected, actual)
-        end)
-    end)
-
-    describe('no_retry_policy', function()
-        it('returns false for any retry', function()
-            local request = { retries = 0 }
-            local policy = cassandra_helper.retry_policy(0)
-            assert.falsy(policy:on_unavailable(request))
-            assert.falsy(policy:on_read_timeout(request))
-            assert.falsy(policy:on_write_timeout(request))
-        end)
-    end)
-
-    describe('retry_policy', function()
-        it('returns true for read/write timeouts and false for unavailability errors', function()
-            local request = { retries = 0 }
-            local policy = cassandra_helper.retry_policy(2)
-
-            -- The "simple" retry policy only retries on read/write timeouts
-            assert.falsy(policy:on_unavailable(request))
-            assert.truthy(policy:on_read_timeout(request))
-            assert.truthy(policy:on_write_timeout(request))
-        end)
-    end)
-
-    it('create_cluster correctly initialize the cluster', function()
-        local cluster = {
-            refresh = function() end
-        }
-        local cluster_module = {
-            new = function(opts)
-                assert.are.equal('test_shm', opts['shm'])
-                assert.are.same({'10.56.6.22:31321','10.40.25.42:31725'}, opts['contact_points'])
-                assert.are.equal(configs['keyspace'], opts['keyspace'])
-                assert.are.equal(configs['connect_timeout_ms'], opts['timeout_connect'])
-                assert.are.equal('norcal-devc', opts['lb_policy'].local_dc)
-                assert.are.equal(10, opts['timeout_read'])
-                return cluster, nil
+    insulate('override io.open', function()
+        setup(function()
+            local old_open = _G.io.open
+            _G.io.open = function(name, mode)
+                if name == cassandra_helper.CASSANDRA_CLUSTER_CONFIG or name == '/nail/etc/superregion' then
+                    return {
+                        read = function(_)
+                            if name == '/nail/etc/superregion' then
+                                return 'norcal-devc'
+                            elseif name == cassandra_helper.CASSANDRA_CLUSTER_CONFIG then
+                                return '[\
+                                    {"name":"srv2-devc","host":"10.56.6.22","port":31321,"id":10239,"weight":10,"haproxy_server_options":null,"labels":{"region:sf-devc":"","region:uswest1-devc":""}},\
+                                    {"name":"10-40-25-42-uswest1cdevc","host":"10.40.25.42","port":31725,"id":10238,"weight":10,"haproxy_server_options":null,"labels":{"region:sf-devc":"","region:uswest1-devc":""}}\
+                                    ]'
+                            end
+                        end
+                    }
+                else
+                    return old_open(name, mode)
+                end
             end
-        }
-        local s = spy.on(cluster, 'refresh')
-        local old_open = _G.io.open
-        _G.io.open = function(name, mode)
-            if name == '/nail/etc/superregion' then
-                return { read = function(_) return 'norcal-devc' end }
-            else
-                return old_open(name, mode)
-            end
-        end
-        cassandra_helper.create_cluster(cluster_module, 'test_shm', 10)
+        end)
 
-        _G.io.open = old_open
-        assert.spy(s).was_called()
-    end)
+        describe('get_cluster_hosts', function()
+            it('returns the Cassandra connection string', function()
+                local actual = cassandra_helper.get_cluster_hosts()
+                local expected = {'10.56.6.22:31321','10.40.25.42:31725'}
 
-    it('init_with_cluster creates both the read and write clusters', function()
-        local cluster_module = {}
-        stub(cassandra_helper, 'create_cluster')
-        cassandra_helper.init_with_cluster(cluster_module)
+                assert.are.same(expected, actual)
+            end)
 
-        assert.stub(cassandra_helper.create_cluster).was_called(2)
-        assert.stub(cassandra_helper.create_cluster).was_called_with(
-            cluster_module,
-            'cassandra_read_conn',
-            tonumber(configs['read_timeout_ms'])
-        )
-        assert.stub(cassandra_helper.create_cluster).was_called_with(
-            cluster_module,
-            'cassandra_write_conn',
-            tonumber(configs['write_timeout_ms'])
-        )
+            it('only uses local nodes', function()
+                local old_region = cassandra_helper.CASSANDRA_LOCAL_REGION
+                cassandra_helper.CASSANDRA_LOCAL_REGION = 'uswest1'
+                local actual = cassandra_helper.get_cluster_hosts()
+                local expected = {'10.40.25.42:31725' }
+                cassandra_helper.CASSANDRA_LOCAL_REGION = old_region
+
+                assert.are.same(expected, actual)
+            end)
+        end)
+
+        describe('no_retry_policy', function()
+            it('returns false for any retry', function()
+                local request = { retries = 0 }
+                local policy = cassandra_helper.retry_policy(0)
+                assert.falsy(policy:on_unavailable(request))
+                assert.falsy(policy:on_read_timeout(request))
+                assert.falsy(policy:on_write_timeout(request))
+            end)
+        end)
+
+        describe('retry_policy', function()
+            it('returns true for read/write timeouts and false for unavailability errors', function()
+                local request = { retries = 0 }
+                local policy = cassandra_helper.retry_policy(2)
+
+                -- The "simple" retry policy only retries on read/write timeouts
+                assert.falsy(policy:on_unavailable(request))
+                assert.truthy(policy:on_read_timeout(request))
+                assert.truthy(policy:on_write_timeout(request))
+            end)
+        end)
+
+        it('create_cluster correctly initialize the cluster', function()
+            local cluster = {
+                refresh = function() end
+            }
+            local cluster_module = {
+                new = function(opts)
+                    assert.are.equal('test_shm', opts['shm'])
+                    assert.are.same({'10.56.6.22:31321','10.40.25.42:31725'}, opts['contact_points'])
+                    assert.are.equal(cassandra_helper.CASSANDRA_KEYSPACE, opts['keyspace'])
+                    assert.are.equal(cassandra_helper.CASSANDRA_CONNECT_TIMEOUT_MS, opts['timeout_connect'])
+                    assert.are.equal('norcal-devc', opts['lb_policy'].local_dc)
+                    assert.are.equal(10, opts['timeout_read'])
+                    return cluster, nil
+                end
+            }
+            local s = spy.on(cluster, 'refresh')
+            cassandra_helper.create_cluster(cluster_module, 'test_shm', 10)
+
+            assert.spy(s).was_called()
+        end)
+
+        it('init_with_cluster creates both the read and write clusters', function()
+            local cluster_module = {}
+            stub(cassandra_helper, 'create_cluster')
+            cassandra_helper.init_with_cluster(cluster_module)
+
+            assert.stub(cassandra_helper.create_cluster).was_called(2)
+            assert.stub(cassandra_helper.create_cluster).was_called_with(
+                cluster_module,
+                'cassandra_read_conn',
+                tonumber(cassandra_helper.CASSANDRA_READ_TIMEOUT_MS)
+            )
+            assert.stub(cassandra_helper.create_cluster).was_called_with(
+                cluster_module,
+                'cassandra_write_conn',
+                tonumber(cassandra_helper.CASSANDRA_WRITE_TIMEOUT_MS)
+            )
+        end)
     end)
 
     describe('log_cassandra_error', function()
@@ -264,7 +288,7 @@ describe('cassandra_helper', function()
                 'null',
                 'test_cache',
                 'test_namespace',
-               configs['default_num_buckets']
+                cassandra_helper.CASSANDRA_MAX_BUCKETS
             ))
             -- check if we can override max_buckets
             assert.are.equal(42, cassandra_helper.get_bucket(
@@ -272,7 +296,7 @@ describe('cassandra_helper', function()
                 'null',
                 'test_cache',
                 'test_namespace',
-               configs['default_num_buckets'] + 1
+                cassandra_helper.CASSANDRA_MAX_BUCKETS + 1
             ))
         end)
     end)
@@ -295,20 +319,20 @@ describe('cassandra_helper', function()
         end)
 
         it("fails on invalid consistency level", function()
-            local old_consistency = configs['write_consistency']
-            configs['write_consistency'] = 'FOOBAR'
+            local old_consistency = cassandra_helper.WRITE_CONSISTENCY
+            cassandra_helper.WRITE_CONSISTENCY = 'FOOBAR'
             local conn = {
                 execute = function(self, stmt, args, options)
                     error('it should not call execute!')
                 end
             }
             cassandra_helper.store_body_and_headers(conn, {'null'}, 'key', 'server', 'test_cache', 'body', {Header1 = 'foobar'}, '{}', 10)
-            configs['write_consistency'] = old_consistency
+            cassandra_helper.WRITE_CONSISTENCY = old_consistency
         end)
 
         it('can configure consistency', function()
-            local old_consistency = configs['write_consistency']
-            configs['write_consistency'] = 'local_quorum'
+            local old_consistency = cassandra_helper.WRITE_CONSISTENCY
+            cassandra_helper.WRITE_CONSISTENCY = 'local_quorum'
             local conn = {
                 execute = function(self, stmt, args, options)
                     assert.are.same({602, 'server', 'test_cache', 'null', 'key', '{}',
@@ -318,7 +342,7 @@ describe('cassandra_helper', function()
                 end
             }
             cassandra_helper.store_body_and_headers(conn, {'null'}, 'key', 'server', 'test_cache', 'body', {Header1 = 'foobar'}, '{}', 10)
-            configs['write_consistency'] = old_consistency
+            cassandra_helper.WRITE_CONSISTENCY = old_consistency
         end)
 
         it('write the correct ids', function()
@@ -439,7 +463,7 @@ describe('cassandra_helper', function()
             }
             local s = spy.on(conn, 'execute')
             local err, msg = cassandra_helper.purge(conn, 'main', 'test_cache')
-            assert.spy(s).was_called(configs['default_num_buckets'])
+            assert.spy(s).was_called(cassandra_helper.CASSANDRA_MAX_BUCKETS)
         end)
 
         it('returns 500 if any delete returns an error', function()

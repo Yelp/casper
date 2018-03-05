@@ -15,7 +15,7 @@ all: test itest dev
 
 .PHONY: dev
 dev: cook-image
-	docker run -t \
+	docker run -d -t \
 		-p $(PORT):8888 \
 		-e "PAASTA_SERVICE=spectre" \
 		-e "PAASTA_INSTANCE=test" \
@@ -45,8 +45,6 @@ run-test:
 unittest:
 	@ls -1 tests/lua/*.lua | xargs -i sh -c "\
 		echo 'Running tests for {}'; \
-		PAASTA_SERVICE=spectre \
-		PAASTA_INSTANCE=test \
 		SRV_CONFIGS_PATH=$(SRV_CONFIGS_PATH_FOR_TESTS) \
 		SERVICES_YAML_PATH=$(SMARTSTACK_CONFIG_PATH_FOR_TESTS) \
 		METEORITE_WORKER_PORT='-1' \
