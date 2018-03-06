@@ -4,6 +4,7 @@ local util = require 'util'
 
 local SRV_CONFIGS_PATH = os.getenv('SRV_CONFIGS_PATH')
 local SERVICES_YAML_PATH = os.getenv('SERVICES_YAML_PATH')
+local CASPER_INTERNAL_NAMESPACE = 'casper.internal'
 
 local RELOAD_DELAY = 30  -- seconds
 
@@ -175,5 +176,7 @@ return {
     get_spectre_config_for_namespace = get_spectre_config_for_namespace,
     set_spectre_config_for_namespace = set_spectre_config_for_namespace,
     get_all_spectre_configs = get_all_spectre_configs,
-    has_spectre_configs = has_spectre_configs
+    has_spectre_configs = has_spectre_configs,
+
+    CASPER_INTERNAL_NAMESPACE = CASPER_INTERNAL_NAMESPACE,
 }
