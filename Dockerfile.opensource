@@ -64,5 +64,7 @@ RUN mkdir -p /var/log/nginx
 RUN chown -R nobody:nogroup /var/log/nginx
 
 USER nobody
-CMD ["dumb-init", "/code/start.sh"]
+
+# Rewrite SIGTERM(15) to SIGQUIT(3) to let Nginx shut down gracefully
+CMD ["dumb-init", "--rewrite", "15:3", "/code/start.sh"]
 # vim: syntax=dockerfile
