@@ -14,12 +14,6 @@ services:
             - PAASTA_INSTANCE=itest
             - SRV_CONFIGS_PATH=/code/itest/data/srv-configs
             - SERVICES_YAML_PATH=/code/itest/data/services.yaml
-            - CASSANDRA_CLUSTER_CONFIG=/code/itest/data/synapse/services/cassandra_spectre.main.json
-            - CASSANDRA_NUM_RETRIES=3
-            # These values can be low, we'll retry up to 3 times
-            - CASSANDRA_READ_TIMEOUT_MS=100
-            - CASSANDRA_WRITE_TIMEOUT_MS=1000
-            - CASSANDRA_CONNECT_TIMEOUT_MS=500
             - WORKER_PROCESSES=1
             # Lower http timeout to test that we return a 504 on timeouts
             - HTTP_TIMEOUT_MS=1000
