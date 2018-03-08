@@ -17,7 +17,7 @@ all: test itest dev
 dev: cook-image
 	docker run -t \
 		-p $(PORT):8888 \
-		-e "PAASTA_SERVICE=spectre" \
+		-e "PAASTA_SERVICE=casper" \
 		-e "PAASTA_INSTANCE=test" \
 		-v /nail/etc:/nail/etc:ro \
 		-v /nail/srv/configs/spectre:/nail/srv/configs/spectre:ro \
