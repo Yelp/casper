@@ -40,4 +40,7 @@ RUN     chown -R dckruser /nail/cassandra/
 RUN     echo "JVM_OPTS=\"\$JVM_OPTS -Dcassandra.skip_wait_for_gossip_to_settle=0\"" >> /etc/cassandra/cassandra-env.sh
 
 USER    dckruser
+
+# Creates cassandra keyspace and tables
+RUN     cassandra && /opt/setup.sh
 CMD     ["dumb-init", "cassandra", "-f"]

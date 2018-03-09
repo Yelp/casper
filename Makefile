@@ -71,7 +71,6 @@ itest: clean-docker $(DOCKER_COMPOSE) cook-image run-itest
 run-itest: $(DOCKER_COMPOSE)
 	$(DOCKER_COMPOSE) -f $(DOCKER_COMPOSE_YML) build
 	$(DOCKER_COMPOSE) -f $(DOCKER_COMPOSE_YML) up -d spectre backend cassandra syslog
-	$(DOCKER_COMPOSE) -f $(DOCKER_COMPOSE_YML) exec -T cassandra /opt/setup.sh
 	$(DOCKER_COMPOSE) -f $(DOCKER_COMPOSE_YML) run test python -m pytest -vv spectre
 	$(DOCKER_COMPOSE) -f $(DOCKER_COMPOSE_YML) exec --user=root -T spectre /opt/drop_all.sh
 	$(DOCKER_COMPOSE) -f $(DOCKER_COMPOSE_YML) run test python -m pytest -vv cassandra
