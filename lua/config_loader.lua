@@ -118,7 +118,7 @@ local function load_services_configs(path)
     for file in lfs.dir(path) do
         local file_path = path..'/'..file
         if lfs.attributes(file_path, 'mode') == 'file' and
-                ngx.re.match(file, '.yaml$') then
+               string.find(file, '.yaml$') then
             local config = parse_configs(file_path)
             if config ~= nil then
                 local service_namespace = string.gsub(file, '.yaml', '')
