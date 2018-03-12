@@ -43,4 +43,7 @@ USER    dckruser
 
 # Creates cassandra keyspace and tables
 RUN     cassandra && /opt/setup.sh
+
+# CMD only provides a default command to run when you start a container from this image.
+# It doesn't get executed during the build, so the 2 cassandra processes won't conflict.
 CMD     ["dumb-init", "cassandra", "-f"]
