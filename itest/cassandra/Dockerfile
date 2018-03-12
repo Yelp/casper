@@ -40,4 +40,10 @@ RUN     chown -R dckruser /nail/cassandra/
 RUN     echo "JVM_OPTS=\"\$JVM_OPTS -Dcassandra.skip_wait_for_gossip_to_settle=0\"" >> /etc/cassandra/cassandra-env.sh
 
 USER    dckruser
+
+# Creates cassandra keyspace and tables
+RUN     cassandra && /opt/setup.sh
+
+# CMD only provides a default command to run when you start a container from this image.
+# It doesn't get executed during the build, so the 2 cassandra processes won't conflict.
 CMD     ["dumb-init", "cassandra", "-f"]
