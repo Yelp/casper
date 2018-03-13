@@ -3,9 +3,24 @@ cassandra:
     connect_timeout_ms: 100
     default_num_buckets: 1000
     keyspace: 'spectre_db'
+    local_dc: 'norcal-devc'
     local_region: '.*'
     num_retries: 3
     read_timeout_ms: 15
     retry_on_timeout: false
     write_consistency: 'all'
     write_timeout_ms: 1000
+
+http:
+    timeout_ms: 10000
+
+yelp_meteorite:
+    etc_path: '/code/tests/data/etc'
+    metrics-relay:
+        host: 127.0.0.1
+        port: 1234
+
+zipkin:
+    syslog:
+        host: 127.0.0.1
+        port: 514

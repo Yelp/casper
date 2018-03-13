@@ -1,23 +1,41 @@
+local config_loader = require 'config_loader'
 local socket = require('socket')
 
-local YOCALHOST_IP = "169.254.255.254"
+local _sock
+local _default_dimensions
 
-local udp = socket.udp()
-udp:setsockname("*", 0)
-udp:setpeername(YOCALHOST_IP, os.getenv('METEORITE_WORKER_PORT'))
 
-local function get_system_dimension(name)
-    return io.open('/nail/etc/' .. name):read()
+local function _get_sock()
+    if _sock == nil then
+        local configs = config_loader.get_spectre_config_for_namespace('casper.internal')['yelp_meteorite']
+        _sock = socket.udp()
+        _sock:setsockname("*", 0)
+        _sock:setpeername(
+            configs['metrics-relay']['host'],
+            configs['metrics-relay']['port']
+        )
+    end
+    return _sock
 end
 
-local default_dimensions = {
-    {"habitat", tostring(get_system_dimension('habitat'))},
-    {"service_name", os.getenv('PAASTA_SERVICE')},
-    {"instance_name", os.getenv('PAASTA_INSTANCE')}
-}
+local function get_system_dimension(name)
+    local configs = config_loader.get_spectre_config_for_namespace('casper.internal')['yelp_meteorite']
+    return io.open(configs['etc_path'] .. '/' .. name):read()
+end
+
+local function _get_default_dimensions()
+    if _default_dimensions == nil then
+        _default_dimensions = {
+            {'habitat', get_system_dimension('habitat')},
+            {'service_name', os.getenv('PAASTA_SERVICE')},
+            {'instance_name', os.getenv('PAASTA_INSTANCE')},
+        }
+    end
+    return _default_dimensions
+end
 
 local function send_to_metrics_relay(payload)
-    udp:send(payload)
+    _get_sock():send(payload)
 end
 
 -- Encodes a metric in the meteorite format
@@ -26,7 +44,7 @@ local function encode_metric(name, value, metric_type, dimensions)
     local metric_str = '['
     -- Add default dimensions first
     -- NOTE: right now it's not possible to override "default" dimensions
-    for _, v in ipairs(default_dimensions) do
+    for _, v in ipairs(_get_default_dimensions()) do
         metric_str = metric_str .. '["' .. v[1] .. '", "' .. v[2] .. '"],'
     end
     -- Then add custom dimensions
@@ -143,4 +161,5 @@ return {
     emit_internal_metrics = emit_internal_metrics,
     emit_cache_metrics = emit_cache_metrics,
     get_system_dimension = get_system_dimension,
+    _get_sock = _get_sock,
 }

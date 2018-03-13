@@ -1,9 +1,11 @@
+local config_loader = require 'config_loader'
 local resty_random = require 'resty.random'
 local resty_string = require 'resty.string'
 local rfc5424 = require 'resty.rfc5424'
 local socket = require('socket')
-local zipkin = {}
 
+
+local zipkin = {}
 
 -- Store header list in a module-level constant so we can access it in tests
 zipkin['ZIPKIN_HEADERS'] = {
@@ -14,12 +16,20 @@ zipkin['ZIPKIN_HEADERS'] = {
     'X-B3-Sampled'
 }
 
-local sock = socket.udp()
-sock:setsockname("*", 0)
-sock:setpeername(
-    os.getenv("SYSLOG_HOST"),
-    os.getenv("SYSLOG_PORT")
-)
+local _sock
+
+function zipkin._get_sock()
+    if _sock == nil then
+        _sock = socket.udp()
+        _sock:setsockname("*", 0)
+        local configs = config_loader.get_spectre_config_for_namespace('casper.internal')['zipkin']
+        _sock:setpeername(
+            configs['syslog']['host'],
+            configs['syslog']['port']
+        )
+    end
+    return _sock
+end
 
 
 -- Generate random 16 character string
@@ -101,7 +111,7 @@ function zipkin.emit_syslog(headers, start_time, end_time)
             "nginx_spectre",
             message
         )
-        sock:send(encoded_message)
+        zipkin._get_sock():send(encoded_message)
     end
 end
 
