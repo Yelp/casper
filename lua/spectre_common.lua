@@ -404,6 +404,7 @@ local function fetch_from_cache(cassandra_helper, id, uri, destination, cache_na
     local cache_status = cached_value['body'] ~= nil and 'hit' or 'miss'
     local dims = {{'namespace', destination}, {'cache_name', cache_name}, {'cache_status', cache_status}}
     metrics_helper.emit_timing('spectre.fetch_body_and_headers', (socket.gettime() - start_time) * 1000, dims)
+    metrics_helper.emit_counter('spectre.hit_rate', dims)
 
     return cached_value
 end
