@@ -1,13 +1,9 @@
 require 'busted.runner'()
 
-insulate("overriding os.getenv", function()
+describe("spectre_common", function()
     local config_loader, spectre_common
 
     setup(function()
-        _G.os.getenv = function(e)
-            return e
-        end
-
         _G.package.loaded.socket = {
             dns = {
                 toip = function(_)
@@ -24,6 +20,7 @@ insulate("overriding os.getenv", function()
         }
 
         config_loader = require 'config_loader'
+        config_loader.load_services_configs('/code/tests/data/srv-configs')
         spectre_common = require 'spectre_common'
 
         stub(ngx, 'log')

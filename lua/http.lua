@@ -1,11 +1,11 @@
+local config_loader = require 'config_loader'
 local http = require "resty.http"
 
--- This timeout should match the one in yelpsoa-configs:spectre/smartstack.yaml
-local HTTP_TIMEOUT = os.getenv('HTTP_TIMEOUT_MS') or 60000 -- ms
 
 local function make_http_request(method, uri, headers)
+    local configs = config_loader.get_spectre_config_for_namespace('casper.internal')['http']
     local httpc = http.new()
-    httpc:set_timeout(HTTP_TIMEOUT)
+    httpc:set_timeout(configs['timeout_ms'])
 
     local client_body_reader, _ = httpc:get_client_body_reader()
 

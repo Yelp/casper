@@ -94,7 +94,7 @@ function cassandra_helper.create_cluster(cluster_module, shm, timeout)
     local hosts = cassandra_helper.get_cluster_hosts()
     spectre_common.log(ngx.WARN, { err='init ' .. shm .. ' cluster with timeout ' .. timeout, critical=false })
     -- Use datacenter-aware load balancing policy
-    local dc_name = metrics_helper.get_system_dimension('superregion')
+    local dc_name = configs['local_dc']
     local cluster, err = cluster_module.new {
         shm = shm,
         contact_points = hosts,
