@@ -41,7 +41,7 @@ RUN apt-get clean
 RUN luarocks install lyaml 6.1.1-4
 RUN luarocks install luasocket 3.0rc1-2
 RUN luarocks install luafilesystem 1.6.3-2
-RUN luarocks install lua-resty-http 0.10-0
+RUN luarocks install lua-resty-http 0.12-0
 RUN luarocks install crc32 1.0
 RUN luarocks install busted 2.0.rc12-1
 RUN luarocks install cluacov
