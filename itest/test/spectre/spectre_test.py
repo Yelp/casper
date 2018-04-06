@@ -202,6 +202,19 @@ class TestGetMethod(object):
         response = get_through_spectre('/biz?foo=bar&business_id=1234')
         assert response.headers['Spectre-Cache-Status'] == 'miss'
 
+    def test_dont_drop_underscored_headers(self):
+        response = get_through_spectre(
+            '/business?foo=bar&business_id=1234',
+            extra_headers={
+                'Test-Header': 'val1',
+                'Header_with_underscores': 'val2',
+            },
+        )
+
+        headers = response.json()['received_headers']
+        assert 'test-header' in headers
+        assert 'header_with_underscores' in headers
+
 
 class TestPostMethod(object):
 
