@@ -72,15 +72,13 @@ end
 local function determine_if_cacheable(url, namespace, request_headers)
     local cacheability_info = {
         is_cacheable = false,
-        ttl = nil,
-        pattern = nil,
+        cache_entry = {
+            ttl = nil,
+        },
         cache_name = nil,
         reason = 'non-cacheable-uri (' .. namespace .. ')',
         vary_headers_list = nil,
-        bulk_support = false,
-        id_identifier = nil,
         refresh_cache = false,
-        num_buckets = nil,
     }
 
     local spectre_config = config_loader.get_spectre_config_for_namespace(namespace)
@@ -94,17 +92,11 @@ local function determine_if_cacheable(url, namespace, request_headers)
             local vary_headers_list = get_vary_headers_list(namespace, cache_entry)
             cacheability_info = {
                 is_cacheable = true,
-                ttl = cache_entry['ttl'],
-                pattern = cache_entry['pattern'],
+                cache_entry = cache_entry,
                 cache_name = cache_name,
                 reason = nil,
                 vary_headers_list = vary_headers_list,
-                bulk_support = cache_entry['bulk_support'],
-                id_identifier = cache_entry['id_identifier'],
-                dont_cache_missing_ids = cache_entry['dont_cache_missing_ids'],
-                enable_id_extraction = cache_entry['enable_id_extraction'],
                 refresh_cache = false,
-                num_buckets = cache_entry['buckets'],
             }
 
             -- Only cache GET and HEAD requests

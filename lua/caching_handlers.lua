@@ -21,7 +21,7 @@ function caching_handlers._post_request_callback(response, request_info, cacheab
     if cacheability_info.enable_id_extraction then
         ids = caching_handlers._extract_ids_from_uri(
             request_info.normalized_uri,
-            cacheability_info.pattern
+            cacheability_info.cache_entry['pattern']
         )
     end
 
@@ -36,8 +36,8 @@ function caching_handlers._post_request_callback(response, request_info, cacheab
                 response.body,
                 response.cacheable_headers,
                 request_info.vary_headers,
-                cacheability_info.ttl,
-                cacheability_info.num_buckets
+                cacheability_info.cache_entry['ttl'],
+                cacheability_info.cache_entry['num_buckets']
             )
         end, debug.traceback)
 
@@ -49,10 +49,10 @@ end
 -- Respond to requests for caching normal endpoints (non-bulk)
 function caching_handlers._caching_handler(request_info, cacheability_info)
     local id = 'null'
-    if cacheability_info.enable_id_extraction then
+    if cacheability_info['cache_entry'] ~= nil and cacheability_info.cache_entry['enable_id_extraction'] then
         id = caching_handlers._extract_ids_from_uri(
             request_info.normalized_uri,
-            cacheability_info.pattern
+            cacheability_info.cache_entry['pattern']
         )[1]
     end
 
@@ -64,7 +64,7 @@ function caching_handlers._caching_handler(request_info, cacheability_info)
         request_info.destination,
         cacheability_info.cache_name,
         request_info.vary_headers,
-        cacheability_info.num_buckets
+        cacheability_info.entry_cache['num_buckets']
     )
 
     -- Cache hit
@@ -180,7 +180,7 @@ function caching_handlers.caching_proxy(incoming_zipkin_headers)
     end
 
     local handler_response
-    local handler_fn = cacheability_info.bulk_support
+    local handler_fn = cacheability_info.cache_entry['bulk_support']
                            and bulk_endpoints.bulk_endpoint_caching_handler
                            or caching_handlers._caching_handler
 

@@ -74,8 +74,10 @@ insulate('caching_handlers', function()
                 },
                 {
                     cache_name = 'test_cache',
-                    ttl = 10,
-                    num_buckets = 500,
+                    cache_entry = {
+                        ttl = 10,
+                        num_buckets = 500,
+                    },
                 }
             )
 
@@ -139,10 +141,12 @@ insulate('caching_handlers', function()
                 },
                 {
                     cache_name = 'test_cache',
-                    enable_id_extraction = true,
-                    pattern = '^/uri\\?ids=((?:\\d|%2C)+)&.*$',
-                    ttl = 10,
-                    num_buckets = 500,
+                    cache_entry = {
+                        enable_id_extraction = true,
+                        pattern = '^/uri\?ids=((\d|%2C)+)&.*$',
+                        ttl = 10,
+                        num_buckets = 500,
+                    },
                 }
             )
 
@@ -312,9 +316,11 @@ insulate('caching_handlers', function()
             spectre_common.determine_if_cacheable = function()
                 return {
                     is_cacheable = true,
+                    cache_entry = {
+                        bulk_support = true,
+                    },
                     cache_name = 'test_cache',
                     vary_headers_list = {'accept-encoding'},
-                    bulk_support = true,
                     other_fields = true,  -- they're not important here
                     refresh_cache = false,
                 }
@@ -323,9 +329,11 @@ insulate('caching_handlers', function()
 
             assert.are.same({
                 is_cacheable = true,
+                cache_entry = {
+                    bulk_support = true,
+                },
                 cache_name = 'test_cache',
                 vary_headers_list = {'accept-encoding'},
-                bulk_support = true,
                 other_fields = true,  -- they're not important here
                 refresh_cache = false,
             }, cacheability_info)
@@ -343,7 +351,9 @@ insulate('caching_handlers', function()
                     is_cacheable = true,
                     cache_name = 'test_cache',
                     vary_headers_list = {'accept-encoding'},
-                    bulk_support = true,
+                    cache_entry = {
+                        bulk_support = true,
+                    },
                     other_fields = true,  -- they're not important here
                 }
             end
@@ -358,7 +368,9 @@ insulate('caching_handlers', function()
                     is_cacheable = true,
                     cache_name = 'test_cache',
                     vary_headers_list = {'accept-encoding'},
-                    bulk_support = false,
+                    cache_entry = {
+                        bulk_support = false,
+                    },
                     other_fields = true,  -- they're not important here
                 }
             end
@@ -406,7 +418,9 @@ insulate('caching_handlers', function()
             caching_handlers._parse_request = function()
                 return {
                     is_cacheable = false,
-                    bulk_support = false,
+                    cache_entry = {
+                        bulk_support = false,
+                    },
                     reason = 'uncacheable'
                 }, {}
             end
@@ -421,7 +435,13 @@ insulate('caching_handlers', function()
                 body = 'body',
                 headers = {},
                 status = 200,
-                cacheability_info = {is_cacheable = false, bulk_support = false, reason = 'uncacheable'},
+                cacheability_info = {
+                    is_cacheable = false,
+                    cache_entry = {
+                        bulk_support = false,
+                    },
+                    reason = 'uncacheable',
+                },
             }, res)
             assert.stub(caching_handlers._caching_handler).was_not_called()
             caching_handlers._caching_handler:revert() -- reverts the stub
@@ -481,11 +501,21 @@ insulate('caching_handlers', function()
 
         it('calls basic handler if cacheable', function()
             caching_handlers._parse_request = function()
-                return {is_cacheable = true, bulk_support = false}, {req_info = true}
+                return {
+                    is_cacheable = true,
+                    cache_entry = {
+                        bulk_support = false,
+                    }
+                }, { req_info = true }
             end
             caching_handlers._caching_handler = function(request_info, cacheability_info)
                 assert.are.same({req_info = true}, request_info)
-                assert.are.same({is_cacheable = true, bulk_support = false}, cacheability_info)
+                assert.are.same({
+                    is_cacheable = true,
+                    cache_entry = {
+                        bulk_support = false,
+                    },
+                }, cacheability_info)
                 return {status = 200, headers = {}, body = 'body'}
             end
             stub(caching_handlers, '_forward_non_handleable_requests')
@@ -496,7 +526,12 @@ insulate('caching_handlers', function()
                 body = 'body',
                 headers = {},
                 status = 200,
-                cacheability_info = {is_cacheable = true, bulk_support = false},
+                cacheability_info = {
+                    is_cacheable = true,
+                    cache_entry = {
+                        bulk_support = false,
+                    },
+                }
             }, res)
             assert.stub(caching_handlers._forward_non_handleable_requests).was_not_called()
             assert.stub(bulk_endpoints.bulk_endpoint_caching_handler).was_not_called()
@@ -506,11 +541,20 @@ insulate('caching_handlers', function()
 
         it('calls bulk handler if cacheable and bulk_support is true', function()
             caching_handlers._parse_request = function()
-                return {is_cacheable = true, bulk_support = true}, {req_info = true}
+                return {
+                    is_cacheable = true,
+                    cache_entry = {
+                        bulk_support = true,
+                    },
+                }, {req_info = true}
             end
             bulk_endpoints.bulk_endpoint_caching_handler = function(request_info, cacheability_info)
                 assert.are.same({req_info = true}, request_info)
-                assert.are.same({is_cacheable = true, bulk_support = true}, cacheability_info)
+                assert.are.same({
+                    is_cacheable = true, cache_entry = {
+                        bulk_support = true,
+                    }, 
+                }, cacheability_info)
                 return {status = 200, headers = {}, body = 'body'}
             end
             stub(caching_handlers, '_forward_non_handleable_requests')
@@ -521,7 +565,12 @@ insulate('caching_handlers', function()
                 body = 'body',
                 headers = {},
                 status = 200,
-                cacheability_info = {is_cacheable = true, bulk_support = true},
+                cacheability_info = {
+                    is_cacheable = true,
+                    cache_entry = {
+                        bulk_support = true,
+                    },
+                },
             }, res)
             assert.stub(caching_handlers._forward_non_handleable_requests).was_not_called()
             assert.stub(caching_handlers._caching_handler).was_not_called()
@@ -531,7 +580,12 @@ insulate('caching_handlers', function()
 
         it('forwards request if caching handler fails', function()
             caching_handlers._parse_request = function()
-                return {is_cacheable = true, bulk_support = true}, {req_info = true}
+                return {
+                    is_cacheable = true,
+                    cache_entry = {
+                        bulk_support = true,
+                    },
+                }, {req_info = true}
             end
             caching_handlers._forward_non_handleable_requests = function(reason, zipkin_headers)
                 assert.are.equal('test error', reason)
@@ -550,7 +604,12 @@ insulate('caching_handlers', function()
                 body = 'body',
                 headers = {},
                 status = 200,
-                cacheability_info = {is_cacheable = true, bulk_support = true},
+                cacheability_info = {
+                    is_cacheable = true,
+                    cache_entry = {
+                        bulk_support = true,
+                    },
+                },
             }, res)
             assert.spy(caching_handlers._forward_non_handleable_requests).was_called()
             assert.spy(bulk_endpoints.bulk_endpoint_caching_handler).was_called()
