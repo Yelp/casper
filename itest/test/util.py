@@ -30,7 +30,8 @@ def get_through_spectre(path, extra_headers=None):
     headers = HAPROXY_ADDED_HEADERS.copy()
     if extra_headers is not None:
         headers.update(extra_headers)
-    return requests.get(SPECTRE_BASE_URL + path, headers=headers)
+    result = requests.get(SPECTRE_BASE_URL + path, headers=headers)
+    return result
 
 
 def assert_is_in_spectre_cache(*args, **kwargs):

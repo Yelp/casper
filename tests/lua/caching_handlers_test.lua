@@ -143,7 +143,7 @@ insulate('caching_handlers', function()
                     cache_name = 'test_cache',
                     cache_entry = {
                         enable_id_extraction = true,
-                        pattern = '^/uri\?ids=((\d|%2C)+)&.*$',
+                        pattern = '^/uri\\?ids=((?:\\d|%2C)+)&.*$',
                         ttl = 10,
                         num_buckets = 500,
                     },
@@ -153,7 +153,7 @@ insulate('caching_handlers', function()
             assert.stub(spectre_common.cache_store).was_called()
             assert.stub(spectre_common.cache_store).was_called_with(
                 match.is_table(),
-                {'1', '2', '3'},
+                {'null'},
                 '/uri?ids=1%2C2%2C3&foo=bar',
                 'backend.main',
                 'test_cache',

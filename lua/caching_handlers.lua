@@ -49,10 +49,26 @@ end
 -- Respond to requests for caching normal endpoints (non-bulk)
 function caching_handlers._caching_handler(request_info, cacheability_info)
     local id = 'null'
-    if cacheability_info['cache_entry'] ~= nil and cacheability_info.cache_entry['enable_id_extraction'] then
+
+    local cache_name = ''
+    local enable_id_extraction = false
+    local pattern = ''
+    local num_buckets = 0
+
+    -- Flatten cacheability_info to handle nil cases
+    if  cacheability_info ~= nil then
+        cache_name = cacheability_info.cache_name
+        if cacheability_info['cache_entry'] ~= nil then
+            enable_id_extraction = cacheability_info.cache_entry.enable_id_extraction
+            pattern = cacheability_info.cache_entry.pattern
+            num_buckets = cacheability_info.cache_entry.num_buckets
+        end
+    end
+
+    if enable_id_extraction then
         id = caching_handlers._extract_ids_from_uri(
             request_info.normalized_uri,
-            cacheability_info.cache_entry['pattern']
+            pattern
         )[1]
     end
 
@@ -62,9 +78,9 @@ function caching_handlers._caching_handler(request_info, cacheability_info)
         id,
         request_info.normalized_uri,
         request_info.destination,
-        cacheability_info.cache_name,
+        cache_name,
         request_info.vary_headers,
-        cacheability_info.entry_cache['num_buckets']
+        num_buckets
     )
 
     -- Cache hit

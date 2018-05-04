@@ -84,6 +84,9 @@ class TestZipkinLogging(object):
         """
         # This file path is specified in docker-compose.yml
         spans = load_zipkin_spans(SYSLOG_FILE)
+        print('\n\n\n')
+        print(spans)
+        print('\n\n\n')
         assert len(spans) == num_lines
 
         assert spans[-1].trace_id == trace_id
