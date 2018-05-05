@@ -18,10 +18,26 @@ end
 -- Callback to save response to cache, to be executed after the response has been sent
 function caching_handlers._post_request_callback(response, request_info, cacheability_info)
     local ids = {'null'}
-    if cacheability_info.enable_id_extraction then
+    local enable_id_extraction = false
+    local cache_name = ''
+    local pattern = ''
+    local ttl = 0
+    local num_buckets = 0
+
+    if cacheability_info ~= nil then
+        cache_name = cacheability_info.cache_name
+        if cacheability_info.cache_entry ~= nil then
+            pattern = cacheability_info.cache_entry.pattern
+            ttl = cacheability_info.cache_entry.ttl
+            num_buckets = cacheability_info.cache_entry.num_buckets
+            enable_id_extraction = cacheability_info.cache_entry.enable_id_extraction
+        end
+    end
+
+    if enable_id_extraction then
         ids = caching_handlers._extract_ids_from_uri(
             request_info.normalized_uri,
-            cacheability_info.cache_entry['pattern']
+            pattern
         )
     end
 
@@ -32,12 +48,12 @@ function caching_handlers._post_request_callback(response, request_info, cacheab
                 ids,
                 request_info.normalized_uri,
                 request_info.destination,
-                cacheability_info.cache_name,
+                cache_name,
                 response.body,
                 response.cacheable_headers,
                 request_info.vary_headers,
-                cacheability_info.cache_entry['ttl'],
-                cacheability_info.cache_entry['num_buckets']
+                ttl,
+                num_buckets
             )
         end, debug.traceback)
 

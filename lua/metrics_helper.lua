@@ -101,7 +101,7 @@ local function emit_cache_metrics(start_time, end_time, namespace, response, sta
         reason = response.cacheability_info.reason
         is_cacheable = response.cacheability_info.is_cacheable
         if response.cacheability_info.cache_entry ~= nil then
-            bulk_support = response.cacheability_info.cache_info.bulk_support
+            bulk_support = response.cacheability_info.cache_entry.bulk_support
         end
     end
     if is_cacheable then

@@ -84,7 +84,7 @@ insulate('caching_handlers', function()
             assert.stub(spectre_common.cache_store).was_called()
             assert.stub(spectre_common.cache_store).was_called_with(
                 match.is_table(),
-                {'null'},
+                {'1', '2', '3'},
                 '/uri',
                 'backend.main',
                 'test_cache',

@@ -484,7 +484,7 @@ class TestGetBulkRequest(object):
 
         # "0" is an invalid ID
         headers1, body1 = self.make_request([0])
-        assert headers1['Spectre-Cache-Status'] == 'hit'
+        assert headers1['Spectre-Cache-Status'] == 'miss'
 
         headers2, body2 = self.make_request([0], cache=False)
         assert headers2['Spectre-Cache-Status'] == 'no-cache-header'
@@ -498,7 +498,7 @@ class TestGetBulkRequest(object):
         headers1, body1 = self.make_request([1001])
         assert headers1['Spectre-Cache-Status'] == 'miss'
         headers2, body2 = self.make_request([1001])
-        assert headers2['Spectre-Cache-Status'] == 'hit'
+        assert headers2['Spectre-Cache-Status'] == 'miss'
 
         headers3, body3 = self.make_request([1001], cache=False)
         assert headers3['Spectre-Cache-Status'] == 'no-cache-header'
