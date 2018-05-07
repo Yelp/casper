@@ -94,13 +94,14 @@ end
 
 -- Store individual responses into cache after the response has been sent back
 local function bulk_proxy_post_request_handler(response, request_info, cacheability_info, final_responses, headers)
-    local dont_cache_missing_ids = ''
+    local dont_cache_missing_ids = false
     local ttl = 0
     local cache_name = ''
     if cacheability_info ~= nil then
         cache_name = cacheability_info.cache_name
         if cacheability_info.cache_entry ~= nil then
             ttl = cacheability_info.cache_entry.ttl
+            dont_cache_missing_ids = cacheability_info.cache_entry.dont_cache_missing_ids
         end
     end
 

@@ -84,7 +84,7 @@ insulate('caching_handlers', function()
             assert.stub(spectre_common.cache_store).was_called()
             assert.stub(spectre_common.cache_store).was_called_with(
                 match.is_table(),
-                {'1', '2', '3'},
+                {'null'},
                 '/uri',
                 'backend.main',
                 'test_cache',
@@ -153,7 +153,7 @@ insulate('caching_handlers', function()
             assert.stub(spectre_common.cache_store).was_called()
             assert.stub(spectre_common.cache_store).was_called_with(
                 match.is_table(),
-                {'null'},
+                {'1', '2', '3'},
                 '/uri?ids=1%2C2%2C3&foo=bar',
                 'backend.main',
                 'test_cache',

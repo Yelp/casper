@@ -86,10 +86,9 @@ class TestZipkinLogging(object):
         spans = load_zipkin_spans(SYSLOG_FILE)
         assert len(spans) == num_lines
 
-        if len(spans) > 0:
-            assert spans[-1].trace_id == trace_id
-            assert spans[-1].id == span_id
-            assert spans[-1].parent_id == parent_span_id
+        assert spans[-1].trace_id == trace_id
+        assert spans[-1].id == span_id
+        assert spans[-1].parent_id == parent_span_id
     
 
     def test_logs_zipkin_info_to_error_log(self, clean_log_files):
