@@ -334,6 +334,7 @@ insulate('caching_handlers', function()
                 normalized_uri = '/test/endpoint?biz=2&ids=1&key=3',
                 vary_headers = 'accept-encoding:nil',  -- drops gzip encoding
                 destination = 'backend.main',  -- correctly got it from the request headers
+                request_method = 'GET',  -- correctly got it from ngx module.
             }, request_info)
         end)
 

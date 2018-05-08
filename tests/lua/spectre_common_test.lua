@@ -75,12 +75,13 @@ describe("spectre_common", function()
             assert.is_nil(cacheability_info.vary_headers_list)
         end)
 
-        it("does not cache POST requests", function()
+        it("does not cache POST requests with non-json body", function()
             ngx.req.get_method = function() return 'POST' end
 
-            local cacheability_info = spectre_common.determine_if_cacheable('/yelp/business/info', 'srv.main', {})
+            local headers = {['Content-type'] = 'non-json'}
+            local cacheability_info = spectre_common.determine_if_cacheable('/yelp/business/info', 'srv.main', headers)
             assert.is_false(cacheability_info.is_cacheable)
-            assert.are.equal('non-cacheable-method', cacheability_info.reason)
+            assert.are.equal('non-cacheable-content-type', cacheability_info.reason)
         end)
 
         it("respects no-cache headers", function()
