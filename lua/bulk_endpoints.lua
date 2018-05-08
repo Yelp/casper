@@ -13,15 +13,8 @@ json.strictTypes = true
 -- Kick off and get futures for retrieving bulk endpoint data from the cache
 local function kick_off_requests_for_bulk_request(endpoint_ids, separator, request_info, cacheability_info)
     local futures = {}
-
-    local pattern = ''
-    local cache_name = ''
-    if cacheability_info ~= nil then
-        cache_name = cacheability_info.cache_name
-        if cacheability_info.cache_entry ~= nil then
-            pattern = cacheability_info.cache_entry.pattern
-        end
-    end
+    local cache_name = cacheability_info.cache_name
+    local pattern = cacheability_info.cache_entry.pattern
 
     for ordinal, endpoint_id in pairs(endpoint_ids) do
         local indiv_request = spectre_common.construct_uri(
@@ -94,16 +87,9 @@ end
 
 -- Store individual responses into cache after the response has been sent back
 local function bulk_proxy_post_request_handler(response, request_info, cacheability_info, final_responses, headers)
-    local dont_cache_missing_ids = false
-    local ttl = 0
-    local cache_name = ''
-    if cacheability_info ~= nil then
-        cache_name = cacheability_info.cache_name
-        if cacheability_info.cache_entry ~= nil then
-            ttl = cacheability_info.cache_entry.ttl
-            dont_cache_missing_ids = cacheability_info.cache_entry.dont_cache_missing_ids
-        end
-    end
+    local cache_name = cacheability_info.cache_name
+    local ttl = cacheability_info.cache_entry.ttl
+    local dont_cache_missing_ids = cacheability_info.cache_entry.dont_cache_missing_ids
 
     for ordinal, miss_request in pairs(response.miss_requests) do
         if final_responses[ordinal] ~= nil or dont_cache_missing_ids ~= true then
@@ -137,14 +123,8 @@ end
 
 -- Respond to requests for caching bulk endpoints
 local function bulk_endpoint_caching_handler(request_info, cacheability_info)
-    local pattern = ''
-    local id_identifier = ''
-    if cacheability_info ~= nil then
-        if cacheability_info.cache_entry ~= nil then
-            pattern = cacheability_info.cache_entry.pattern
-            id_identifier = cacheability_info.cache_entry.id_identifier
-        end
-    end
+    local pattern = cacheability_info.cache_entry.pattern
+    local id_identifier = cacheability_info.cache_entry.id_identifier
 
     local bulk_resp_body, bulk_resp_headers_cacheable, bulk_resp_headers_uncacheable
     local bulk_status = ngx.HTTP_OK

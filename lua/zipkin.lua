@@ -79,11 +79,9 @@ end
 -- are optional in the Zipkin spec, so we'll emit a '-' if they're not present.
 -- Start and end times are in epoch seconds, but Zipkin wants them in microseconds.
 function zipkin.emit_syslog(headers, start_time, end_time)
-    print('******************************** EMIT SYSLOG *****************************')
     if headers['X-B3-TraceId'] ~= nil and
             headers['X-B3-SpanId'] ~= nil and
             headers['X-B3-ParentSpanId'] ~= nil then
-        print('ENTERED IF STATEMENT')
         local request_string = string.format('"%s %s %s"',
             ngx.var.request_method,
             ngx.var.request_uri,
@@ -102,10 +100,6 @@ function zipkin.emit_syslog(headers, start_time, end_time)
             ngx.var.remote_addr,
             request_string
         )
-        ngx.log(ngx.ERR, '\n\n\n')
-        ngx.log(ngx.ERR, 'MESSAGE')
-        ngx.log(ngx.ERR, message)
-        ngx.log(ngx.ERR, '\n\n\n')
 
         -- RFC5424 is the syslog format. We encode the message and send it along to syslog2scribe
         local encoded_message = rfc5424.encode(
