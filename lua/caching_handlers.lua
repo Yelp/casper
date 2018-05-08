@@ -24,10 +24,10 @@ function caching_handlers._get_cache_key(request_info, cacheability_info)
                 request_info.normalized_uri,
                 cacheability_info.pattern
             )
-        else
+        elseif request_info.request_body ~= nil then
             ids = {
-                spectre_common.get_id_from_req_body(cacheability_info.post_id_fields, request_info.request_body)
-            }
+                    spectre_common.get_id_from_req_body(cacheability_info.post_id_fields, request_info.request_body)
+                }
         end
     end
     return ids

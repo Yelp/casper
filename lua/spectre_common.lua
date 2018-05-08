@@ -141,8 +141,13 @@ local function determine_if_cacheable(url, namespace, request_headers)
                 if not has_marker_headers(request_headers, POST_CACHEABLE_HEADERS) then
                     -- For Post requests check the body type is application/json
                     cacheability_info.is_cacheable = false
-                    cacheability_info.reason = 'post-body-type'
-                    cacheability_info.refresh_cache = true
+                    cacheability_info.reason = 'non-cacheable-content-type'
+                    cacheability_info.refresh_cache = false
+                elseif cacheability_info.bulk_support then
+                    -- Stop caching if bulk support is added for a POST endpoint.
+                    cacheability_info.is_cacheable = false
+                    cacheability_info.reason = 'no-bulk-support-for-post'
+                    cacheability_info.refresh_cache = false
                 else
                     -- Start reading the request body into ngx cache.
                     ngx.req.read_body()
