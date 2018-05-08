@@ -15,16 +15,27 @@ function caching_handlers._extract_ids_from_uri(uri, pattern)
     return ids
 end
 
--- Callback to save response to cache, to be executed after the response has been sent
-function caching_handlers._post_request_callback(response, request_info, cacheability_info)
+-- Function to compute the id field used in the cache.
+function caching_handlers._get_cache_key(request_info, cacheability_info)
     local ids = {'null'}
     if cacheability_info.enable_id_extraction then
-        ids = caching_handlers._extract_ids_from_uri(
-            request_info.normalized_uri,
-            cacheability_info.pattern
-        )
+        if request_info.request_method ~= 'POST' then
+            ids = caching_handlers._extract_ids_from_uri(
+                request_info.normalized_uri,
+                cacheability_info.pattern
+            )
+        else
+            ids = {
+                spectre_common.get_id_from_req_body(cacheability_info.post_id_fields, request_info.request_body)
+            }
+        end
     end
+    return ids
+end
 
+-- Callback to save response to cache, to be executed after the response has been sent
+function caching_handlers._post_request_callback(response, request_info, cacheability_info)
+    local ids = caching_handlers._get_cache_key(request_info, cacheability_info)
     local success, err = xpcall(
         function()
             spectre_common.cache_store(
@@ -48,13 +59,7 @@ end
 
 -- Respond to requests for caching normal endpoints (non-bulk)
 function caching_handlers._caching_handler(request_info, cacheability_info)
-    local id = 'null'
-    if cacheability_info.enable_id_extraction then
-        id = caching_handlers._extract_ids_from_uri(
-            request_info.normalized_uri,
-            cacheability_info.pattern
-        )[1]
-    end
+    local id = caching_handlers._get_cache_key(request_info, cacheability_info)[1]
 
     -- Check if datastore already has url cached
     local cached_value = spectre_common.fetch_from_cache(
@@ -158,6 +163,8 @@ function caching_handlers._parse_request(incoming_zipkin_headers)
             normalized_uri = normalized_uri,
             vary_headers = vary_headers,
             destination = destination,
+            request_method = ngx.req.get_method(),
+            request_body = ngx.var.request_body
         }
     end
     return cacheability_info, request_info

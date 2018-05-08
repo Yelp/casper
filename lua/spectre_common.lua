@@ -23,6 +23,10 @@ local HEADERS = {
     ZIPKIN_ID = 'X-Zipkin-Id',
 }
 
+local POST_CACHEABLE_HEADERS = {
+    ['Content-Type']={'application/json'}
+}
+
 -- JSON encode the message table provided and logs it
 local function log(level, err)
     local formatted_err = json:encode(err)
@@ -67,6 +71,16 @@ local function has_marker_headers(headers, marker_header_list)
     return false
 end
 
+-- Encodes the id fields in body as string
+local function get_id_from_req_body(id_fields, request_body)
+    local var_body = {}
+    local body = json:decode(request_body)
+    for _, key in ipairs(id_fields) do
+        table.insert(var_body, key .. ':' .. tostring(body[key]))
+    end
+    return table.concat(var_body, ',')
+end
+
 -- @return (boolean indicating if cacheable, TTL in seconds, cache name from config,
 --          reason for non-cacheability, vary headers list)
 local function determine_if_cacheable(url, namespace, request_headers)
@@ -81,6 +95,7 @@ local function determine_if_cacheable(url, namespace, request_headers)
         id_identifier = nil,
         refresh_cache = false,
         num_buckets = nil,
+        post_id_fields = nil,
     }
 
     local spectre_config = config_loader.get_spectre_config_for_namespace(namespace)
@@ -103,13 +118,14 @@ local function determine_if_cacheable(url, namespace, request_headers)
                 id_identifier = cache_entry['id_identifier'],
                 dont_cache_missing_ids = cache_entry['dont_cache_missing_ids'],
                 enable_id_extraction = cache_entry['enable_id_extraction'],
+                post_id_fields = cache_entry['post_id_fields'],
                 refresh_cache = false,
                 num_buckets = cache_entry['buckets'],
             }
 
             -- Only cache GET and HEAD requests
             local http_method = ngx.req.get_method()
-            if http_method ~= 'GET' and http_method ~= 'HEAD' then
+            if http_method ~= 'GET' and http_method ~= 'HEAD' and http_method ~= 'POST' then
                 cacheability_info.is_cacheable = false
                 cacheability_info.reason = 'non-cacheable-method'
             end
@@ -120,11 +136,20 @@ local function determine_if_cacheable(url, namespace, request_headers)
                 cacheability_info.reason = 'no-cache-header'
                 cacheability_info.refresh_cache = true
             end
-            break
+
+            if http_method == 'POST' then
+                if not has_marker_headers(request_headers, POST_CACHEABLE_HEADERS) then
+                    -- For Post requests check the body type is application/json
+                    cacheability_info.is_cacheable = false
+                    cacheability_info.reason = 'post-body-type'
+                    cacheability_info.refresh_cache = true
+                else
+                    -- Start reading the request body into ngx cache.
+                    ngx.req.read_body()
+                end
+            end
         end
     end
-
-
 
     return cacheability_info
 end
@@ -487,6 +512,7 @@ local function get_response_from_remote_service(incoming_zipkin_headers, method,
 end
 
 return {
+    get_id_from_req_body = get_id_from_req_body,
     determine_if_cacheable = determine_if_cacheable,
     forward_to_destination = forward_to_destination,
     add_zipkin_headers_to_response_headers = add_zipkin_headers_to_response_headers,

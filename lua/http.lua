@@ -9,9 +9,12 @@ local function make_http_request(method, uri, headers)
 
     local client_body_reader, _ = httpc:get_client_body_reader()
 
+    -- If body data is already read by some module use it.
+    local body = ngx.var.request_body
+
     local response, error_message = httpc:request_uri(uri, {
         method = method,
-        body = client_body_reader,
+        body = body or client_body_reader,
         headers = headers,
     })
 
