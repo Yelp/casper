@@ -41,20 +41,16 @@ describe("spectre_common", function()
             assert.are.equal(1234, cacheability_info.cache_entry['ttl'])
             assert.are.equal(nil, cacheability_info.cache_entry['cache_status'])
             assert.are.same({'X-Mode', 'Accept-Encoding'}, cacheability_info.vary_headers_list)
-            assert.is_true(
-                cacheability_info['cache_entry'] ~= nil and
-                cacheability_info.cache_entry['dont_cache_missing_ids'] == nil
-            )
+            assert.is_not_nil(cacheability_info['cache_entry'])
+            assert.is_nil(cacheability_info.cache_entry['dont_cache_missing_ids'])
 
             local cacheability_info = spectre_common.determine_if_cacheable('/also_cached', 'srv.main', {})
             assert.is_true(cacheability_info['cache_entry'] ~= nil and cacheability_info.cache_entry['dont_cache_missing_ids'])
 
             cacheability_info = spectre_common.determine_if_cacheable('/notcached', 'srv.main', {})
             assert.is_false(cacheability_info.is_cacheable)
-            assert.is_true(
-                cacheability_info['cache_entry'] ~= nil and
-                cacheability_info.cache_entry['ttl'] == nil
-            )
+            assert.is_not_nil(cacheability_info['cache_entry'])
+            assert.is_nil(cacheability_info.cache_entry['ttl'])
             assert.are.equal('non-cacheable-uri (srv.main)', cacheability_info.reason)
             assert.is_nil(cacheability_info.vary_headers_list)
         end)
@@ -77,10 +73,8 @@ describe("spectre_common", function()
 
             cacheability_info = spectre_common.determine_if_cacheable('/not/yelp/', 'srv.main', {})
             assert.is_false(cacheability_info.is_cacheable)
-            assert.is_true(
-                cacheability_info['cache_entry'] ~= nil and
-                cacheability_info.cache_entry['ttl'] == nil
-            )
+            assert.is_not_nil(cacheability_info['cache_entry'])
+            assert.is_nil(cacheability_info.cache_entry['ttl'])
             assert.are.equal('non-cacheable-uri (srv.main)', cacheability_info.reason)
             assert.is_nil(cacheability_info.vary_headers_list)
         end)
@@ -173,10 +167,8 @@ describe("spectre_common", function()
 
             local cacheability_info = spectre_common.determine_if_cacheable('/baz', 'srv.main', {})
             assert.is_false(cacheability_info.is_cacheable)
-            assert.is_true(
-                cacheability_info['cache_entry'] ~= nil and
-                cacheability_info.cache_entry['ttl'] == nil
-            )
+            assert.is_not_nil(cacheability_info['cache_entry'])
+            assert.is_nil(cacheability_info.cache_entry['ttl'])
             assert.are.equals('non-configured-namespace (srv.main)', cacheability_info.reason)
             assert.is_nil(cacheability_info.vary_headers_list)
         end)
@@ -270,10 +262,8 @@ describe("spectre_common", function()
             config_loader.set_spectre_config_for_namespace('srv.main', nil)
             local cacheability_info = spectre_common.determine_if_cacheable('/baz', 'srv.main', {})
             assert.is_false(cacheability_info.is_cacheable)
-            assert.is_true(
-                cacheability_info['cache_entry'] ~= nil and
-                cacheability_info.cache_entry['ttl'] == nil
-            )
+            assert.is_not_nil(cacheability_info['cache_entry'])
+            assert.is_nil(cacheability_info.cache_entry['ttl'])
             assert.is_nil(cacheability_info.cache_name)
             assert.are.equals('non-configured-namespace (srv.main)', cacheability_info.reason)
         end)

@@ -92,39 +92,27 @@ end
 
 -- Emit metrics after response is sent, for external requests
 local function emit_cache_metrics(start_time, end_time, namespace, response, status)
-    local cache_name = ''
-    local reason = ''
-    local is_cacheable = false
-    local bulk_support = false
-    if response.cacheability_info ~= nil then
-        cache_name = response.cacheability_info.cache_name
-        reason = response.cacheability_info.reason
-        is_cacheable = response.cacheability_info.is_cacheable
-        if response.cacheability_info.cache_entry ~= nil then
-            bulk_support = response.cacheability_info.cache_entry.bulk_support
-        end
-    end
-    if is_cacheable then
+    if response.cacheability_info.cache_entry.is_cacheable then
         emit_request_timing(
             (end_time - start_time) * 1000,
             namespace,
-            cache_name,
+            response.cacheability_info.cache_name,
             status
         )
     end
 
-    if reason == 'no-cache-header' then
+    if response.cacheability_info.reason == 'no-cache-header' then
         emit_counter('spectre.no_cache_header', {
             {'namespace', namespace},
-            {'cache_name', cache_name},
-            {'reason', reason},
+            {'cache_name', response.cacheability_info.cache_name},
+            {'reason', response.cacheability_info.reason},
         })
     end
 
-    if bulk_support then
+    if response.cacheability_info.cache_entry.bulk_support then
         emit_counter('spectre.bulk_hit_rate', {
             {'namespace', namespace},
-            {'cache_name', cache_name},
+            {'cache_name', response.cacheability_info.cache_name},
             {'cache_status', response.headers['Spectre-Cache-Status'] }
         })
 
@@ -133,7 +121,7 @@ local function emit_cache_metrics(start_time, end_time, namespace, response, sta
                 {'message', 'non_json_response'},
                 {'status_code', status},
                 {'namespace', namespace},
-                {'cache_name', cache_name},
+                {'cache_name', response.cacheability_info.cache_name},
             })
         end
 
@@ -142,7 +130,7 @@ local function emit_cache_metrics(start_time, end_time, namespace, response, sta
                 {'message', 'unexpected_status_code'},
                 {'status_code', status},
                 {'namespace', namespace},
-                {'cache_name', cache_name},
+                {'cache_name', response.cacheability_info.cache_name},
             })
         end
     end

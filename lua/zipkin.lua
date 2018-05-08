@@ -82,6 +82,7 @@ function zipkin.emit_syslog(headers, start_time, end_time)
     if headers['X-B3-TraceId'] ~= nil and
             headers['X-B3-SpanId'] ~= nil and
             headers['X-B3-ParentSpanId'] ~= nil then
+
         local request_string = string.format('"%s %s %s"',
             ngx.var.request_method,
             ngx.var.request_uri,

@@ -116,6 +116,7 @@ insulate('caching_handlers', function()
                 },
                 {
                     cache_name = 'test_cache',
+                    cache_entry = {},
                     ttl = 10,
                 }
             )
@@ -179,7 +180,7 @@ insulate('caching_handlers', function()
                     cassandra_error = false,
                 }
             end
-            local res = caching_handlers._caching_handler({incoming_zipkin_headers = {}}, {})
+            local res = caching_handlers._caching_handler({incoming_zipkin_headers = {}},{cache_entry = {}})
             assert.are.equal(ngx.HTTP_OK, res.status)
             assert.are.equal('cached body', res.body)
             assert.are.equal('hit', res.headers[spectre_common.HEADERS.CACHE_STATUS])
@@ -204,7 +205,7 @@ insulate('caching_handlers', function()
             end
             local res = caching_handlers._caching_handler(
                 {incoming_zipkin_headers = {}},
-                {cache_name = 'test_cache'}
+                {cache_name = 'test_cache', cache_entry = {}}
             )
 
             assert.are.equal(ngx.HTTP_OK, res.status)
@@ -235,7 +236,7 @@ insulate('caching_handlers', function()
             end
             local res = caching_handlers._caching_handler(
                 {incoming_zipkin_headers = {}},
-                {cache_name = 'test_cache'}
+                {cache_name = 'test_cache', cache_entry = {}}
             )
 
             assert.are.equal(ngx.HTTP_METHOD_NOT_IMPLEMENTED, res.status)
@@ -264,7 +265,7 @@ insulate('caching_handlers', function()
             end
             local res = caching_handlers._caching_handler(
                 {incoming_zipkin_headers = {}},
-                {cache_name = 'test_cache'}
+                {cache_name = 'test_cache', cache_entry = {}}
             )
 
             assert.are.equal(ngx.HTTP_OK, res.status)
