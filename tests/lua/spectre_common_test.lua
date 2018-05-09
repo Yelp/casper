@@ -75,6 +75,40 @@ describe("spectre_common", function()
             assert.is_nil(cacheability_info.vary_headers_list)
         end)
 
+        it("caches POST endpoints with JSON body", function()
+            stub(ngx.req, 'read_body')
+            config_loader.set_spectre_config_for_namespace('srv.main', {
+                cached_endpoints = {
+                    test_cache = { pattern = "^/yelp/.*$", ttl = 1234, bulk_support=false}
+                }
+            })
+            ngx.req.get_method = function() return 'POST' end
+
+            local headers = {['Content-Type'] = 'application/json'}
+            local cacheability_info = spectre_common.determine_if_cacheable('/yelp/business/info', 'srv.main', headers)
+            assert.is_true(cacheability_info.is_cacheable)
+            assert.are.equal(1234, cacheability_info.ttl)
+            assert.are.equal('test_cache', cacheability_info.cache_name)
+            assert.is_nil(cacheability_info.reason)
+            assert.are.same({}, cacheability_info.vary_headers_list)
+            assert.stub(ngx.req.read_body).was_called()
+            ngx.req.read_body:revert()
+        end)
+
+        it("does not cache bulk POST endpoints ", function()
+            config_loader.set_spectre_config_for_namespace('srv.main', {
+                cached_endpoints = {
+                    test_cache = { pattern = "^/yelp/.*$", ttl = 1234, bulk_support=true}
+                }
+            })
+            ngx.req.get_method = function() return 'POST' end
+
+            local headers = {['Content-Type'] = 'application/json'}
+            local cacheability_info = spectre_common.determine_if_cacheable('/yelp/business/info', 'srv.main', headers)
+            assert.is_false(cacheability_info.is_cacheable)
+            assert.are.equal('no-bulk-support-for-post', cacheability_info.reason)
+        end)
+
         it("does not cache POST requests with non-json body", function()
             ngx.req.get_method = function() return 'POST' end
 
@@ -376,6 +410,25 @@ describe("spectre_common", function()
                 assert.are.same({'1'}, individual_ids)
             end)
         end)
+
+        describe("get_id_from_req_body", function()
+            it("works with JSON request body", function()
+                local individual_id = spectre_common.get_id_from_req_body(
+                    {'id1', 'id2'},
+                    '{"id1":"abc","id3":"random","id2":213}'
+                )
+                assert.are.same('id1:abc,id2:213', individual_id)
+            end)
+
+            it("fails if keys are missing in request body", function()
+                local status, _ = pcall(
+                    spectre_common.get_id_from_req_body,
+                    {'id1', 'id4'},
+                    '{"id1":"abc","id3":"random","id2":213}'
+                )
+                assert.are.same(false, status)
+            end)
+        end)
     end)
 
     describe("get_target_uri", function()
@@ -454,4 +507,5 @@ describe("spectre_common", function()
             assert.are.equal('RESULT', resp.body)
         end)
     end)
+
 end)

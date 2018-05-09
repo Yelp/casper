@@ -7,6 +7,8 @@ insulate('caching_handlers', function()
     local old_cacheable
     local old_fetch
     local old_get
+    local old_get_id_from_req_body
+    local old_ch_extract_ids_from_uri
     local spectre_common
 
     setup(function()
@@ -37,6 +39,8 @@ insulate('caching_handlers', function()
         old_cacheable = spectre_common.determine_if_cacheable
         old_fetch = spectre_common.fetch_from_cache
         old_get = spectre_common.get_response_from_remote_service
+        old_get_id_from_req_body = spectre_common.get_id_from_req_body
+        old_ch_extract_ids_from_uri = caching_handlers._extract_ids_from_uri
         local headers = {
             ['myheader'] = 'foo',
             ['accept-encoding'] = 'gzip, deflate',
@@ -55,6 +59,8 @@ insulate('caching_handlers', function()
         spectre_common.determine_if_cacheable = old_cacheable
         spectre_common.fetch_from_cache = old_fetch
         spectre_common.get_response_from_remote_service = old_get
+        spectre_common.get_id_from_req_body = old_get_id_from_req_body
+        caching_handlers._extract_ids_from_uri = old_ch_extract_ids_from_uri
     end)
 
     describe('post_request_callback', function()
@@ -136,6 +142,7 @@ insulate('caching_handlers', function()
                     destination = 'backend.main',
                     normalized_uri = '/uri?ids=1%2C2%2C3&foo=bar',
                     vary_headers = {Header3 = 'vary'},
+                    request_method = 'GET'
                 },
                 {
                     cache_name = 'test_cache',
@@ -164,6 +171,112 @@ insulate('caching_handlers', function()
             spectre_common.log:revert()
             spectre_common.cache_store:revert()
         end)
+
+        it('correctly gets all ids from body', function()
+            stub(spectre_common, 'log')
+            stub(spectre_common, 'cache_store')
+            caching_handlers._post_request_callback(
+                {
+                    body = 'test body',
+                    cacheable_headers = {Header1 = 'cacheable'},
+                    uncacheable_headers = {Header2 = 'uncacheable'},
+                },
+                {
+                    destination = 'backend.main',
+                    normalized_uri = '/uri?ids=1%2C2%2C3&foo=bar',
+                    request_body = '{"id":123}',
+                    request_method = 'POST',
+                    vary_headers = {Header3 = 'vary'},
+                },
+                {
+                    cache_name = 'test_cache',
+                    enable_id_extraction = true,
+                    post_id_fields = {'id'},
+                    ttl = 10,
+                    num_buckets = 500,
+                }
+            )
+
+            assert.stub(spectre_common.cache_store).was_called()
+            assert.stub(spectre_common.cache_store).was_called_with(
+                match.is_table(),
+                {'id:123'},
+                '/uri?ids=1%2C2%2C3&foo=bar',
+                'backend.main',
+                'test_cache',
+                'test body',
+                {Header1 = 'cacheable'},
+                {Header3 = 'vary'},
+                10,
+                500
+            )
+            assert.stub(spectre_common.log).was_not_called()
+            -- revert the stubs
+            spectre_common.log:revert()
+            spectre_common.cache_store:revert()
+        end)
+
+    end)
+
+    describe('get_cache_key', function()
+        it('returns default for no extract id config', function()
+            local res = caching_handlers._get_cache_key({},{enable_id_extraction = false})
+            assert.are.same({'null'}, res)
+        end)
+
+        it('extracts id from uri for get calls', function()
+            caching_handlers._extract_ids_from_uri = function(_, _)
+                return { 'id1', 'id2' }
+            end
+
+            local res = caching_handlers._get_cache_key(
+                {
+                    request_method = 'GET',
+                    normalized_uri = 'testuri/id1'
+                },
+                {
+                    enable_id_extraction = true,
+                    pattern = 'regex_for_extracting'
+                }
+            )
+
+            assert.are.same({'id1', 'id2' }, res)
+        end)
+
+        it('fails on cached post endpoint with no body', function()
+            local status, _ = pcall(
+                caching_handlers._get_cache_key,
+                {
+                    request_method = 'POST',
+                    request_body = nil
+                },
+                {
+                    enable_id_extraction = true,
+                    post_id_fields = '[list_of_keys]'
+                }
+            )
+            assert.are.same(false, status)
+        end)
+
+        it('extracts id from body for post calls', function()
+            spectre_common.get_id_from_req_body = function(_, _)
+            return 'id1'
+        end
+
+        local res = caching_handlers._get_cache_key(
+            {
+                request_method = 'POST',
+                request_body = 'sample_body'
+            },
+            {
+                enable_id_extraction = true,
+                post_id_fields = '[list_of_keys]'
+            }
+        )
+
+        assert.are.same({'id1'}, res)
+    end)
+
     end)
 
     describe('caching_handler', function()

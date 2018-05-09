@@ -71,12 +71,16 @@ local function has_marker_headers(headers, marker_header_list)
     return false
 end
 
--- Encodes the id fields in body as string
+-- Encodes the id fields in request body as single string
 local function get_id_from_req_body(id_fields, request_body)
     local var_body = {}
     local body = json:decode(request_body)
     for _, key in ipairs(id_fields) do
-        table.insert(var_body, key .. ':' .. tostring(body[key]))
+        if body[key] ~= nil then
+            table.insert(var_body, key .. ':' .. tostring(body[key]))
+        else
+            error('Key not available in request body:' .. key)
+        end
     end
     return table.concat(var_body, ',')
 end
@@ -139,7 +143,7 @@ local function determine_if_cacheable(url, namespace, request_headers)
 
             if http_method == 'POST' then
                 if not has_marker_headers(request_headers, POST_CACHEABLE_HEADERS) then
-                    -- For Post requests check the body type is application/json
+                    -- For Post requests check the content type is application/json
                     cacheability_info.is_cacheable = false
                     cacheability_info.reason = 'non-cacheable-content-type'
                     cacheability_info.refresh_cache = false

@@ -27,7 +27,9 @@ function caching_handlers._get_cache_key(request_info, cacheability_info)
         elseif request_info.request_body ~= nil then
             ids = {
                     spectre_common.get_id_from_req_body(cacheability_info.post_id_fields, request_info.request_body)
-                }
+            }
+        else
+            error ("POST endpoint with id_extraction enabled has no request body" .. request_info.normalized_uri)
         end
     end
     return ids
