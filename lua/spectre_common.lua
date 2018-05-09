@@ -74,6 +74,12 @@ local function determine_if_cacheable(url, namespace, request_headers)
         is_cacheable = false,
         cache_entry = {
             ttl = nil,
+            pattern = nil,
+            bulk_support = false,
+            id_identifier = nil,
+            dont_cache_missing_ids = false,
+            enable_id_extraction = false,
+            num_buckets = 0,
         },
         cache_name = nil,
         reason = 'non-cacheable-uri (' .. namespace .. ')',

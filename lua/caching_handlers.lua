@@ -181,7 +181,7 @@ function caching_handlers.caching_proxy(incoming_zipkin_headers)
     end
 
     local handler_response
-    local handler_fn = cacheability_info.cache_entry['bulk_support']
+    local handler_fn = cacheability_info.cache_entry.bulk_support
                            and bulk_endpoints.bulk_endpoint_caching_handler
                            or caching_handlers._caching_handler
 
