@@ -16,7 +16,7 @@ local function kick_off_requests_for_bulk_request(endpoint_ids, separator, reque
 
     for ordinal, endpoint_id in pairs(endpoint_ids) do
         local indiv_request = spectre_common.construct_uri(
-            cacheability_info.pattern,
+            cacheability_info.cache_entry.pattern,
             {endpoint_id},
             request_info.normalized_uri,
             separator,
@@ -86,7 +86,7 @@ end
 -- Store individual responses into cache after the response has been sent back
 local function bulk_proxy_post_request_handler(response, request_info, cacheability_info, final_responses, headers)
     for ordinal, miss_request in pairs(response.miss_requests) do
-        if final_responses[ordinal] ~= nil or cacheability_info.dont_cache_missing_ids ~= true then
+        if final_responses[ordinal] ~= nil or cacheability_info.cache_entry.dont_cache_missing_ids ~= true then
             local success, err = xpcall(
                 function()
                     spectre_common.cache_store(
@@ -98,7 +98,7 @@ local function bulk_proxy_post_request_handler(response, request_info, cacheabil
                         json:encode({final_responses[ordinal]}, nil, { null = JSON_NULL_VALUE }),
                         headers,
                         request_info.vary_headers,
-                        cacheability_info.ttl
+                        cacheability_info.cache_entry.ttl
                     )
                 end, debug.traceback)
 
@@ -121,7 +121,7 @@ local function bulk_endpoint_caching_handler(request_info, cacheability_info)
     local bulk_status = ngx.HTTP_OK
     local all_endpoint_ids, separator = extract_ids_from_uri(
         request_info.normalized_uri,
-        cacheability_info.pattern
+        cacheability_info.cache_entry.pattern
     )
 
     local cache_response = get_bulk_data_from_cache(all_endpoint_ids, separator, request_info, cacheability_info)
@@ -135,7 +135,7 @@ local function bulk_endpoint_caching_handler(request_info, cacheability_info)
     else
         -- If there are misses, then construct requests from the misses and forward them
         local bulk_request = spectre_common.construct_uri(
-            cacheability_info.pattern,
+            cacheability_info.cache_entry.pattern,
             cache_response.miss_ids,
             request_info.normalized_uri,
             separator,
@@ -181,7 +181,7 @@ local function bulk_endpoint_caching_handler(request_info, cacheability_info)
         bulk_resp_body = json:decode(bulk_resp_body, nil, { null = JSON_NULL_VALUE })
         local miss_id_responses = {}
         for _, single_resp in ipairs(bulk_resp_body) do
-            local request_id = spectre_common.get_response_id(single_resp, cacheability_info.id_identifier)
+            local request_id = spectre_common.get_response_id(single_resp, cacheability_info.cache_entry.id_identifier)
             miss_id_responses[request_id] = single_resp
         end
 
