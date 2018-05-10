@@ -222,7 +222,7 @@ class TestPostMethod(object):
         response = post_through_spectre('/timestamp/post')
         assert response.status_code == 200
         assert response.json()['method'] == 'POST'
-        assert response.headers['Spectre-Cache-Status'] == 'non-cacheable-method'
+        assert response.headers['Spectre-Cache-Status'] == 'non-cacheable-content-type'
 
     def test_post_request_passes_body_data(self):
         POST_DATA = 'a lot of data\n'
@@ -258,7 +258,7 @@ class TestResponseHeaders(object):
         assert response.headers['Spectre-Cache-Status'] == 'no-cache-header'
 
         response = post_through_spectre('/timestamp/spectre_status_header')
-        assert response.headers['Spectre-Cache-Status'] == 'non-cacheable-method'
+        assert response.headers['Spectre-Cache-Status'] == 'non-cacheable-content-type'
 
     def test_response_headers_passed_back(self):
         response = get_through_spectre('/not_cacheable')
