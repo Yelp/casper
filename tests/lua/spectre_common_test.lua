@@ -422,10 +422,10 @@ describe("spectre_common", function()
         describe("get_id_from_req_body", function()
             it("works with JSON request body", function()
                 local individual_id = spectre_common.get_id_from_req_body(
-                    {'id1', 'id2'},
+                    'id1',
                     '{"id1":"abc","id3":"random","id2":213}'
                 )
-                assert.are.same('id1:abc,id2:213', individual_id)
+                assert.are.same('abc', individual_id)
             end)
 
             it("fails if keys are missing in request body", function()

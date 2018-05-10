@@ -198,7 +198,7 @@ insulate('caching_handlers', function()
                     cache_entry = {
                         ttl = 10,
                         enable_id_extraction = true,
-                        post_id_fields = {'id'},
+                        post_body_id = 'id',
                         num_buckets = 500,
                     },
                 }
@@ -207,7 +207,7 @@ insulate('caching_handlers', function()
             assert.stub(spectre_common.cache_store).was_called()
             assert.stub(spectre_common.cache_store).was_called_with(
                 match.is_table(),
-                {'id:123'},
+                {'123'},
                 '/uri',
                 'backend.main',
                 'test_cache',
@@ -264,7 +264,7 @@ insulate('caching_handlers', function()
                 },
                 {
                     enable_id_extraction = true,
-                    post_id_fields = '[list_of_keys]'
+                    post_body_id = 'id_field'
                 }
             )
             assert.are.same(false, status)
@@ -283,7 +283,7 @@ insulate('caching_handlers', function()
             {
                 cache_entry = {
                     enable_id_extraction = true,
-                    post_id_fields = '[list_of_keys]'
+                    post_body_id = 'id_field'
                 }
             }
         )

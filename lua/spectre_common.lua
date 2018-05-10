@@ -72,17 +72,13 @@ local function has_marker_headers(headers, marker_header_list)
 end
 
 -- Encodes the id fields in request body as single string
-local function get_id_from_req_body(id_fields, request_body)
-    local var_body = {}
+local function get_id_from_req_body(id_field, request_body)
     local body = json:decode(request_body)
-    for _, key in ipairs(id_fields) do
-        if body[key] ~= nil then
-            table.insert(var_body, key .. ':' .. tostring(body[key]))
-        else
-            error('Key not available in request body:' .. key)
-        end
+    if body[id_field] ~= nil then
+        return tostring(body[id_field])
+    else
+        error('Id field not available in request body:' .. id_field)
     end
-    return table.concat(var_body, ',')
 end
 
 -- @return (boolean indicating if cacheable, TTL in seconds, cache name from config,
@@ -98,7 +94,7 @@ local function determine_if_cacheable(url, namespace, request_headers)
             dont_cache_missing_ids = false,
             enable_id_extraction = false,
             num_buckets = 0,
-            post_id_fields = nil,
+            post_body_id = nil,
         },
         cache_name = nil,
         reason = 'non-cacheable-uri (' .. namespace .. ')',
