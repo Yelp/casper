@@ -18,15 +18,18 @@ end
 -- Function to compute the id field used in the cache.
 function caching_handlers._get_cache_key(request_info, cacheability_info)
     local ids = {'null'}
-    if cacheability_info.enable_id_extraction then
+    if cacheability_info.cache_entry.enable_id_extraction then
         if request_info.request_method ~= 'POST' then
             ids = caching_handlers._extract_ids_from_uri(
                 request_info.normalized_uri,
-                cacheability_info.pattern
+                cacheability_info.cache_entry.pattern
             )
         elseif request_info.request_body ~= nil then
             ids = {
-                    spectre_common.get_id_from_req_body(cacheability_info.post_id_fields, request_info.request_body)
+                    spectre_common.get_id_from_req_body(
+                        cacheability_info.cache_entry.post_id_fields,
+                        request_info.request_body
+                    )
             }
         else
             error ("POST endpoint with id_extraction enabled has no request body" .. request_info.normalized_uri)
@@ -49,8 +52,8 @@ function caching_handlers._post_request_callback(response, request_info, cacheab
                 response.body,
                 response.cacheable_headers,
                 request_info.vary_headers,
-                cacheability_info.ttl,
-                cacheability_info.num_buckets
+                cacheability_info.cache_entry.ttl,
+                cacheability_info.cache_entry.num_buckets
             )
         end, debug.traceback)
 
@@ -71,7 +74,7 @@ function caching_handlers._caching_handler(request_info, cacheability_info)
         request_info.destination,
         cacheability_info.cache_name,
         request_info.vary_headers,
-        cacheability_info.num_buckets
+        cacheability_info.cache_entry.num_buckets
     )
 
     -- Cache hit
@@ -189,7 +192,7 @@ function caching_handlers.caching_proxy(incoming_zipkin_headers)
     end
 
     local handler_response
-    local handler_fn = cacheability_info.bulk_support
+    local handler_fn = cacheability_info.cache_entry.bulk_support
                            and bulk_endpoints.bulk_endpoint_caching_handler
                            or caching_handlers._caching_handler
 

@@ -90,16 +90,20 @@ end
 local function determine_if_cacheable(url, namespace, request_headers)
     local cacheability_info = {
         is_cacheable = false,
-        ttl = nil,
-        pattern = nil,
+        cache_entry = {
+            ttl = nil,
+            pattern = nil,
+            bulk_support = false,
+            id_identifier = nil,
+            dont_cache_missing_ids = false,
+            enable_id_extraction = false,
+            num_buckets = 0,
+            post_id_fields = nil,
+        },
         cache_name = nil,
         reason = 'non-cacheable-uri (' .. namespace .. ')',
         vary_headers_list = nil,
-        bulk_support = false,
-        id_identifier = nil,
         refresh_cache = false,
-        num_buckets = nil,
-        post_id_fields = nil,
     }
 
     local spectre_config = config_loader.get_spectre_config_for_namespace(namespace)
@@ -113,18 +117,11 @@ local function determine_if_cacheable(url, namespace, request_headers)
             local vary_headers_list = get_vary_headers_list(namespace, cache_entry)
             cacheability_info = {
                 is_cacheable = true,
-                ttl = cache_entry['ttl'],
-                pattern = cache_entry['pattern'],
+                cache_entry = cache_entry,
                 cache_name = cache_name,
                 reason = nil,
                 vary_headers_list = vary_headers_list,
-                bulk_support = cache_entry['bulk_support'],
-                id_identifier = cache_entry['id_identifier'],
-                dont_cache_missing_ids = cache_entry['dont_cache_missing_ids'],
-                enable_id_extraction = cache_entry['enable_id_extraction'],
-                post_id_fields = cache_entry['post_id_fields'],
                 refresh_cache = false,
-                num_buckets = cache_entry['buckets'],
             }
 
             -- Only cache GET and HEAD requests
@@ -147,7 +144,7 @@ local function determine_if_cacheable(url, namespace, request_headers)
                     cacheability_info.is_cacheable = false
                     cacheability_info.reason = 'non-cacheable-content-type'
                     cacheability_info.refresh_cache = false
-                elseif cacheability_info.bulk_support then
+                elseif cacheability_info.cache_entry.bulk_support then
                     -- Stop caching if bulk support is added for a POST endpoint.
                     cacheability_info.is_cacheable = false
                     cacheability_info.reason = 'no-bulk-support-for-post'
@@ -159,6 +156,8 @@ local function determine_if_cacheable(url, namespace, request_headers)
             end
         end
     end
+
+
 
     return cacheability_info
 end
