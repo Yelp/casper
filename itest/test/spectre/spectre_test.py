@@ -218,6 +218,12 @@ class TestGetMethod(object):
 
 class TestPostMethod(object):
 
+    @pytest.fixture(autouse=True)
+    def purge(self):
+        purge_resource({'namespace': 'backend.main', 'cache_name': 'post_no_id'})
+        purge_resource({'namespace': 'backend.main', 'cache_name': 'post_with_id'})
+        purge_resource({'namespace': 'backend.main', 'cache_name': 'post_with_id_varying_body'})
+
     def test_post_request(self):
         response = post_through_spectre('/timestamp/post')
         assert response.status_code == 200
@@ -233,6 +239,97 @@ class TestPostMethod(object):
         resp1 = post_through_spectre('/timestamp/post').json()
         resp2 = post_through_spectre('/timestamp/post').json()
         assert resp1['timestamp'] != resp2['timestamp']
+
+    # Test all cached post endpoints. Content-Type should be application/json
+    def test_post_always_cached(self):
+        response = post_through_spectre(
+            '/post_always_cache/',
+            data={},
+            extra_headers={'content-type': 'application/json'}
+        )
+        assert 200 == response.status_code
+        assert 'miss' == response.headers['Spectre-Cache-Status']
+
+        # When calling again the result should be cached
+        response = post_through_spectre(
+            '/post_always_cache/',
+            data={},
+            extra_headers={'content-type': 'application/json'}
+        )
+        assert 200 == response.status_code
+        assert 'hit' == response.headers['Spectre-Cache-Status']
+
+    def test_post_cache_miss_if_body_doesnt_match(self):
+        response = post_through_spectre(
+            '/post_always_cache/',
+            data='{"field1":"key1"}',
+            extra_headers={'content-type': 'application/json'}
+        )
+        assert 200 == response.status_code
+        assert 'miss' == response.headers['Spectre-Cache-Status']
+
+        # When calling again the result should be cached
+        response = post_through_spectre(
+            '/post_always_cache/',
+            data='{"field1":"key2"}',
+            extra_headers={'content-type': 'application/json'}
+        )
+        assert 200 == response.status_code
+        assert 'miss' == response.headers['Spectre-Cache-Status']
+
+    def test_post_cached_with_id(self):
+        response = post_through_spectre(
+            '/post_id_cache/',
+            data='{"request_id":123}',
+            extra_headers={'content-type': 'application/json'}
+        )
+        assert 200 == response.status_code
+        assert 'miss' == response.headers['Spectre-Cache-Status']
+
+        # When calling with different data, we will see a cache miss.
+        response = post_through_spectre(
+            '/post_id_cache/',
+            data='{"request_id":234}',
+            extra_headers={'content-type': 'application/json'}
+        )
+        assert 200 == response.status_code
+        assert 'miss' == response.headers['Spectre-Cache-Status']
+
+        # Calling again with same request_id should be a cache hit
+        response = post_through_spectre(
+            '/post_id_cache/',
+            data='{"request_id":234}',
+            extra_headers={'content-type': 'application/json'}
+        )
+        assert 200 == response.status_code
+        assert 'hit' == response.headers['Spectre-Cache-Status']
+
+    def test_post_cached_with_id_ignore_fields(self):
+        response = post_through_spectre(
+            '/post_id_cache_variable_body/',
+            data='{"request_id":234, "ignore_field1":"abc"}',
+            extra_headers={'content-type': 'application/json'}
+        )
+        assert 200 == response.status_code
+        assert 'miss' == response.headers['Spectre-Cache-Status']
+
+        # Calling again with same request_id but different ignored fields should be a cache hit
+        response = post_through_spectre(
+            '/post_id_cache_variable_body/',
+            data='{"request_id":234, "ignore_field1":123}',
+            extra_headers={'content-type': 'application/json'}
+        )
+        assert 200 == response.status_code
+        assert 'hit' == response.headers['Spectre-Cache-Status']
+
+        # Calling again with more fields in body which are ignored would also be a cache hit
+        response = post_through_spectre(
+            '/post_id_cache_variable_body/',
+            data='{"request_id":234, "ignore_field1":"xyz", "ignore_field1":"21"}',
+            extra_headers={'content-type': 'application/json'}
+        )
+        assert 200 == response.status_code
+        assert 'hit' == response.headers['Spectre-Cache-Status']
 
 
 class TestHeadMethod(object):
