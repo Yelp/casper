@@ -437,6 +437,33 @@ describe("spectre_common", function()
                 assert.are.same(false, status)
             end)
         end)
+
+        describe("normalize_body", function()
+            it("returns body without any change if it is sorted and no vary fields are used. ", function()
+                local body = spectre_common.normalize_body(
+                    '{"id1":"abc","id2":"random","id3":213}',
+                    {}
+                )
+                assert.are.same('{"id1":"abc","id2":"random","id3":213}', body)
+            end)
+
+            it("returns sorted body and no vary fields are used. ", function()
+                local body = spectre_common.normalize_body(
+                    '{"id1":"abc","id3":213,"id2":"random"}',
+                    {}
+                )
+                assert.are.same('{"id1":"abc","id2":"random","id3":213}', body)
+            end)
+
+            it("returns sorted body and with vary fields removed from the list. ", function()
+                local body = spectre_common.normalize_body(
+                    '{"id1":"abc","id3":213,"id2":"random"}',
+                    {vary_body_field_list = {'id1'}}
+                )
+                assert.are.same('{"id2":"random","id3":213}', body)
+            end)
+        end)
+
     end)
 
     describe("get_target_uri", function()

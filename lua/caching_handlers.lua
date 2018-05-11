@@ -38,15 +38,27 @@ function caching_handlers._get_cache_key(request_info, cacheability_info)
     return ids
 end
 
+-- Function to get uri (cache_key) in the cache.
+-- For post request with normalized body it returns uri..body
+function caching_handlers._get_cache_uri(request_info)
+    local cache_uri = request_info.normalized_uri
+    if request_info.request_method == 'POST' and request_info.normalized_body ~= nil then
+        cache_uri = cache_uri .. request_info.normalized_body
+    end
+    return cache_uri
+end
+
+
 -- Callback to save response to cache, to be executed after the response has been sent
 function caching_handlers._post_request_callback(response, request_info, cacheability_info)
     local ids = caching_handlers._get_cache_key(request_info, cacheability_info)
+    local cache_uri = caching_handlers._get_cache_uri(request_info)
     local success, err = xpcall(
         function()
             spectre_common.cache_store(
                 cassandra_helper,
                 ids,
-                request_info.normalized_uri,
+                cache_uri,
                 request_info.destination,
                 cacheability_info.cache_name,
                 response.body,
@@ -65,12 +77,13 @@ end
 -- Respond to requests for caching normal endpoints (non-bulk)
 function caching_handlers._caching_handler(request_info, cacheability_info)
     local id = caching_handlers._get_cache_key(request_info, cacheability_info)[1]
+    local cache_uri = caching_handlers._get_cache_uri(request_info)
 
     -- Check if datastore already has url cached
     local cached_value = spectre_common.fetch_from_cache(
         cassandra_helper,
         id,
-        request_info.normalized_uri,
+        cache_uri,
         request_info.destination,
         cacheability_info.cache_name,
         request_info.vary_headers,
@@ -171,6 +184,15 @@ function caching_handlers._parse_request(incoming_zipkin_headers)
             request_method = ngx.req.get_method(),
             request_body = ngx.var.request_body
         }
+
+        -- For a POST request also normalize the body.
+        if request_info.request_method == 'POST' and request_info.request_body ~= nil then
+            request_info.normalized_body =  spectre_common.normalize_body(
+                request_info.request_body,
+                cacheability_info.cache_entry
+            )
+        end
+
     end
     return cacheability_info, request_info
 end

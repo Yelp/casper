@@ -95,6 +95,7 @@ local function determine_if_cacheable(url, namespace, request_headers)
             enable_id_extraction = false,
             num_buckets = 0,
             post_body_id = nil,
+            vary_body_field_list = nil,
         },
         cache_name = nil,
         reason = 'non-cacheable-uri (' .. namespace .. ')',
@@ -356,6 +357,31 @@ local function normalize_uri(uri)
     return uri_path .. '?' .. sorted_params
 end
 
+-- Normalizes the request body by removing any vary fields
+-- and sorting the keys in lexicographical order
+local function normalize_body(request_body, cache_entry)
+    local body = json:decode(request_body)
+
+    if cache_entry.vary_body_field_list ~= nil then
+        for _, vary_key in ipairs(cache_entry.vary_body_field_list) do
+            body[vary_key] = nil
+        end
+    end
+
+    local keys = {}
+    -- populate the table that holds the keys
+    for key in pairs(body) do
+        table.insert(keys, key)
+    end
+    table.sort(keys)
+
+    local vary_body = {}
+    for _, key in ipairs(keys) do
+        vary_body[key] = body[key]
+    end
+    return json:encode(vary_body)
+end
+
 -- Takes a single response (dictionary) and looks for request id in it
 -- ie single_resp = {id=3, reviews='this is a review'}.
 -- get_response_id(single_resp, 'id') returns '3'
@@ -529,6 +555,7 @@ return {
     get_vary_headers_list = get_vary_headers_list,
     get_vary_headers = get_vary_headers,
     normalize_uri = normalize_uri,
+    normalize_body = normalize_body,
     get_response_id = get_response_id,
     format_into_json = format_into_json,
     construct_uri = construct_uri,
