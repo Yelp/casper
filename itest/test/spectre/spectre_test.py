@@ -228,7 +228,7 @@ class TestPostMethod(object):
         response = post_through_spectre('/timestamp/post')
         assert response.status_code == 200
         assert response.json()['method'] == 'POST'
-        assert response.headers['Spectre-Cache-Status'] == 'non-cacheable-content-type'
+        assert response.headers['Spectre-Cache-Status'] == 'non-cacheable-uri (backend.main)'
 
     def test_post_request_passes_body_data(self):
         POST_DATA = 'a lot of data\n'
@@ -259,7 +259,7 @@ class TestPostMethod(object):
         assert 200 == response.status_code
         assert 'hit' == response.headers['Spectre-Cache-Status']
 
-    def test_post_cache_miss_if_body_doesnt_match(self):
+    def test_post_cache_hit_even_if_body_doesnt_match_without_vary(self):
         response = post_through_spectre(
             '/post_always_cache/',
             data='{"field1":"key1"}',
@@ -275,12 +275,12 @@ class TestPostMethod(object):
             extra_headers={'content-type': 'application/json'}
         )
         assert 200 == response.status_code
-        assert 'miss' == response.headers['Spectre-Cache-Status']
+        assert 'hit' == response.headers['Spectre-Cache-Status']
 
     def test_post_cached_with_id(self):
         response = post_through_spectre(
             '/post_id_cache/',
-            data='{"request_id":123}',
+            data='{"request_id":123, "vary_id":"abc"}',
             extra_headers={'content-type': 'application/json'}
         )
         assert 200 == response.status_code
@@ -289,7 +289,16 @@ class TestPostMethod(object):
         # When calling with different data, we will see a cache miss.
         response = post_through_spectre(
             '/post_id_cache/',
-            data='{"request_id":234}',
+            data='{"request_id":234, "vary_id":"abc"}',
+            extra_headers={'content-type': 'application/json'}
+        )
+        assert 200 == response.status_code
+        assert 'miss' == response.headers['Spectre-Cache-Status']
+
+        # When calling with different data with same id, we will see a cache miss.
+        response = post_through_spectre(
+            '/post_id_cache/',
+            data='{"request_id":234, "vary_id":"def"}',
             extra_headers={'content-type': 'application/json'}
         )
         assert 200 == response.status_code
@@ -298,7 +307,7 @@ class TestPostMethod(object):
         # Calling again with same request_id should be a cache hit
         response = post_through_spectre(
             '/post_id_cache/',
-            data='{"request_id":234}',
+            data='{"request_id":234, "vary_id":"abc"}',
             extra_headers={'content-type': 'application/json'}
         )
         assert 200 == response.status_code
@@ -325,7 +334,7 @@ class TestPostMethod(object):
         # Calling again with more fields in body which are ignored would also be a cache hit
         response = post_through_spectre(
             '/post_id_cache_variable_body/',
-            data='{"request_id":234, "ignore_field1":"xyz", "ignore_field1":"21"}',
+            data='{"request_id":234, "ignore_field1":"xyz", "ignore_field2":"21"}',
             extra_headers={'content-type': 'application/json'}
         )
         assert 200 == response.status_code
@@ -355,7 +364,7 @@ class TestResponseHeaders(object):
         assert response.headers['Spectre-Cache-Status'] == 'no-cache-header'
 
         response = post_through_spectre('/timestamp/spectre_status_header')
-        assert response.headers['Spectre-Cache-Status'] == 'non-cacheable-content-type'
+        assert response.headers['Spectre-Cache-Status'] == 'non-cacheable-uri (backend.main)'
 
     def test_response_headers_passed_back(self):
         response = get_through_spectre('/not_cacheable')
