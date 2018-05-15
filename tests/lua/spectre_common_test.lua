@@ -37,6 +37,7 @@ describe("spectre_common", function()
             ngx.req.get_method = function() return 'GET' end
 
             local cacheability_info = spectre_common.determine_if_cacheable('/cached', 'srv.main', {})
+            assert.is_nil(cacheability_info.reason)
             assert.is_true(cacheability_info.is_cacheable)
             assert.are.equal(1234, cacheability_info.cache_entry['ttl'])
             assert.are.equal(nil, cacheability_info.cache_entry['cache_status'])
@@ -83,10 +84,11 @@ describe("spectre_common", function()
             stub(ngx.req, 'read_body')
             config_loader.set_spectre_config_for_namespace('srv.main', {
                 cached_endpoints = {
-                    test_cache = { pattern = "^/yelp/.*$", ttl = 1234, bulk_support=false}
+                    test_cache = { pattern = "^/yelp/.*$", ttl = 1234, bulk_support=false, request_method = 'POST'}
                 }
             })
             ngx.req.get_method = function() return 'POST' end
+            ngx.var = { request_body = '{}'}
 
             local headers = {['Content-Type'] = 'application/json'}
             local cacheability_info = spectre_common.determine_if_cacheable('/yelp/business/info', 'srv.main', headers)
@@ -104,7 +106,7 @@ describe("spectre_common", function()
         it("does not cache bulk POST endpoints ", function()
             config_loader.set_spectre_config_for_namespace('srv.main', {
                 cached_endpoints = {
-                    test_cache = { pattern = "^/yelp/.*$", ttl = 1234, bulk_support=true}
+                    test_cache = { pattern = "^/yelp/.*$", ttl = 1234, bulk_support=true, request_method = 'POST'}
                 }
             })
             ngx.req.get_method = function() return 'POST' end
@@ -439,28 +441,60 @@ describe("spectre_common", function()
         end)
 
         describe("normalize_body", function()
-            it("returns body without any change if it is sorted and no vary fields are used. ", function()
+            it("returns body without any change if it is sorted and all fields are vary fields. ", function()
                 local body = spectre_common.normalize_body(
                     '{"id1":"abc","id2":"random","id3":213}',
-                    {}
+                    {request_method = 'POST', vary_body_field_list = {'id1','id2','id3'}}
                 )
                 assert.are.same('{"id1":"abc","id2":"random","id3":213}', body)
             end)
 
-            it("returns sorted body and no vary fields are used. ", function()
+            it("returns sorted body and all fields are vary. ", function()
                 local body = spectre_common.normalize_body(
                     '{"id1":"abc","id3":213,"id2":"random"}',
-                    {}
+                    {request_method = 'POST', vary_body_field_list = {'id1','id3','id2'}}
                 )
                 assert.are.same('{"id1":"abc","id2":"random","id3":213}', body)
             end)
 
-            it("returns sorted body and with vary fields removed from the list. ", function()
+            it("returns sorted body and with non-vary fields removed from the list. ", function()
                 local body = spectre_common.normalize_body(
                     '{"id1":"abc","id3":213,"id2":"random"}',
-                    {vary_body_field_list = {'id1'}}
+                    {request_method = 'POST', vary_body_field_list = {'id2', 'id3'}}
                 )
                 assert.are.same('{"id2":"random","id3":213}', body)
+            end)
+
+            it("returns sorted body and all fields are vary or post id. ", function()
+                local body = spectre_common.normalize_body(
+                    '{"id1":"abc","id3":213,"id2":"random"}',
+                    {request_method = 'POST', vary_body_field_list = {'id1','id2'}, post_body_id='id3'}
+                )
+                assert.are.same('{"id1":"abc","id2":"random","id3":213}', body)
+            end)
+
+            it("returns sorted body and post id repeated in vary fields. ", function()
+                local body = spectre_common.normalize_body(
+                    '{"id1":"abc","id3":213,"id2":"random"}',
+                    {request_method = 'POST', vary_body_field_list = {'id1','id2', 'id3'}, post_body_id='id3'}
+                )
+                assert.are.same('{"id1":"abc","id2":"random","id3":213}', body)
+            end)
+
+            it("returns nil if method is not POST ", function()
+                local body = spectre_common.normalize_body(
+                    '{"id1":"abc","id3":213,"id2":"random"}',
+                    {request_method = 'GET', vary_body_field_list = {'id1','id2', 'id3'}, post_body_id='id3'}
+                )
+                assert.is_nil(body)
+            end)
+
+            it("returns nil if body is not present ", function()
+                local body = spectre_common.normalize_body(
+                    nil,
+                    {request_method = 'POST'}
+                )
+                assert.is_nil(body)
             end)
         end)
 

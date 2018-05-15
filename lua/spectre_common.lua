@@ -96,6 +96,7 @@ local function determine_if_cacheable(url, namespace, request_headers)
             num_buckets = 0,
             post_body_id = nil,
             vary_body_field_list = nil,
+            request_method = 'GET',  -- default request method.
         },
         cache_name = nil,
         reason = 'non-cacheable-uri (' .. namespace .. ')',
@@ -109,8 +110,13 @@ local function determine_if_cacheable(url, namespace, request_headers)
         return cacheability_info
     end
 
+    local http_method = ngx.req.get_method()
     for cache_name, cache_entry in pairs(spectre_config['cached_endpoints']) do
-        if ngx.re.match(url, cache_entry['pattern']) then
+        if ngx.re.match(url, cache_entry['pattern']) and (
+            -- Compute if http_method is same as in config or http method is GET
+            cache_entry['request_method'] == http_method or cacheability_info.cache_entry.request_method == http_method
+        )
+        then
             local vary_headers_list = get_vary_headers_list(namespace, cache_entry)
             cacheability_info = {
                 is_cacheable = true,
@@ -120,13 +126,6 @@ local function determine_if_cacheable(url, namespace, request_headers)
                 vary_headers_list = vary_headers_list,
                 refresh_cache = false,
             }
-
-            -- Only cache GET and HEAD requests
-            local http_method = ngx.req.get_method()
-            if http_method ~= 'GET' and http_method ~= 'HEAD' and http_method ~= 'POST' then
-                cacheability_info.is_cacheable = false
-                cacheability_info.reason = 'non-cacheable-method'
-            end
 
             -- Check if client sent no-cache header
             if has_marker_headers(request_headers, PLEASE_DO_NOT_CACHE_HEADERS) then
@@ -149,13 +148,18 @@ local function determine_if_cacheable(url, namespace, request_headers)
                 else
                     -- Start reading the request body into ngx cache.
                     ngx.req.read_body()
+                    -- For a POST method id extraction and vary fields are obtained from body.
+                    if ngx.var.request_body == nil and (
+                        cache_entry.enable_id_extraction or cache_entry.vary_body_field_list ~= nil
+                    ) then
+                        cacheability_info.is_cacheable = false
+                        cacheability_info.reason = 'non-cacheable-missing-body'
+                        cacheability_info.refresh_cache = false
+                    end
                 end
             end
         end
     end
-
-
-
     return cacheability_info
 end
 
@@ -357,22 +361,28 @@ local function normalize_uri(uri)
     return uri_path .. '?' .. sorted_params
 end
 
--- Normalizes the request body by removing any vary fields
+-- Normalizes the request body by addding only vary fields
 -- and sorting the keys in lexicographical order
 local function normalize_body(request_body, cache_entry)
-    local body = json:decode(request_body)
+    -- Normalize body only for POST methods.
+    if cache_entry.request_method ~= 'POST' then
+        return nil
+    end
 
+    -- If there is no body, nothing to normalize.
+    if request_body == nil then
+        return nil
+    end
+
+    local body = json:decode(request_body)
+    local keys = {}
+    table.insert(keys, cache_entry.post_body_id)
     if cache_entry.vary_body_field_list ~= nil then
         for _, vary_key in ipairs(cache_entry.vary_body_field_list) do
-            body[vary_key] = nil
+            table.insert(keys, vary_key)
         end
     end
-
-    local keys = {}
     -- populate the table that holds the keys
-    for key in pairs(body) do
-        table.insert(keys, key)
-    end
     table.sort(keys)
 
     local vary_body = {}

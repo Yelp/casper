@@ -77,6 +77,7 @@ insulate('caching_handlers', function()
                     normalized_uri = '/uri',
                     destination = 'backend.main',
                     vary_headers = {Header3 = 'vary'},
+                    request_method = 'GET',
                 },
                 {
                     cache_name = 'test_cache',
@@ -101,6 +102,7 @@ insulate('caching_handlers', function()
                 500
             )
             assert.stub(spectre_common.log).was_not_called()
+
             -- revert the stubs
             spectre_common.log:revert()
             spectre_common.cache_store:revert()
@@ -269,9 +271,9 @@ insulate('caching_handlers', function()
 
     end)
 
-    describe('get_cache_key', function()
+    describe('get_cache_id', function()
         it('returns default for no extract id config', function()
-            local res = caching_handlers._get_cache_key(
+            local res = caching_handlers._get_cache_id(
                 {},
                 {cache_entry = {enable_id_extraction = false}}
             )
@@ -283,7 +285,7 @@ insulate('caching_handlers', function()
                 return { 'id1', 'id2' }
             end
 
-            local res = caching_handlers._get_cache_key(
+            local res = caching_handlers._get_cache_id(
                 {
                     request_method = 'GET',
                     normalized_uri = 'testuri/id1'
@@ -301,7 +303,7 @@ insulate('caching_handlers', function()
 
         it('fails on cached post endpoint with no body', function()
             local status, _ = pcall(
-                caching_handlers._get_cache_key,
+                caching_handlers._get_cache_id,
                 {
                     request_method = 'POST',
                     request_body = nil
@@ -319,7 +321,7 @@ insulate('caching_handlers', function()
             return 'id1'
         end
 
-        local res = caching_handlers._get_cache_key(
+        local res = caching_handlers._get_cache_id(
             {
                 request_method = 'POST',
                 request_body = 'sample_body'
@@ -596,6 +598,8 @@ insulate('caching_handlers', function()
                     is_cacheable = true,
                     cache_entry = {
                         bulk_support = false,
+                        post_body_id = 'id',
+                        request_method = 'POST',
                     },
                     cache_name = 'test_cache',
                     vary_headers_list = {'accept-encoding'},
@@ -613,6 +617,8 @@ insulate('caching_handlers', function()
                 is_cacheable = true,
                 cache_entry = {
                     bulk_support = false,
+                    post_body_id     = 'id',
+                    request_method = 'POST',
                 },
                 cache_name = 'test_cache',
                 vary_headers_list = {'accept-encoding'},
