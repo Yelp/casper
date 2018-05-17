@@ -16,7 +16,7 @@ function caching_handlers._extract_ids_from_uri(uri, pattern)
 end
 
 -- Function to compute the id field used in the cache.
-function caching_handlers._get_cache_id(request_info, cacheability_info)
+function caching_handlers._get_cache_ids(request_info, cacheability_info)
     local ids = {'null'}
     if cacheability_info.cache_entry.enable_id_extraction then
         if request_info.request_method ~= 'POST' then
@@ -49,7 +49,7 @@ end
 
 -- Callback to save response to cache, to be executed after the response has been sent
 function caching_handlers._post_request_callback(response, request_info, cacheability_info)
-    local ids = caching_handlers._get_cache_id(request_info, cacheability_info)
+    local ids = caching_handlers._get_cache_ids(request_info, cacheability_info)
     local cache_uri = caching_handlers._get_cache_uri(request_info)
     local success, err = xpcall(
         function()
@@ -74,7 +74,7 @@ end
 
 -- Respond to requests for caching normal endpoints (non-bulk)
 function caching_handlers._caching_handler(request_info, cacheability_info)
-    local id = caching_handlers._get_cache_id(request_info, cacheability_info)[1]
+    local id = caching_handlers._get_cache_ids(request_info, cacheability_info)[1]
     local cache_uri = caching_handlers._get_cache_uri(request_info)
 
     -- Check if datastore already has url cached

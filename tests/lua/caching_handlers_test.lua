@@ -273,7 +273,7 @@ insulate('caching_handlers', function()
 
     describe('get_cache_id', function()
         it('returns default for no extract id config', function()
-            local res = caching_handlers._get_cache_id(
+            local res = caching_handlers._get_cache_ids(
                 {},
                 {cache_entry = {enable_id_extraction = false}}
             )
@@ -285,7 +285,7 @@ insulate('caching_handlers', function()
                 return { 'id1', 'id2' }
             end
 
-            local res = caching_handlers._get_cache_id(
+            local res = caching_handlers._get_cache_ids(
                 {
                     request_method = 'GET',
                     normalized_uri = 'testuri/id1'
@@ -303,7 +303,7 @@ insulate('caching_handlers', function()
 
         it('fails on cached post endpoint with no body', function()
             local status, _ = pcall(
-                caching_handlers._get_cache_id,
+                caching_handlers._get_cache_ids,
                 {
                     request_method = 'POST',
                     request_body = nil
@@ -321,7 +321,7 @@ insulate('caching_handlers', function()
             return 'id1'
         end
 
-        local res = caching_handlers._get_cache_id(
+        local res = caching_handlers._get_cache_ids(
             {
                 request_method = 'POST',
                 request_body = 'sample_body'

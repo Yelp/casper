@@ -23,9 +23,11 @@ local HEADERS = {
     ZIPKIN_ID = 'X-Zipkin-Id',
 }
 
-local POST_CACHEABLE_HEADERS = {
+local SUPPORTED_POST_ENCODING = {
     ['Content-Type']={'application/json'}
 }
+
+local DEFAULT_REQUEST_METHOD = 'GET'
 
 -- JSON encode the message table provided and logs it
 local function log(level, err)
@@ -96,7 +98,7 @@ local function determine_if_cacheable(url, namespace, request_headers)
             num_buckets = 0,
             post_body_id = nil,
             vary_body_field_list = nil,
-            request_method = 'GET',  -- default request method.
+            request_method = DEFAULT_REQUEST_METHOD,
         },
         cache_name = nil,
         reason = 'non-cacheable-uri (' .. namespace .. ')',
@@ -114,7 +116,7 @@ local function determine_if_cacheable(url, namespace, request_headers)
     for cache_name, cache_entry in pairs(spectre_config['cached_endpoints']) do
         if ngx.re.match(url, cache_entry['pattern']) and (
             -- Compute if http_method is same as in config or http method is GET
-            cache_entry['request_method'] == http_method or cacheability_info.cache_entry.request_method == http_method
+            cache_entry['request_method'] == http_method or DEFAULT_REQUEST_METHOD == http_method
         )
         then
             local vary_headers_list = get_vary_headers_list(namespace, cache_entry)
@@ -135,7 +137,7 @@ local function determine_if_cacheable(url, namespace, request_headers)
             end
 
             if http_method == 'POST' then
-                if not has_marker_headers(request_headers, POST_CACHEABLE_HEADERS) then
+                if not has_marker_headers(request_headers, SUPPORTED_POST_ENCODING) then
                     -- For Post requests check the content type is application/json
                     cacheability_info.is_cacheable = false
                     cacheability_info.reason = 'non-cacheable-content-type'
@@ -158,6 +160,7 @@ local function determine_if_cacheable(url, namespace, request_headers)
                     end
                 end
             end
+            break
         end
     end
     return cacheability_info
@@ -375,8 +378,7 @@ local function normalize_body(request_body, cache_entry)
     end
 
     local body = json:decode(request_body)
-    local keys = {}
-    table.insert(keys, cache_entry.post_body_id)
+    local keys = { cache_entry.post_body_id }
     if cache_entry.vary_body_field_list ~= nil then
         for _, vary_key in ipairs(cache_entry.vary_body_field_list) do
             table.insert(keys, vary_key)

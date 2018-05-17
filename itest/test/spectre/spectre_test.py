@@ -340,6 +340,54 @@ class TestPostMethod(object):
         assert 200 == response.status_code
         assert 'hit' == response.headers['Spectre-Cache-Status']
 
+    def test_post_cached_with_id_can_be_purged(self):
+        response = post_through_spectre(
+            '/post_id_cache/',
+            data='{"request_id":123, "vary_id":"abc"}',
+            extra_headers={'content-type': 'application/json'}
+        )
+        assert 200 == response.status_code
+        assert 'miss' == response.headers['Spectre-Cache-Status']
+
+        # When calling with different data with same id, we will see a cache miss.
+        response = post_through_spectre(
+            '/post_id_cache/',
+            data='{"request_id":123, "vary_id":"def"}',
+            extra_headers={'content-type': 'application/json'}
+        )
+        assert 200 == response.status_code
+        assert 'miss' == response.headers['Spectre-Cache-Status']
+
+        # Calling again with same request_id should be a cache hit
+        response = post_through_spectre(
+            '/post_id_cache/',
+            data='{"request_id":123, "vary_id":"abc"}',
+            extra_headers={'content-type': 'application/json'}
+        )
+        assert 200 == response.status_code
+        assert 'hit' == response.headers['Spectre-Cache-Status']
+
+        # Purge all resources with same id.
+        purge_resource({'namespace': 'backend.main', 'cache_name': 'post_with_id', 'id': '123'})
+
+        # All resources with same id should be a miss now.
+        response = post_through_spectre(
+            '/post_id_cache/',
+            data='{"request_id":123, "vary_id":"def"}',
+            extra_headers={'content-type': 'application/json'}
+        )
+        assert 200 == response.status_code
+        assert 'miss' == response.headers['Spectre-Cache-Status']
+
+        response = post_through_spectre(
+            '/post_id_cache/',
+            data='{"request_id":123, "vary_id":"abc"}',
+            extra_headers={'content-type': 'application/json'}
+        )
+        assert 200 == response.status_code
+        assert 'miss' == response.headers['Spectre-Cache-Status']
+
+
 
 class TestHeadMethod(object):
 
