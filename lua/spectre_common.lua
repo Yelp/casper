@@ -23,6 +23,12 @@ local HEADERS = {
     ZIPKIN_ID = 'X-Zipkin-Id',
 }
 
+local SUPPORTED_ENCODING_FOR_ID_EXTRACTION = {
+    ['Content-Type']={'application/json'}
+}
+
+local DEFAULT_REQUEST_METHOD = 'GET'
+
 -- JSON encode the message table provided and logs it
 local function log(level, err)
     local formatted_err = json:encode(err)
@@ -67,6 +73,16 @@ local function has_marker_headers(headers, marker_header_list)
     return false
 end
 
+-- Encodes the id fields in request body as single string
+local function get_id_from_req_body(id_field, request_body)
+    local body = json:decode(request_body)
+    if body[id_field] ~= nil then
+        return tostring(body[id_field])
+    else
+        error('Id field not available in request body:' .. id_field)
+    end
+end
+
 -- @return (boolean indicating if cacheable, TTL in seconds, cache name from config,
 --          reason for non-cacheability, vary headers list)
 local function determine_if_cacheable(url, namespace, request_headers)
@@ -80,6 +96,9 @@ local function determine_if_cacheable(url, namespace, request_headers)
             dont_cache_missing_ids = false,
             enable_id_extraction = false,
             num_buckets = 0,
+            post_body_id = nil,
+            vary_body_field_list = nil,
+            request_method = DEFAULT_REQUEST_METHOD,
         },
         cache_name = nil,
         reason = 'non-cacheable-uri (' .. namespace .. ')',
@@ -93,8 +112,13 @@ local function determine_if_cacheable(url, namespace, request_headers)
         return cacheability_info
     end
 
+    local http_method = ngx.req.get_method()
     for cache_name, cache_entry in pairs(spectre_config['cached_endpoints']) do
-        if ngx.re.match(url, cache_entry['pattern']) then
+        if ngx.re.match(url, cache_entry['pattern']) and (
+            -- Compute if http_method is same as in config or http method is GET
+            cache_entry['request_method'] == http_method or DEFAULT_REQUEST_METHOD == http_method
+        )
+        then
             local vary_headers_list = get_vary_headers_list(namespace, cache_entry)
             cacheability_info = {
                 is_cacheable = true,
@@ -105,25 +129,40 @@ local function determine_if_cacheable(url, namespace, request_headers)
                 refresh_cache = false,
             }
 
-            -- Only cache GET and HEAD requests
-            local http_method = ngx.req.get_method()
-            if http_method ~= 'GET' and http_method ~= 'HEAD' then
-                cacheability_info.is_cacheable = false
-                cacheability_info.reason = 'non-cacheable-method'
-            end
-
             -- Check if client sent no-cache header
             if has_marker_headers(request_headers, PLEASE_DO_NOT_CACHE_HEADERS) then
                 cacheability_info.is_cacheable = false
                 cacheability_info.reason = 'no-cache-header'
                 cacheability_info.refresh_cache = true
             end
+
+            if http_method == 'POST' then
+                if not has_marker_headers(request_headers, SUPPORTED_ENCODING_FOR_ID_EXTRACTION) then
+                    -- For Post requests check the content type is application/json
+                    cacheability_info.is_cacheable = false
+                    cacheability_info.reason = 'non-cacheable-content-type'
+                    cacheability_info.refresh_cache = false
+                elseif cacheability_info.cache_entry.bulk_support then
+                    -- Stop caching if bulk support is added for a POST endpoint.
+                    cacheability_info.is_cacheable = false
+                    cacheability_info.reason = 'no-bulk-support-for-post'
+                    cacheability_info.refresh_cache = false
+                else
+                    -- Start reading the request body into ngx cache.
+                    ngx.req.read_body()
+                    -- For a POST method id extraction and vary fields are obtained from body.
+                    if ngx.var.request_body == nil and (
+                        cache_entry.enable_id_extraction or cache_entry.vary_body_field_list ~= nil
+                    ) then
+                        cacheability_info.is_cacheable = false
+                        cacheability_info.reason = 'non-cacheable-missing-body'
+                        cacheability_info.refresh_cache = false
+                    end
+                end
+            end
             break
         end
     end
-
-
-
     return cacheability_info
 end
 
@@ -325,6 +364,39 @@ local function normalize_uri(uri)
     return uri_path .. '?' .. sorted_params
 end
 
+-- Normalizes the request body by addding only vary fields
+-- and sorting the keys in lexicographical order
+local function normalize_body(request_body, cache_entry)
+    -- Normalize body only for POST methods.
+    if cache_entry.request_method ~= 'POST' then
+        return nil
+    end
+
+    -- If there is no body, nothing to normalize.
+    if request_body == nil then
+        return nil
+    end
+
+    local body = json:decode(request_body)
+    -- Add all the required body fields and id field into keys for sorting.
+    local keys = { cache_entry.post_body_id }
+    if cache_entry.vary_body_field_list ~= nil then
+        for _, vary_key in ipairs(cache_entry.vary_body_field_list) do
+            table.insert(keys, vary_key)
+        end
+    end
+    -- sort the list that holds the keys
+    table.sort(keys)
+
+    -- Create a map with only varying body fields and id field
+    -- with sorted order of keys and convert to a json string.
+    local vary_body = {}
+    for _, key in ipairs(keys) do
+        vary_body[key] = body[key]
+    end
+    return json:encode(vary_body)
+end
+
 -- Takes a single response (dictionary) and looks for request id in it
 -- ie single_resp = {id=3, reviews='this is a review'}.
 -- get_response_id(single_resp, 'id') returns '3'
@@ -485,6 +557,7 @@ local function get_response_from_remote_service(incoming_zipkin_headers, method,
 end
 
 return {
+    get_id_from_req_body = get_id_from_req_body,
     determine_if_cacheable = determine_if_cacheable,
     forward_to_destination = forward_to_destination,
     add_zipkin_headers_to_response_headers = add_zipkin_headers_to_response_headers,
@@ -497,13 +570,16 @@ return {
     get_vary_headers_list = get_vary_headers_list,
     get_vary_headers = get_vary_headers,
     normalize_uri = normalize_uri,
+    normalize_body = normalize_body,
     get_response_id = get_response_id,
     format_into_json = format_into_json,
     construct_uri = construct_uri,
     extract_ids_from_string = extract_ids_from_string,
     fetch_from_cache = fetch_from_cache,
+    has_marker_headers = has_marker_headers,
     cache_store = cache_store,
     log = log,
     HEADERS = HEADERS,
     purge_cache = purge_cache,
+    SUPPORTED_ENCODING_FOR_ID_EXTRACTION = SUPPORTED_ENCODING_FOR_ID_EXTRACTION,
 }
