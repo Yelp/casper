@@ -7,14 +7,17 @@ local function make_http_request(method, uri, headers)
     local httpc = http.new()
     httpc:set_timeout(configs['timeout_ms'])
 
-    local client_body_reader, _ = httpc:get_client_body_reader()
-
     -- If body data is already read by some module use it.
     local body = ngx.var.request_body
+    if body == nil then
+        -- Load client body reader if body is not loaded already.
+        local _
+        body, _= httpc:get_client_body_reader()
+    end
 
     local response, error_message = httpc:request_uri(uri, {
         method = method,
-        body = body or client_body_reader,
+        body = body,
         headers = headers,
     })
 

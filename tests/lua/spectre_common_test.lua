@@ -431,12 +431,14 @@ describe("spectre_common", function()
             end)
 
             it("fails if keys are missing in request body", function()
-                local status, _ = pcall(
+                local status, error = pcall(
                     spectre_common.get_id_from_req_body,
-                    {'id1', 'id4'},
+                    'id4',
                     '{"id1":"abc","id3":"random","id2":213}'
                 )
                 assert.are.same(false, status)
+                -- assert the error message.
+                assert.are_not.equals(nil, string.find(tostring(error), 'Id field not available in request body:id4'))
             end)
         end)
 

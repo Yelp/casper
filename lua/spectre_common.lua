@@ -23,7 +23,7 @@ local HEADERS = {
     ZIPKIN_ID = 'X-Zipkin-Id',
 }
 
-local SUPPORTED_POST_ENCODING = {
+local SUPPORTED_ENCODING_FOR_ID_EXTRACTION = {
     ['Content-Type']={'application/json'}
 }
 
@@ -137,7 +137,7 @@ local function determine_if_cacheable(url, namespace, request_headers)
             end
 
             if http_method == 'POST' then
-                if not has_marker_headers(request_headers, SUPPORTED_POST_ENCODING) then
+                if not has_marker_headers(request_headers, SUPPORTED_ENCODING_FOR_ID_EXTRACTION) then
                     -- For Post requests check the content type is application/json
                     cacheability_info.is_cacheable = false
                     cacheability_info.reason = 'non-cacheable-content-type'
@@ -378,15 +378,18 @@ local function normalize_body(request_body, cache_entry)
     end
 
     local body = json:decode(request_body)
+    -- Add all the required body fields and id field into keys for sorting.
     local keys = { cache_entry.post_body_id }
     if cache_entry.vary_body_field_list ~= nil then
         for _, vary_key in ipairs(cache_entry.vary_body_field_list) do
             table.insert(keys, vary_key)
         end
     end
-    -- populate the table that holds the keys
+    -- sort the list that holds the keys
     table.sort(keys)
 
+    -- Create a map with only varying body fields and id field
+    -- with sorted order of keys and convert to a json string.
     local vary_body = {}
     for _, key in ipairs(keys) do
         vary_body[key] = body[key]
@@ -573,8 +576,10 @@ return {
     construct_uri = construct_uri,
     extract_ids_from_string = extract_ids_from_string,
     fetch_from_cache = fetch_from_cache,
+    has_marker_headers = has_marker_headers,
     cache_store = cache_store,
     log = log,
     HEADERS = HEADERS,
     purge_cache = purge_cache,
+    SUPPORTED_ENCODING_FOR_ID_EXTRACTION = SUPPORTED_ENCODING_FOR_ID_EXTRACTION,
 }

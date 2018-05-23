@@ -8,7 +8,7 @@ insulate('caching_handlers', function()
     local old_fetch
     local old_get
     local old_get_id_from_req_body
-    local old_ch_extract_ids_from_uri
+    local old_extract_ids_from_uri
     local spectre_common
 
     setup(function()
@@ -40,7 +40,7 @@ insulate('caching_handlers', function()
         old_fetch = spectre_common.fetch_from_cache
         old_get = spectre_common.get_response_from_remote_service
         old_get_id_from_req_body = spectre_common.get_id_from_req_body
-        old_ch_extract_ids_from_uri = caching_handlers._extract_ids_from_uri
+        old_extract_ids_from_uri = caching_handlers._extract_ids_from_uri
         local headers = {
             ['myheader'] = 'foo',
             ['accept-encoding'] = 'gzip, deflate',
@@ -60,7 +60,7 @@ insulate('caching_handlers', function()
         spectre_common.fetch_from_cache = old_fetch
         spectre_common.get_response_from_remote_service = old_get
         spectre_common.get_id_from_req_body = old_get_id_from_req_body
-        caching_handlers._extract_ids_from_uri = old_ch_extract_ids_from_uri
+        caching_handlers._extract_ids_from_uri = old_extract_ids_from_uri
     end)
 
     describe('post_request_callback', function()
@@ -617,7 +617,7 @@ insulate('caching_handlers', function()
                 is_cacheable = true,
                 cache_entry = {
                     bulk_support = false,
-                    post_body_id     = 'id',
+                    post_body_id = 'id',
                     request_method = 'POST',
                 },
                 cache_name = 'test_cache',
