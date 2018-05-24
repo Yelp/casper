@@ -39,6 +39,26 @@ cached_endpoints:
         id_identifier: 'id'
         pattern: "(^/not_authorized\\?ids=)((?:\\d|%2C)+)(.*$)"
         ttl: 30
+    # POST endpoints cached.
+    post_no_id:
+        ttl: 30
+        pattern: '^/post_always_cache/$'
+        request_method: POST
+    post_with_id:
+        ttl: 30
+        pattern: '^/post_id_cache/$'
+        enable_id_extraction: true
+        post_body_id: request_id
+        vary_body_field_list: ['vary_id']
+        request_method: POST
+    post_with_id_varying_body:
+        ttl: 30
+        pattern: '^/post_id_cache_variable_body/$'
+        enable_id_extraction: true
+        post_body_id: request_id
+        request_method: POST
+
+
 
 # Default Vary headers. Can be overridden by pattern specific Vary headers
 vary_headers:

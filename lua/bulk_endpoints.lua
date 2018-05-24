@@ -169,11 +169,15 @@ local function bulk_endpoint_caching_handler(request_info, cacheability_info)
         end
 
         -- If the application is not application/json, throw an error
-        local content_type = bulk_resp_headers_cacheable['Content-Type']
-        if not ngx.re.match(content_type, 'application/json') then
+
+
+        if not spectre_common.has_marker_headers(
+            bulk_resp_headers_cacheable,
+            spectre_common.SUPPORTED_ENCODING_FOR_ID_EXTRACTION
+        ) then
             error(string.format(
                 'unable to process response; content-type is %s',
-                content_type
+                bulk_resp_headers_cacheable['Content-Type']
             ))
         end
 
