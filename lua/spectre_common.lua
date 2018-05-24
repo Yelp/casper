@@ -60,17 +60,40 @@ local function get_vary_headers(headers, vary_headers_list)
     return table.concat(vary_headers, ',')
 end
 
-local function has_marker_headers(headers, marker_header_list)
+-- Helper function to check if available header value
+-- satisfies the comparison function for marker header lists.
+local function _check_headers_helper(headers, marker_header_list, compare_fn)
     for header, values in pairs(marker_header_list) do
         for _, v in pairs(values) do
             local lowercase_header_value = tostring(headers[header]):lower()
-            if lowercase_header_value == v then
+            if compare_fn(lowercase_header_value, v) then
                 return true
             end
         end
     end
-
     return false
+end
+
+local function has_marker_headers(headers, marker_header_list)
+    return _check_headers_helper(
+        headers,
+        marker_header_list,
+        function(actual, expected) return actual == expected end
+    )
+end
+
+-- Compares if the string starts with given substring
+local function string_starts_with(str, pattern)
+    return string.sub(str,1,string.len(pattern)) == pattern
+end
+
+-- checks if content-type headers are available.
+local function has_content_type_headers(headers, marker_header_list)
+    return _check_headers_helper(
+        headers,
+        marker_header_list,
+        function(actual, expected) return string_starts_with(actual, expected) end
+    )
 end
 
 -- Encodes the id fields in request body as single string
@@ -137,7 +160,7 @@ local function determine_if_cacheable(url, namespace, request_headers)
             end
 
             if http_method == 'POST' then
-                if not has_marker_headers(request_headers, SUPPORTED_ENCODING_FOR_ID_EXTRACTION) then
+                if not has_content_type_headers(request_headers, SUPPORTED_ENCODING_FOR_ID_EXTRACTION) then
                     -- For Post requests check the content type is application/json
                     cacheability_info.is_cacheable = false
                     cacheability_info.reason = 'non-cacheable-content-type'
@@ -577,9 +600,11 @@ return {
     extract_ids_from_string = extract_ids_from_string,
     fetch_from_cache = fetch_from_cache,
     has_marker_headers = has_marker_headers,
+    has_content_type_headers = has_content_type_headers,
     cache_store = cache_store,
     log = log,
     HEADERS = HEADERS,
     purge_cache = purge_cache,
+    string_starts_with = string_starts_with,
     SUPPORTED_ENCODING_FOR_ID_EXTRACTION = SUPPORTED_ENCODING_FOR_ID_EXTRACTION,
 }

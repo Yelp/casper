@@ -171,7 +171,7 @@ local function bulk_endpoint_caching_handler(request_info, cacheability_info)
         -- If the application is not application/json, throw an error
 
 
-        if not spectre_common.has_marker_headers(
+        if not spectre_common.has_content_type_headers(
             bulk_resp_headers_cacheable,
             spectre_common.SUPPORTED_ENCODING_FOR_ID_EXTRACTION
         ) then

@@ -500,6 +500,63 @@ describe("spectre_common", function()
             end)
         end)
 
+        describe("string starts with", function()
+            it("matches string starting with", function()
+                assert.is_true(
+                    spectre_common.string_starts_with("application/json; charset=utf-8", "application/json")
+                )
+            end)
+
+            it("matches whole string", function()
+                assert.is_true(
+                    spectre_common.string_starts_with("application/json", "application/json")
+                )
+            end)
+
+            it("doesn't match if pattern is not present", function()
+                assert.is_false(
+                    spectre_common.string_starts_with("application/xml", "application/json")
+                )
+            end)
+
+            it("doesn't match if pattern is not the start", function()
+                assert.is_false(
+                    spectre_common.string_starts_with("random and application/json; end", "application/json")
+                )
+            end)
+        end)
+
+        describe("has_content_type_headers", function()
+            it("validates json headers", function()
+                local headers = {['Content-Type']='application/json'}
+                assert.is_true(
+                    spectre_common.has_content_type_headers(
+                        headers,
+                        spectre_common.SUPPORTED_ENCODING_FOR_ID_EXTRACTION
+                    )
+                )
+
+                headers = {['Content-Type']='application/json; charset=utf-16'}
+                assert.is_true(
+                    spectre_common.has_content_type_headers(
+                        headers,
+                        spectre_common.SUPPORTED_ENCODING_FOR_ID_EXTRACTION
+                    )
+                )
+            end)
+
+            it("doesn't match other content type", function()
+                local headers = {['Content-Type']='application/xml'}
+                assert.is_false(
+                    spectre_common.has_content_type_headers(
+                        headers,
+                        spectre_common.SUPPORTED_ENCODING_FOR_ID_EXTRACTION
+                    )
+                )
+            end)
+        end)
+
+
     end)
 
     describe("get_target_uri", function()

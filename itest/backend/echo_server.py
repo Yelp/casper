@@ -65,7 +65,13 @@ class EchoServer(BaseHTTPRequestHandler):
             self.send_header('Content-Type', 'text')
             self.end_headers()
             return 'this is text'
-        self.send_header('Content-Type', 'application/json')
+
+        if ('test-content-type' in self.headers and
+                self.headers['test-content-type'] == 'application/json; charset=utf-8'
+        ):
+            self.send_header('Content-Type', 'application/json; charset=utf-8')
+        else:
+            self.send_header('Content-Type', 'application/json')
         self.end_headers()
         try:
             pattern = cache_name_configs['pattern']
