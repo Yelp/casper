@@ -259,6 +259,25 @@ class TestPostMethod(object):
         assert response.status_code == 200
         assert response.headers['Spectre-Cache-Status'] == 'hit'
 
+    # Test all cached post endpoints. Content-Type should be application/json; charset=utf-8
+    def test_post_always_cached_for_extended_json_content_type(self):
+        response = post_through_spectre(
+            '/post_always_cache/',
+            data={},
+            extra_headers={'content-type': 'application/json; charset=utf-8'}
+        )
+        assert response.status_code == 200
+        assert response.headers['Spectre-Cache-Status'] == 'miss'
+
+        # When calling again the result should be cached
+        response = post_through_spectre(
+            '/post_always_cache/',
+            data={},
+            extra_headers={'content-type': 'application/json; charset=utf-8'}
+        )
+        assert response.status_code == 200
+        assert response.headers['Spectre-Cache-Status'] == 'hit'
+
     def test_post_cache_hit_even_if_body_doesnt_match_without_vary(self):
         response = post_through_spectre(
             '/post_always_cache/',
@@ -557,6 +576,20 @@ class TestGetBulkRequest(object):
         # Test correctness of response based on bulk endpoint
         # (ids 1, 2 and 3 are placed in the cache during setup)
         headers, body = self.make_request_and_assert_hit([2])
+
+        # Correctness
+        assert len(body) == 1
+        assert self.base_body[1] == body[0]
+
+    def test_bulk_request_with_json_charset_response_body(self):
+        # Tests that individual ids are being cached on a bulk endpoint request
+        # The response type is application/json charset=utf-8
+        # Test correctness of response based on bulk endpoint
+        # (ids 1, 2 and 3 are placed in the cache during setup)
+        headers, body = self.make_request_and_assert_hit(
+            [2],
+            extra_headers={'test-content-type': 'application/json; charset=utf-8'}
+        )
 
         # Correctness
         assert len(body) == 1
