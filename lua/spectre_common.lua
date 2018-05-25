@@ -87,11 +87,11 @@ local function string_starts_with(str, pattern)
     return string.sub(str,1,string.len(pattern)) == pattern
 end
 
--- checks if content-type headers are available.
-local function has_content_type_headers(headers, marker_header_list)
+-- checks if supported content-type headers are available.
+local function has_supported_content_type(headers)
     return _check_headers_helper(
         headers,
-        marker_header_list,
+        SUPPORTED_ENCODING_FOR_ID_EXTRACTION,
         function(actual, expected) return string_starts_with(actual, expected) end
     )
 end
@@ -160,7 +160,7 @@ local function determine_if_cacheable(url, namespace, request_headers)
             end
 
             if http_method == 'POST' then
-                if not has_content_type_headers(request_headers, SUPPORTED_ENCODING_FOR_ID_EXTRACTION) then
+                if not has_supported_content_type(request_headers) then
                     -- For Post requests check the content type is application/json
                     cacheability_info.is_cacheable = false
                     cacheability_info.reason = 'non-cacheable-content-type'
@@ -600,7 +600,7 @@ return {
     extract_ids_from_string = extract_ids_from_string,
     fetch_from_cache = fetch_from_cache,
     has_marker_headers = has_marker_headers,
-    has_content_type_headers = has_content_type_headers,
+    has_supported_content_type = has_supported_content_type,
     cache_store = cache_store,
     log = log,
     HEADERS = HEADERS,

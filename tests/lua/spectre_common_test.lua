@@ -529,30 +529,15 @@ describe("spectre_common", function()
         describe("has_content_type_headers", function()
             it("validates json headers", function()
                 local headers = {['Content-Type']='application/json'}
-                assert.is_true(
-                    spectre_common.has_content_type_headers(
-                        headers,
-                        spectre_common.SUPPORTED_ENCODING_FOR_ID_EXTRACTION
-                    )
-                )
+                assert.is_true(spectre_common.has_supported_content_type(headers))
 
                 headers = {['Content-Type']='application/json; charset=utf-16'}
-                assert.is_true(
-                    spectre_common.has_content_type_headers(
-                        headers,
-                        spectre_common.SUPPORTED_ENCODING_FOR_ID_EXTRACTION
-                    )
-                )
+                assert.is_true(spectre_common.has_supported_content_type(headers))
             end)
 
             it("doesn't match other content type", function()
                 local headers = {['Content-Type']='application/xml'}
-                assert.is_false(
-                    spectre_common.has_content_type_headers(
-                        headers,
-                        spectre_common.SUPPORTED_ENCODING_FOR_ID_EXTRACTION
-                    )
-                )
+                assert.is_false(spectre_common.has_supported_content_type(headers))
             end)
         end)
 

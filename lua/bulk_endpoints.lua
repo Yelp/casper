@@ -169,12 +169,7 @@ local function bulk_endpoint_caching_handler(request_info, cacheability_info)
         end
 
         -- If the application is not application/json, throw an error
-
-
-        if not spectre_common.has_content_type_headers(
-            bulk_resp_headers_cacheable,
-            spectre_common.SUPPORTED_ENCODING_FOR_ID_EXTRACTION
-        ) then
+        if not spectre_common.has_supported_content_type(bulk_resp_headers_cacheable) then
             error(string.format(
                 'unable to process response; content-type is %s',
                 bulk_resp_headers_cacheable['Content-Type']
