@@ -1,5 +1,4 @@
 import codecs
-import re
 import os
 
 import pytest

@@ -18,7 +18,7 @@ http:
 yelp_meteorite:
     etc_path: '/code/itest/data/etc'
     metrics-relay:
-        host: '127.0.0.1'
+        host: '10.5.0.7'
         port: 1234
 
 zipkin:

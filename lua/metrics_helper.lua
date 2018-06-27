@@ -92,7 +92,7 @@ end
 
 -- Emit metrics after response is sent, for external requests
 local function emit_cache_metrics(start_time, end_time, namespace, response, status)
-    if response.cacheability_info.cache_entry.is_cacheable then
+    if response.cacheability_info.is_cacheable then
         emit_request_timing(
             (end_time - start_time) * 1000,
             namespace,

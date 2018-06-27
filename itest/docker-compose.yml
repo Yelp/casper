@@ -7,6 +7,7 @@ services:
         image: spectre-dev-${USER}
         depends_on:
             - syslog
+            - metrics
         environment:
             - PAASTA_SERVICE=spectre
             - PAASTA_INSTANCE=itest
@@ -45,6 +46,7 @@ services:
         volumes_from:
             - spectre
             - syslog
+            - metrics
         depends_on:
             - backend
             - spectre
@@ -53,12 +55,20 @@ services:
                 ipv4_address: 10.5.0.4
 
     syslog:
-      build: ./syslog
-      volumes:
-        - /var/log/syslog
-      networks:
-        spectre_net:
-          ipv4_address: 10.5.0.6
+        build: ./syslog
+        volumes:
+            - /var/log/syslog
+        networks:
+            spectre_net:
+                ipv4_address: 10.5.0.6
+
+    metrics:
+        build: ./metrics
+        volumes:
+            - /var/log/metrics
+        networks:
+            spectre_net:
+              ipv4_address: 10.5.0.7
 
 networks:
     spectre_net:

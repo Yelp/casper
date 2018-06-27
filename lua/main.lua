@@ -26,17 +26,17 @@ end
 
 -- Called after response is sent; based on status and cacheability_info
 -- metrics are sent. Also, Spectre's zipkin log line is emitted.
-local function post_request(incoming_zipkin_headers, start_time, end_time, namespace, response, status)
+local function post_request(incoming_zipkin_headers, start_time, end_time, namespace, response, status, internal)
     local fn = itest_handlers.get_handler(ngx.var.request_uri)
     if fn then
         fn()
         return
     end
 
-    if response.cacheability_info.is_cacheable then
-        metrics_helper.emit_cache_metrics(start_time, end_time, namespace, response, status)
-    else
+    if internal then
         metrics_helper.emit_internal_metrics(start_time, end_time, namespace, response, status)
+    else
+        metrics_helper.emit_cache_metrics(start_time, end_time, namespace, response, status)
     end
 
     zipkin.emit_syslog(incoming_zipkin_headers, start_time, end_time)
@@ -60,7 +60,7 @@ end
 -- headers for downstream request, and optionally logs values to syslog for
 -- out-of-band logging.
 -- handler needs to be a table that contains status, body, headers, callback_function
-local function request_handler_wrapper(handler)
+local function request_handler_wrapper(handler, internal)
     -- Returns time in seconds since epoch, with slightly more than
     -- millisecond granularity
     local start_time = socket.gettime()
@@ -87,7 +87,8 @@ local function request_handler_wrapper(handler)
                 end_time,
                 namespace,
                 res,
-                ngx.status
+                ngx.status,
+                internal
             )
         end,
         debug.traceback
@@ -107,7 +108,7 @@ local function main()
     )
 
     if should_proxy then
-        request_handler_wrapper(caching_handlers.caching_proxy)
+        request_handler_wrapper(caching_handlers.caching_proxy, false)
     elseif err then
         metrics_helper.emit_counter('spectre.errors', {
             {'message', 'bad_request'},
@@ -117,7 +118,7 @@ local function main()
         ngx.say(err)
         ngx.exit(ngx.HTTP_BAD_REQUEST)
     else
-        request_handler_wrapper(internal_handlers.router)
+        request_handler_wrapper(internal_handlers.router, true)
     end
 end
 
