@@ -641,18 +641,17 @@ class TestGetBulkRequest(object):
         assert_is_in_spectre_cache("{}?ids={}&data=false".format(base_path, '6'))
 
     def test_with_invalid_id_when_cache_missing_ids_is_true(self):
-        base_path = '/bulk_requester_2'
+        path = '/bulk_requester_2/{ids}/v1?k1=v1'
 
         # 0 < ids < 1000 are valid
-        resp1 = get_through_spectre("{}/{}/v1?k1=v2".format(base_path, '10,5000,11'))
-        headers1, body1 = resp1.headers, resp1.json()
-        assert len(body1) == 2
-        assert headers1['Spectre-Cache-Status'] == 'miss'
+        response = get_through_spectre(path.format(ids='10,5000,11'))
+        assert len(response.json()) == 2
+        assert response.headers['Spectre-Cache-Status'] == 'miss'
 
         # "5000" is an invalid id; but by default cache_missing_ids is set to true, so the
         # empty response would've been cached from the above request
-        resp2 = assert_is_in_spectre_cache("{}/{}/v1?k1=v2".format(base_path, '5000'))
-        resp2.json() == []
+        hit_response = assert_is_in_spectre_cache(path.format(ids='5000'))
+        assert hit_response.json() == []
 
     def test_with_invalid_id_when_cache_missing_ids_is_false(self):
         # 0 < ids < 1000 are valid

@@ -18,10 +18,13 @@ HAPROXY_ADDED_HEADERS = {
 
 NUM_ATTEMPTS_WHEN_GETTING_FROM_CACHE = 2
 
+
 def get_spectre_swagger_client():
     return SwaggerClient.from_url(SPECTRE_BASE_URL + '/swagger.json')
 
+
 spectre_swagger_client = get_spectre_swagger_client()
+
 
 def get_through_spectre(path, extra_headers=None):
     """This simulates a client GETting a resource from a service proxied
@@ -66,6 +69,7 @@ def head_through_spectre(path, extra_headers=None):
         headers.update(extra_headers)
     return requests.head(SPECTRE_BASE_URL + path, headers=headers)
 
+
 def post_through_spectre(path, data=None, extra_headers=None):
     """This simulates a client POSTing to a service proxied
     through Spectre.
@@ -75,19 +79,23 @@ def post_through_spectre(path, data=None, extra_headers=None):
         headers.update(extra_headers)
     return requests.post(SPECTRE_BASE_URL + path, data=data, headers=headers)
 
+
 def purge_resource(args):
     return spectre_swagger_client.purge.purge(**args).result()
+
 
 def get_from_spectre(path):
     """Simulates a client directly talking to spectre. No Smartstack headers
     added here."""
     return requests.get(SPECTRE_BASE_URL + path)
 
+
 def get_timestamp(path, extra_headers=None):
     """Convenience function to make a request through spectre and return only
     the 'timestamp' key of the returned json.
     """
     return get_through_spectre(path, extra_headers).json()['timestamp']
+
 
 def get_timestamp_until_hit(path, extra_headers=None):
     """Makes repeated request to the same URL and retries until
