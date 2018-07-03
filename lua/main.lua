@@ -1,10 +1,11 @@
-local spectre_common = require 'spectre_common'
-local zipkin = require 'zipkin'
-local itest_handlers = require 'itest_post_request_handlers'
 local caching_handlers = require 'caching_handlers'
 local internal_handlers = require 'internal_handlers'
+local itest_handlers = require 'itest_post_request_handlers'
 local metrics_helper = require 'metrics_helper'
 local socket = require 'socket'
+local spectre_common = require 'spectre_common'
+local traceback = require 'traceback'
+local zipkin = require 'zipkin'
 
 
 -- The single point from where responses are sent back for proxied requests
@@ -45,9 +46,8 @@ end
 -- Handles any errors arising from processing in any part of Spectre
 -- Logs errors and returns a 500 response.
 local function err_handler(err)
-    debug.traceback()
-
-    spectre_common.log(ngx.ERR, { err=err, critical=true })
+    local tb = debug.traceback()
+    spectre_common.log(ngx.ERR, traceback.format_critical(tb, err))
     return {
         status = ngx.HTTP_INTERNAL_SERVER_ERROR,
         body = tostring(err),
