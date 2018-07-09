@@ -42,17 +42,22 @@ end
 
 -- Handle requests to /status, returns info about Spectre
 local function status_handler(_)
-    local status_info = {}
+    local status_info = {
+        ['cassandra_status'] = 'skipped',
+    }
     local status = ngx.HTTP_OK
+    local uri_args = ngx.req.get_uri_args()
 
-    -- Check Cassandra's health
-    local connection = cassandra_helper.get_connection(cassandra_helper.READ_CONN)
-    local is_cassandra_healthy = cassandra_helper.healthcheck(connection)
-    if is_cassandra_healthy == true then
-        status_info['cassandra_status'] = 'up'
-    else
-        status_info['cassandra_status'] = 'down'
-        status = ngx.HTTP_INTERNAL_SERVER_ERROR
+    -- Check Cassandra's health only if check_cassandra=true is set
+    if uri_args['check_cassandra'] == 'true' then
+        local connection = cassandra_helper.get_connection(cassandra_helper.READ_CONN)
+        local is_cassandra_healthy = cassandra_helper.healthcheck(connection)
+        if is_cassandra_healthy == true then
+            status_info['cassandra_status'] = 'up'
+        else
+            status_info['cassandra_status'] = 'down'
+            status = ngx.HTTP_INTERNAL_SERVER_ERROR
+        end
     end
 
     -- Ensure config file at /nail/etc/services/services.yaml is parsed
