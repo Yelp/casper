@@ -22,7 +22,9 @@ function zipkin._get_sock()
     if _sock == nil then
         _sock = socket.udp()
         _sock:setsockname("*", 0)
-        local configs = config_loader.get_spectre_config_for_namespace('casper.internal')['zipkin']
+        local configs = config_loader.get_spectre_config_for_namespace(
+            config_loader.CASPER_INTERNAL_NAMESPACE
+        )['zipkin']
         _sock:setpeername(
             configs['syslog']['host'],
             configs['syslog']['port']

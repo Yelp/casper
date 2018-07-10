@@ -129,7 +129,9 @@ local function determine_if_cacheable(url, namespace, request_headers)
         refresh_cache = false,
     }
 
-    local spectre_config = config_loader.get_spectre_config_for_namespace('casper.internal')
+    local spectre_config = config_loader.get_spectre_config_for_namespace(
+        config_loader.CASPER_INTERNAL_NAMESPACE
+    )
     if tostring(spectre_config['disable_caching']) == 'true' then
         cacheability_info.reason = 'caching disabled via configs'
         return cacheability_info

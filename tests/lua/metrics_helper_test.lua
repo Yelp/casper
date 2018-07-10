@@ -6,7 +6,7 @@ describe("metrics_helper", function()
     setup(function()
         config_loader = require 'config_loader'
         config_loader.load_services_configs('/code/tests/data/srv-configs')
-        configs = config_loader.get_spectre_config_for_namespace('casper.internal')['yelp_meteorite']
+        configs = config_loader.get_spectre_config_for_namespace(config_loader.CASPER_INTERNAL_NAMESPACE)['yelp_meteorite']
 
         stub(ngx, 'log')
     end)

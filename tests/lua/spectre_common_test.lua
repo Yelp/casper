@@ -40,7 +40,7 @@ describe("spectre_common", function()
                 }
             })
             ngx.req.get_method = function() return 'GET' end
-            local spectre_configs = config_loader.get_spectre_config_for_namespace('casper.internal')
+            local spectre_configs = config_loader.get_spectre_config_for_namespace(config_loader.CASPER_INTERNAL_NAMESPACE)
 
             spectre_configs['disable_caching'] = true
             local cacheability_info = spectre_common.determine_if_cacheable('/cached', 'srv.main', {})
