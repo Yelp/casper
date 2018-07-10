@@ -27,6 +27,32 @@ describe("spectre_common", function()
     end)
 
     describe("spectre_common", function()
+        before_each(function()
+            config_loader.clear_mod_time_table()
+            config_loader.load_services_configs('/code/tests/data/srv-configs')
+        end)
+
+        it("disable caching via configs", function()
+            config_loader.set_spectre_config_for_namespace('srv.main', {
+                cached_endpoints = {
+                    test_cache = { pattern = "^/cached$", ttl = 1234, vary_headers = {'X-Mode', 'Accept-Encoding'}},
+                    test_cache_2 = { pattern = "^/also_cached$", ttl = 1234, vary_headers = {'X-Mode', 'Accept-Encoding'}, dont_cache_missing_ids = true}
+                }
+            })
+            ngx.req.get_method = function() return 'GET' end
+            local spectre_configs = config_loader.get_spectre_config_for_namespace('casper.internal')
+
+            spectre_configs['disable_caching'] = true
+            local cacheability_info = spectre_common.determine_if_cacheable('/cached', 'srv.main', {})
+            assert.are.equal('caching disabled via configs', cacheability_info.reason)
+            assert.is_false(cacheability_info.is_cacheable)
+
+            spectre_configs['disable_caching'] = 'true'
+            local cacheability_info = spectre_common.determine_if_cacheable('/cached', 'srv.main', {})
+            assert.are.equal('caching disabled via configs', cacheability_info.reason)
+            assert.is_false(cacheability_info.is_cacheable)
+        end)
+
         it("caches simple URLs", function()
             config_loader.set_spectre_config_for_namespace('srv.main', {
                 cached_endpoints = {
