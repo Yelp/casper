@@ -129,14 +129,22 @@ local function determine_if_cacheable(url, namespace, request_headers)
         refresh_cache = false,
     }
 
-    local spectre_config = config_loader.get_spectre_config_for_namespace(namespace)
-    if spectre_config == nil then
+    local spectre_config = config_loader.get_spectre_config_for_namespace(
+        config_loader.CASPER_INTERNAL_NAMESPACE
+    )
+    if tostring(spectre_config['disable_caching']) == 'true' then
+        cacheability_info.reason = 'caching disabled via configs'
+        return cacheability_info
+    end
+
+    local namespace_config = config_loader.get_spectre_config_for_namespace(namespace)
+    if namespace_config == nil then
         cacheability_info.reason = 'non-configured-namespace (' .. namespace .. ')'
         return cacheability_info
     end
 
     local http_method = ngx.req.get_method()
-    for cache_name, cache_entry in pairs(spectre_config['cached_endpoints']) do
+    for cache_name, cache_entry in pairs(namespace_config['cached_endpoints']) do
         if ngx.re.match(url, cache_entry['pattern']) and (
             -- Compute if http_method is same as in config or http method is GET
             cache_entry['request_method'] == http_method or DEFAULT_REQUEST_METHOD == http_method

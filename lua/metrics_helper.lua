@@ -7,7 +7,9 @@ local _default_dimensions
 
 local function _get_sock()
     if _sock == nil then
-        local configs = config_loader.get_spectre_config_for_namespace('casper.internal')['yelp_meteorite']
+        local configs = config_loader.get_spectre_config_for_namespace(
+            config_loader.CASPER_INTERNAL_NAMESPACE
+        )['yelp_meteorite']
         _sock = socket.udp()
         _sock:setsockname("*", 0)
         _sock:setpeername(
@@ -19,7 +21,9 @@ local function _get_sock()
 end
 
 local function get_system_dimension(name)
-    local configs = config_loader.get_spectre_config_for_namespace('casper.internal')['yelp_meteorite']
+    local configs = config_loader.get_spectre_config_for_namespace(
+        config_loader.CASPER_INTERNAL_NAMESPACE
+    )['yelp_meteorite']
     return io.open(configs['etc_path'] .. '/' .. name):read()
 end
 

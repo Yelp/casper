@@ -3,7 +3,7 @@ local http = require "resty.http"
 
 
 local function make_http_request(method, uri, headers)
-    local configs = config_loader.get_spectre_config_for_namespace('casper.internal')['http']
+    local configs = config_loader.get_spectre_config_for_namespace(config_loader.CASPER_INTERNAL_NAMESPACE)['http']
     local httpc = http.new()
     httpc:set_timeout(configs['timeout_ms'])
 
