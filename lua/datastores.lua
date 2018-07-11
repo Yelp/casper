@@ -100,7 +100,7 @@ function cassandra_helper.create_cluster(cluster_module, shm, timeout)
         contact_points = hosts,
         keyspace = configs['keyspace'],
         lb_policy = dc_rr.new(dc_name),
-        lock_timeout = timeout,
+        lock_timeout = timeout / 1000,  -- lock_timeout is in seconds, not millisecond
         timeout_connect = tonumber(configs['connect_timeout_ms']),
         timeout_read = timeout,
         retry_on_timeout = configs['retry_on_timeout'],
