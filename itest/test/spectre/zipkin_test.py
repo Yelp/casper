@@ -23,7 +23,7 @@ class TestZipkinLogging(object):
     def _get_random_zipkin_ids(self):
         """Gets a trio of random zipkin ids - trace, span, parent_span."""
         return [
-            codecs.encode(os.urandom(8), 'hex_codec')
+            codecs.encode(os.urandom(8), 'hex_codec').decode("utf-8")
             for _ in range(3)
         ]
 

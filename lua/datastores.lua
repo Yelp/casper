@@ -175,16 +175,17 @@ end
 -- used with the /status endpoint
 function cassandra_helper.healthcheck(cluster)
     local configs = config_loader.get_spectre_config_for_namespace(config_loader.CASPER_INTERNAL_NAMESPACE)['cassandra']
+    local query = 'select * from ' .. configs['keyspace'] .. '.cache_store LIMIT 1'
     local db_check = cassandra_helper.execute(
         cluster,
-        'select * from system.schema_keyspaces where keyspace_name = ?',
-        {configs['keyspace']},
+        query,
+        nil,
         {
             consistency = cassandra.consistencies.local_one
         }
     )
 
-    return type(db_check) == 'table' and #db_check == 1
+    return type(db_check) == 'table'
 end
 
 -- Determines the bucket to be used for storing the data associated with the id, cache_name, & namespace combination
