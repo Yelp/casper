@@ -2,22 +2,23 @@
 # Run cassandra on the default port, with default config
 #
 
-FROM    ubuntu:xenial
+FROM    ubuntu:bionic
 
-ENV     CASSANDRA_VERSION 2.2.8
+RUN     DEBIAN_FRONTEND=noninteractive apt-get update \
+        && DEBIAN_FRONTEND=noninteractive apt-get -y install \
+            curl \
+            gnupg2 \
+            openjdk-8-jdk \
+            wget
 
-# Add datastax sources
-ADD ./datastax_key /tmp/datastax_key
-RUN apt-key add /tmp/datastax_key
-RUN echo "deb http://debian.datastax.com/community stable main" | tee -a /etc/apt/sources.list.d/cassandra.sources.list
+RUN     curl https://www.apache.org/dist/cassandra/KEYS | apt-key add -
+RUN     echo "deb http://www.apache.org/dist/cassandra/debian 311x main" | tee -a /etc/apt/sources.list.d/cassandra.sources.list
 
-RUN DEBIAN_FRONTEND=noninteractive apt-get update \
-    && apt-get -y install \
-        cassandra-tools=$CASSANDRA_VERSION \
-        cassandra=$CASSANDRA_VERSION \
-        openjdk-8-jdk \
-        wget \
-    && apt-get clean
+RUN     DEBIAN_FRONTEND=noninteractive apt-get update \
+        && DEBIAN_FRONTEND=noninteractive apt-get -y install \
+            cassandra-tools \
+            cassandra \
+        && apt-get clean
 
 # Manually install dumb-init as it's not in the public APT repo
 RUN     wget https://github.com/Yelp/dumb-init/releases/download/v1.2.1/dumb-init_1.2.1_amd64.deb

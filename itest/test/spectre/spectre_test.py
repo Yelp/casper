@@ -472,12 +472,12 @@ class TestSpectreBadRequets(object):
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         s.settimeout(2)
         s.connect((SPECTRE_HOST, SPECTRE_PORT))
-        s.send('GET /not_cacheable HTTP/1.0\r\n')
-        s.send('X-Smartstack-Destination: srv.main\r\n')
-        s.send('X-Smartstack-Destination: srv.alt\r\n')
-        s.send('\r\n')
+        s.send('GET /not_cacheable HTTP/1.0\r\n'.encode('utf-8'))
+        s.send('X-Smartstack-Destination: srv.main\r\n'.encode('utf-8'))
+        s.send('X-Smartstack-Destination: srv.alt\r\n'.encode('utf-8'))
+        s.send('\r\n'.encode('utf-8'))
 
-        data = s.recv(4096)
+        data = s.recv(4096).decode('utf-8')
         assert 'HTTP/1.1 400 Bad Request' in data
         assert 'X-Smartstack-Destination has multiple values: srv.main srv.alt;' in data
 

@@ -50,6 +50,9 @@ hinted_handoff_throttle_in_kb: 1024
 # Consider increasing this number when you have multi-dc deployments, since
 # cross-dc handoff tends to be slower
 max_hints_delivery_threads: 2
+# Directory where Cassandra should store hints.
+# If not set, the default directory is $CASSANDRA_HOME/data/hints.
+hints_directory: /nail/cassandra/hints
 
 # Maximum throttle in KBs per second, total. This will be
 # reduced proportionally to the number of nodes in the cluster.
