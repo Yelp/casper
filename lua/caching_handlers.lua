@@ -171,6 +171,12 @@ function caching_handlers._parse_request(incoming_zipkin_headers)
         ngx.req.clear_header("accept-encoding")
         request_headers['accept-encoding'] = nil
     end
+    -- Let's also remove the 'application/msgpack' Accept header so that it's easier to
+    -- parse the response.
+    if ngx.re.match(ngx.req.get_headers()['accept'], 'application/msgpack') then
+        ngx.req.clear_header("accept")
+        request_headers['accept'] = nil
+    end
 
     if cacheability_info.is_cacheable or cacheability_info.refresh_cache then
         local vary_headers = spectre_common.get_vary_headers(request_headers, cacheability_info.vary_headers_list)

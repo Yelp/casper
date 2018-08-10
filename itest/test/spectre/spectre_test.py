@@ -747,6 +747,12 @@ class TestGetBulkRequest(object):
         assert body1 == body2
         assert body2 == body3
 
+    def test_msgpack_is_disabled(self):
+        resp = get_through_spectre('/timestamp/get', extra_headers={'Accept': 'application/msgpack'})
+        assert resp.headers['Spectre-Cache-Status'] == 'miss'
+        assert 'Accept' not in resp.json()['received_headers']
+        assert 'accept' not in resp.json()['received_headers']
+
     def test_non_application_json(self):
         extra_header = {'test-content-type': 'text'}
         base_path = '/bulk_requester'
