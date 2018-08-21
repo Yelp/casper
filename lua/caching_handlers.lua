@@ -166,16 +166,18 @@ function caching_handlers._parse_request(incoming_zipkin_headers)
     local destination = spectre_common.get_smartstack_destination(request_headers)
     local cacheability_info = spectre_common.determine_if_cacheable(normalized_uri, destination, request_headers)
 
-    -- Remove the gzip header because it's easier to work with text responses
-    if ngx.re.match(ngx.req.get_headers()['accept-encoding'], 'gzip') then
-        ngx.req.clear_header("accept-encoding")
-        request_headers['accept-encoding'] = nil
-    end
-    -- Let's also remove the 'application/msgpack' Accept header so that it's easier to
-    -- parse the response.
-    if ngx.re.match(ngx.req.get_headers()['accept'], 'application/msgpack') then
-        ngx.req.clear_header("accept")
-        request_headers['accept'] = nil
+    -- Modify request headers if it's a bulk endpoint since we need the response to
+    -- be pure uncompressed JSON
+    if cacheability_info.is_cacheable and cacheability_info.cache_entry.bulk_support then
+        -- Remove the gzip header because it's easier to work with text responses
+        if ngx.re.match(ngx.req.get_headers()['accept-encoding'], 'gzip') then
+            ngx.req.clear_header("accept-encoding")
+            request_headers['accept-encoding'] = nil
+        end
+        -- Let's also set the 'application/json' Accept header since we can only
+        -- handle pure json responses.
+        ngx.req.set_header('accept', 'application/json')
+        request_headers['accept'] = 'application/json'
     end
 
     if cacheability_info.is_cacheable or cacheability_info.refresh_cache then
