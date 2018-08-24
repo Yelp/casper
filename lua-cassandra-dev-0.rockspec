@@ -3,7 +3,7 @@ version = "dev-0"
 -- lua-cassandra fork with stream_id support
 -- https://github.com/thibaultcha/lua-cassandra/pull/104
 source = {
-  url = "git://github.com/drolando/lua-cassandra",
+  url = "git://github.com/kaisen/lua-cassandra",
   branch = "add_stream_id_support_dev"
 }
 description = {
