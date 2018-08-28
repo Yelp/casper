@@ -52,6 +52,7 @@ insulate('caching_handlers', function()
             return headers
         end
         ngx.req.clear_header = function(name) headers[name] = nil end
+        ngx.req.set_header = function(name, value) headers[name] = value end
     end)
 
     after_each(function()
@@ -539,39 +540,45 @@ insulate('caching_handlers', function()
             }, request_info)
         end)
 
-        it('drops accept-encoding gzip header for bulk endpoints', function()
+        it('drops accept-encoding gzip and accept header for bulk endpoints', function()
             spectre_common.determine_if_cacheable = function()
                 return {
                     is_cacheable = true,
                     cache_name = 'test_cache',
-                    vary_headers_list = {'accept-encoding'},
+                    vary_headers_list = {'accept-encoding', 'accept'},
                     cache_entry = {
                         bulk_support = true,
                     },
                     other_fields = true,  -- they're not important here
                 }
             end
+            ngx.req.set_header('accept', 'application/msgpack')
             local _, request_info = caching_handlers._parse_request({['X-Trace-Id'] = '123'})
 
-            assert.are.equal('accept-encoding:nil', request_info['vary_headers'])
+            assert.are.equal('accept-encoding:nil,accept:application/json', request_info['vary_headers'])
         end)
 
-        it('drops accept-encoding gzip header for normal endpoints', function()
+        it('does not drop accept-encoding gzip header for normal endpoints', function()
             spectre_common.determine_if_cacheable = function()
                 return {
                     is_cacheable = true,
                     cache_name = 'test_cache',
-                    vary_headers_list = {'accept-encoding'},
+                    vary_headers_list = {'accept-encoding', 'accept'},
                     cache_entry = {
                         bulk_support = false,
                     },
                     other_fields = true,  -- they're not important here
                 }
             end
+            ngx.req.set_header('accept', 'application/msgpack')
             local _, request_info = caching_handlers._parse_request({['X-Trace-Id'] = '123'})
 
-            assert.are.equal('accept-encoding:nil', request_info['vary_headers'])
+            assert.are.equal(
+                'accept-encoding:gzip, deflate,accept:application/msgpack',
+                request_info['vary_headers']
+            )
         end)
+
         it('doesn\'t get vary headers if not cacheable', function()
             -- spectre_common.get_vary_headers will fail if this request is not cacheable
             spectre_common.determine_if_cacheable = function()
@@ -628,7 +635,7 @@ insulate('caching_handlers', function()
             assert.are.same({
                 incoming_zipkin_headers = {['X-Trace-Id'] = '123'},
                 normalized_uri = '/test/endpoint?biz=2&ids=1&key=3',
-                vary_headers = 'accept-encoding:nil',  -- drops gzip encoding
+                vary_headers = 'accept-encoding:gzip, deflate',
                 destination = 'backend.main',  -- correctly got it from the request headers
                 request_method = 'POST',  -- correctly got it from ngx module.
                 request_body = '{"id":123}',

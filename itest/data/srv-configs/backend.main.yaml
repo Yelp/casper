@@ -29,6 +29,7 @@ cached_endpoints:
         id_identifier: 'bulk_id'
         pattern: "(^/bulk_requester(?:\\?|\\?.*&)ids=)((?:\\S|%2C)+)(.*$)"
         ttl: 30
+        vary_headers: ['accept', 'accept-encoding']
     bulk_requester_default:
         bulk_support: true
         id_identifier: 'bulk_id'

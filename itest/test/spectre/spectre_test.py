@@ -747,6 +747,11 @@ class TestGetBulkRequest(object):
         assert body1 == body2
         assert body2 == body3
 
+    def test_msgpack_is_allowed_for_normal_endpoints(self):
+        resp = get_through_spectre('/timestamp/get', extra_headers={'Accept': 'application/msgpack'})
+        assert resp.headers['Spectre-Cache-Status'] == 'miss'
+        assert resp.json()['received_headers']['accept'] == 'application/msgpack'
+
     def test_non_application_json(self):
         extra_header = {'test-content-type': 'text'}
         base_path = '/bulk_requester'
