@@ -13,6 +13,7 @@ local config_loader = require 'config_loader'
 local cassandra_helper = {
     READ_CONN = 'read_connection',
     WRITE_CONN = 'write_connection',
+    last_refresh = 0,
 }
 
 json.decodeNumbersAsObjects = true
@@ -282,6 +283,18 @@ function cassandra_helper.fetch_body_and_headers(
         headers = json:decode(res[1]['headers']),
         cassandra_error = false,
     }
+end
+
+function cassandra_helper.refresh()
+    local configs = config_loader.get_spectre_config_for_namespace(config_loader.CASPER_INTERNAL_NAMESPACE)['cassandra']
+    local now = ngx.now()
+    local refresh_interval = tonumber(configs['refresh_interval'] or 60)
+
+    if cassandra_helper.last_refresh < now - refresh_interval then
+        cassandra_helper.get_connection(cassandra_helper.READ_CONN):refresh()
+        cassandra_helper.get_connection(cassandra_helper.WRITE_CONN):refresh()
+        cassandra_helper.last_refresh = now
+    end
 end
 
 -- Called when PURGE endpoint is hit. Remove all endpoints matching a cache_name from Cassandra

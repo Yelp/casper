@@ -10,6 +10,8 @@ insulate('caching_handlers', function()
     local old_get_id_from_req_body
     local old_extract_ids_from_uri
     local spectre_common
+    local cassandra_helper
+    local cassandra_helper_mock
 
     setup(function()
         _G.package.loaded.socket = {
@@ -26,6 +28,10 @@ insulate('caching_handlers', function()
                 }
             end
         }
+
+        local datastores = require 'datastores'
+        cassandra_helper = datastores.cassandra_helper
+        cassandra_helper_mock = mock(cassandra_helper, true)
 
         bulk_endpoints = require 'bulk_endpoints'
         caching_handlers = require 'caching_handlers'
@@ -88,6 +94,7 @@ insulate('caching_handlers', function()
                 }
             )
 
+            assert.stub(cassandra_helper_mock.refresh).was_called()
             assert.stub(spectre_common.cache_store).was_called()
             assert.stub(spectre_common.cache_store).was_called_with(
                 match.is_table(),
@@ -133,6 +140,7 @@ insulate('caching_handlers', function()
                 }
             )
 
+            assert.stub(cassandra_helper_mock.refresh).was_called()
             assert.stub(spectre_common.cache_store).was_called()
             assert.stub(spectre_common.cache_store).was_called_with(
                 match.is_table(),

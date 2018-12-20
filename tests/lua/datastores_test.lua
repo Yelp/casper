@@ -412,6 +412,42 @@ describe('cassandra_helper', function()
         end)
     end)
 
+    describe('refresh', function()
+        local mock_read_cluster
+        local mock_write_cluster
+
+        before_each(function()
+            ngx.shared.cassandra_write_cluster = {
+                refresh = function() end
+            }
+            ngx.shared.cassandra_read_cluster = {
+                refresh = function() end
+            }
+            mock_read_cluster = mock(ngx.shared.cassandra_read_cluster, true)
+            mock_write_cluster = mock(ngx.shared.cassandra_write_cluster, true)
+        end)
+
+        it('refreshes all connections the first time it\'s called', function()
+            cassandra_helper.refresh()
+            assert.stub(mock_read_cluster.refresh).was_called()
+            assert.stub(mock_write_cluster.refresh).was_called()
+        end)
+
+        it('does not refresh connections if called again before refresh_interval', function()
+            cassandra_helper.last_refresh = ngx.now() - 10
+            cassandra_helper.refresh()
+            assert.stub(mock_read_cluster.refresh).was_not_called()
+            assert.stub(mock_write_cluster.refresh).was_not_called()
+        end)
+
+        it('refreshes all connections if more than refresh_interval secs have passed', function()
+            cassandra_helper.last_refresh = ngx.now() - 61
+            cassandra_helper.refresh()
+            assert.stub(mock_read_cluster.refresh).was_called()
+            assert.stub(mock_write_cluster.refresh).was_called()
+        end)
+    end)
+
     describe('purge', function()
         it('returns 500 if cluster is nil', function()
             local spy_metric = spy.on(metrics_helper, 'emit_counter')
