@@ -285,6 +285,8 @@ function cassandra_helper.fetch_body_and_headers(
     }
 end
 
+-- Refreshes the cassandra cluster topology. lua-cassandra doesn't do that automatically
+-- so we have to do this periodically to detect changes in the cluster.
 function cassandra_helper.refresh()
     local configs = config_loader.get_spectre_config_for_namespace(config_loader.CASPER_INTERNAL_NAMESPACE)['cassandra']
     local now = ngx.now()
