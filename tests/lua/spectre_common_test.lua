@@ -343,7 +343,6 @@ describe("spectre_common", function()
         describe("is_request_for_proxied_service", function()
             it("Returns true and no error for proxied requests", function()
                 local should_proxy, err = spectre_common.is_request_for_proxied_service('GET', {
-                    ['X-Smartstack-Source'] = 'src',
                     ['X-Smartstack-Destination'] = 'dst',
                 })
                 assert.are.equal(true, should_proxy)
@@ -361,7 +360,6 @@ describe("spectre_common", function()
             end)
             it("Errors out when multiple destination values are provided", function()
                 local should_proxy, err = spectre_common.is_request_for_proxied_service('GET', {
-                    ['X-Smartstack-Source'] = 'src',
                     ['X-Smartstack-Destination'] = {'dst1', 'dst2'},
                 })
                 assert.are.equal(false, should_proxy)
@@ -369,11 +367,10 @@ describe("spectre_common", function()
             end)
             it("Combines error messages when multiple sources AND destinations are provided", function()
                 local should_proxy, err = spectre_common.is_request_for_proxied_service('GET', {
-                    ['X-Smartstack-Source'] = {'src1', 'src2'},
                     ['X-Smartstack-Destination'] = {'dst1', 'dst2'},
                 })
                 assert.are.equal(false, should_proxy)
-                assert.are.equal('X-Smartstack-Source has multiple values: src1 src2; X-Smartstack-Destination has multiple values: dst1 dst2;', err)
+                assert.are.equal('X-Smartstack-Destination has multiple values: dst1 dst2;', err)
             end)
         end)
 
