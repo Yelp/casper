@@ -335,9 +335,9 @@ end
 -- proxied service (returns true) or for Spectre itself (returns an error message).
 -- Returns an error message as a string if a malformed request is detected.
 -- --
--- To be proxied through spectre, a request needs 2 headers
+-- To be proxied through Casper, a request needs the following headers:
 -- + X-SmartStack-Destination: the nerve namespace of the service called. This
---   lets Spectre lookup the relevant set of configs and forward to the right
+--   lets Casper lookup the relevant set of configs and forward to the right
 --   service.
 -- --
 -- Both of these headers are inserted by HAProxy for services configured with
