@@ -118,7 +118,7 @@ describe("spectre_common", function()
 
             local headers = {['Content-Type'] = 'application/json'}
             local cacheability_info = spectre_common.determine_if_cacheable('/yelp/business/info', 'srv.main', headers)
-            assert.is_nil(cacheability_info.reason) 
+            assert.is_nil(cacheability_info.reason)
             assert.is_true(cacheability_info.is_cacheable)
             assert.is_not_nil(cacheability_info['cache_entry'])
             assert.are.equal(1234, cacheability_info.cache_entry['ttl'])
@@ -340,6 +340,19 @@ describe("spectre_common", function()
             assert.are.equal(nil, string.find(formatted_err, '\n'))
         end)
 
+        it("injects the X-Smartstack-Source header into the request", function()
+            local configs = config_loader.get_spectre_config_for_namespace(config_loader.CASPER_INTERNAL_NAMESPACE)
+            local x_smartstack_source_value = configs['casper']['x_smartstack_source_value']
+
+            local request = {
+                set_header = function(k, v) return nil end
+            }
+            stub(request, 'set_header')
+
+            spectre_common.inject_source_header(request)
+            assert.stub(request.set_header).was.called_with('X-Smartstack-Source', x_smartstack_source_value)
+        end)
+
         describe("is_request_for_proxied_service", function()
             it("Returns true and no error for proxied requests", function()
                 local should_proxy, err = spectre_common.is_request_for_proxied_service('GET', {
@@ -359,13 +372,6 @@ describe("spectre_common", function()
                 assert.are.equal(nil, err)
             end)
             it("Errors out when multiple destination values are provided", function()
-                local should_proxy, err = spectre_common.is_request_for_proxied_service('GET', {
-                    ['X-Smartstack-Destination'] = {'dst1', 'dst2'},
-                })
-                assert.are.equal(false, should_proxy)
-                assert.are.equal('X-Smartstack-Destination has multiple values: dst1 dst2;', err)
-            end)
-            it("Combines error messages when multiple sources AND destinations are provided", function()
                 local should_proxy, err = spectre_common.is_request_for_proxied_service('GET', {
                     ['X-Smartstack-Destination'] = {'dst1', 'dst2'},
                 })

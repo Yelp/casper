@@ -314,8 +314,12 @@ local function forward_to_destination(method, request_uri, request_headers)
     }
 end
 
+-- Injects the `X-Smartstack-Source` header so HAProxy/Envoy knows this
+-- request was already proxied through Casper.
 local function inject_source_header(request)
-   request.set_header('X-Smartstack-Source', 'spectre.main')
+    local configs = config_loader.get_spectre_config_for_namespace(config_loader.CASPER_INTERNAL_NAMESPACE)
+    local x_smartstack_source_value = configs['casper']['x_smartstack_source_value']
+    request.set_header('X-Smartstack-Source', x_smartstack_source_value)
 end
 
 -- Validates a header. Returns nil if everything looks good, otherwise
