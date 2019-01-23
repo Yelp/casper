@@ -1,3 +1,6 @@
+casper:
+    x_smartstack_source_value: 'spectre.main'
+
 cassandra:
     seeds_file: '/code/itest/data/synapse/services/cassandra_casper.main.json'
     connect_timeout_ms: 500

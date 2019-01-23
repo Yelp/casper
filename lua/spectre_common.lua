@@ -240,11 +240,6 @@ local function is_header_uncacheable(header_name, namespace)
     return false
 end
 
--- Gets the source of the request from headers
-local function get_smartstack_source(headers)
-    return headers['X-Smartstack-Source']
-end
-
 -- Gets the destination of the request from headers
 local function get_smartstack_destination(headers)
     return headers['X-Smartstack-Destination']
@@ -319,6 +314,20 @@ local function forward_to_destination(method, request_uri, request_headers)
     }
 end
 
+-- Injects the `X-Smartstack-Source` header so HAProxy/Envoy knows this
+-- request was already proxied through Casper.
+local function inject_source_header(request)
+    local configs = config_loader.get_spectre_config_for_namespace(config_loader.CASPER_INTERNAL_NAMESPACE)
+    local x_smartstack_source_value = "spectre.main"
+
+    -- attempt to retrieve value from config, otherwise keep default
+    if configs['casper'] ~= nil and configs['casper']['x_smartstack_source_value'] ~= nil then
+        x_smartstack_source_value = configs['casper']['x_smartstack_source_value']
+    end
+
+    request.set_header('X-Smartstack-Source', x_smartstack_source_value)
+end
+
 -- Validates a header. Returns nil if everything looks good, otherwise
 -- returns a string containing an error message.
 local function validate_smartstack_header(header_name, header_value)
@@ -336,33 +345,24 @@ end
 -- proxied service (returns true) or for Spectre itself (returns an error message).
 -- Returns an error message as a string if a malformed request is detected.
 -- --
--- To be proxied through spectre, a request needs 2 headers
--- + X-SmartStack-Source: the nerve namespace of the client sending the
---   request. This header is set and used by HAProxy to proxy requests through
---   Spectre exactly once
+-- To be proxied through Casper, a request needs the following headers:
 -- + X-SmartStack-Destination: the nerve namespace of the service called. This
---   lets Spectre lookup the relevant set of configs and forward to the right
+--   lets Casper lookup the relevant set of configs and forward to the right
 --   service.
 -- --
 -- Both of these headers are inserted by HAProxy for services configured with
 -- the proxied_through directive:
 -- (http://paasta.readthedocs.io/en/latest/yelpsoa_configs.html?highlight=proxied_through#basic-http-and-tcp-options)
 local function is_request_for_proxied_service(http_method, headers)
-    local source_error = validate_smartstack_header('X-Smartstack-Source', get_smartstack_source(headers))
     local destination_error = validate_smartstack_header(
         'X-Smartstack-Destination',
         get_smartstack_destination(headers)
     )
 
-    if source_error and destination_error then
-        return false, table.concat({source_error, destination_error}, ' ')
-    elseif source_error then
-        return false, source_error
-    elseif destination_error then
+    if destination_error then
         return false, destination_error
     end
 
-    local source_is_set = get_smartstack_source(headers) ~= nil
     local destination_is_set = get_smartstack_destination(headers) ~= nil
 
     -- Delete after biz_claims is using the generated clientlib PERF-2453
@@ -370,7 +370,7 @@ local function is_request_for_proxied_service(http_method, headers)
         return false, nil
     end
 
-    return source_is_set and destination_is_set, nil
+    return destination_is_set, nil
 end
 
 -- Normalizes the uri by sorting the query params in lexicographical order
@@ -595,6 +595,7 @@ return {
     get_smartstack_destination = get_smartstack_destination,
     get_response_from_remote_service = get_response_from_remote_service,
     get_target_uri = get_target_uri,
+    inject_source_header = inject_source_header,
     is_header_hop_by_hop = is_header_hop_by_hop,
     is_header_uncacheable = is_header_uncacheable,
     is_request_for_proxied_service = is_request_for_proxied_service,

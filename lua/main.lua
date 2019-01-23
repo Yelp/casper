@@ -107,6 +107,8 @@ local function main()
         ngx.req.get_headers()
     )
 
+    spectre_common.inject_source_header(ngx.req)
+
     if should_proxy then
         request_handler_wrapper(caching_handlers.caching_proxy, false)
     elseif err then

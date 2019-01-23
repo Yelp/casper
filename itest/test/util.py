@@ -13,7 +13,6 @@ BACKEND_NAMESPACE = 'backend.main'
 
 HAPROXY_ADDED_HEADERS = {
     'X-Smartstack-Destination': BACKEND_NAMESPACE,
-    'X-Smartstack-Source': 'some.source.main',
 }
 
 NUM_ATTEMPTS_WHEN_GETTING_FROM_CACHE = 2
