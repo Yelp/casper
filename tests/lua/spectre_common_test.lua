@@ -340,7 +340,23 @@ describe("spectre_common", function()
             assert.are.equal(nil, string.find(formatted_err, '\n'))
         end)
 
-        it("injects the X-Smartstack-Source header into the request", function()
+        it("injects the default X-Smartstack-Source header value into the request", function()
+            local original_config_getter = config_loader.get_spectre_config_for_namespace
+            config_loader.get_spectre_config_for_namespace = function(ns) return { casper = nil } end
+
+            local request = {
+                set_header = function(k, v) return nil end
+            }
+            stub(request, 'set_header')
+
+            spectre_common.inject_source_header(request)
+            assert.stub(request.set_header).was.called_with('X-Smartstack-Source', 'spectre.main')
+
+            -- revert to real function
+            config_loader.get_spectre_config_for_namespace = original_config_getter
+        end)
+
+        it("injects the configured X-Smartstack-Source header value into the request", function()
             local configs = config_loader.get_spectre_config_for_namespace(config_loader.CASPER_INTERNAL_NAMESPACE)
             local x_smartstack_source_value = configs['casper']['x_smartstack_source_value']
 
@@ -350,7 +366,7 @@ describe("spectre_common", function()
             stub(request, 'set_header')
 
             spectre_common.inject_source_header(request)
-            assert.stub(request.set_header).was.called_with('X-Smartstack-Source', x_smartstack_source_value)
+            assert.stub(request.set_header).was.called_with('X-Smartstack-Source', 'spectre.notthedefaultvalue')--x_smartstack_source_value)
         end)
 
         describe("is_request_for_proxied_service", function()

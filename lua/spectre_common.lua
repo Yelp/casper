@@ -318,7 +318,13 @@ end
 -- request was already proxied through Casper.
 local function inject_source_header(request)
     local configs = config_loader.get_spectre_config_for_namespace(config_loader.CASPER_INTERNAL_NAMESPACE)
-    local x_smartstack_source_value = configs['casper']['x_smartstack_source_value']
+    local x_smartstack_source_value = "spectre.main"
+
+    -- attempt to retrieve value from config, otherwise keep default
+    if configs['casper'] ~= nil and configs['casper']['x_smartstack_source_value'] ~= nil then
+        x_smartstack_source_value = configs['casper']['x_smartstack_source_value']
+    end
+
     request.set_header('X-Smartstack-Source', x_smartstack_source_value)
 end
 
