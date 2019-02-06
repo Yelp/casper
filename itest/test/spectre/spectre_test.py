@@ -275,7 +275,6 @@ class TestPostMethod(object):
         assert response.status_code == 200
         assert response.headers['Spectre-Cache-Status'] == 'miss'
 
-        time.sleep(0.2)
         # When calling again the result should be cached
         response = post_through_spectre(
             '/post_always_cache/',
