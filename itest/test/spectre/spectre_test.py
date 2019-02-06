@@ -348,13 +348,11 @@ class TestPostMethod(object):
         assert response.headers['Spectre-Cache-Status'] == 'miss'
 
         # Calling again with more fields in body which are ignored would also be a cache hit
-        response = post_through_spectre(
-            '/post_id_cache_variable_body/',
-            data='{"request_id":234, "ignore_field1":"xyz", "ignore_field2":"21"}',
+        assert_is_in_spectre_cache(
+            '/post_id_cache_variable_body/', 
+            data='{"request_id":234, "ignore_field1":"xyz", "ignore_field3":"21"}',
             extra_headers={'content-type': 'application/json'}
         )
-        assert response.status_code == 200
-        assert response.headers['Spectre-Cache-Status'] == 'hit'
 
     def test_post_cached_with_id_can_be_purged(self):
         response = post_through_spectre(
