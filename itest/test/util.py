@@ -46,7 +46,10 @@ def assert_is_in_spectre_cache(*args, **kwargs):
     Args/kwargs passed here are passed through to `get_through_spectre`
     """
     for _ in range(NUM_ATTEMPTS_WHEN_GETTING_FROM_CACHE):
-        response = get_through_spectre(*args, **kwargs)
+        if 'data' in kwargs:
+            response = post_through_spectre(*args, **kwargs)
+        else:
+            response = get_through_spectre(*args, **kwargs)
         if response.headers['Spectre-Cache-Status'] == 'hit':
             return response
         else:
