@@ -14,6 +14,7 @@ services:
             - SRV_CONFIGS_PATH=/code/itest/data/srv-configs
             - SERVICES_YAML_PATH=/code/itest/data/services.yaml
             - WORKER_PROCESSES=1
+            - DISABLE_STDOUT_ACCESS_LOG=1
         volumes:
             - /var/log/nginx
             - ./data/etc:/nail/etc:ro

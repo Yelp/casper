@@ -14,10 +14,14 @@ if [ $ACCEPTANCE ]; then
 fi
 
 if [ "$DISABLE_STDOUT_ACCESS_LOG" = "1" ]; then
-    # We already send logs to syslog from Lua.
-    # Setting this env var to 1 will disable redundant nginx access log
+    # We already send logs to syslog from the Lua code.
+    # To avoid duplicate logging, we can disable stdout access_logs.
     echo -n "Disabling access log on stdout: "
+    # Search for exact string to substitue
+    # If found, we run the subsitution command and jump to next line
+    # If not found, we exit 3
     sed -i -e "/access_log \/dev\/stdout main_spectre;/,\${s//access_log off;/;b};\$q3" $NGINX_CONF
+
     # Let's exit if the substitution doesn't go exactly as planned
     [[ ! $? == 0 ]] && echo "error disabling stdout access_logs" && exit 1
     echo "done"
