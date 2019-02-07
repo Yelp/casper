@@ -17,7 +17,7 @@ if [ "$DISABLE_STDOUT_ACCESS_LOG" = "1" ]; then
     # We already send logs to syslog from Lua.
     # Setting this env var to 1 will disable redundant nginx access log
     echo -n "Disabling access log on stdout: "
-    sed -i -e "s/access_log \/dev\/stdout main_spectre;/access_log off;/g;{q3}" $NGINX_CONF
+    sed -i -e "/access_log \/dev\/stdout main_spectre;/,\${s//access_log off;/;b};\$q3" $NGINX_CONF
     # Let's exit if the substitution doesn't go exactly as planned
     [[ ! $? == 0 ]] && echo "error disabling stdout access_logs" && exit 1
     echo "done"
