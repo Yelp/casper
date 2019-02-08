@@ -65,6 +65,18 @@ function zipkin.get_new_headers(incoming_zipkin_headers)
 end
 
 
+-- Modify relevant Zipkin headers for downstream request.
+function zipkin.inject_zipkin_headers(incoming_zipkin_headers)
+    local new_zipkin_headers = zipkin.get_new_headers(incoming_zipkin_headers)
+    local headers = {}
+    for header_name, header_val in pairs(new_zipkin_headers) do
+        ngx.req.set_header(header_name, header_val)
+        headers[header_name] = header_val
+    end
+
+    return headers
+end
+
 -- If Zipkin headers exist, then log them to syslog. X-B3-Flags and X-B3-Sampled
 -- are optional in the Zipkin spec, so we'll emit a '-' if they're not present.
 -- Start and end times are in epoch seconds, but Zipkin wants them in microseconds.
