@@ -2,7 +2,6 @@
 import time
 
 import bravado.exception
-import json
 import pytest
 import requests
 import socket
@@ -215,11 +214,6 @@ class TestGetMethod(object):
         headers = response.json()['received_headers']
         assert 'test-header' in headers
         assert 'header_with_underscores' in headers
-
-    def test_x_smartstack_source_is_inserted(self):
-        response = get_through_spectre('/biz?foo=bar&business_id=1234')
-        content = json.loads(response.content)
-        assert content['received_headers']['x-smartstack-source'] == 'spectre.main'
 
 
 class TestPostMethod(object):
