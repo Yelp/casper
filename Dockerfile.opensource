@@ -1,4 +1,4 @@
-FROM ubuntu:xenial
+FROM ubuntu:bionic
 LABEL maintainer="Yelp Performance Team"
 
 # public apt-get mirrors are terribly slow if your network supports ipv6

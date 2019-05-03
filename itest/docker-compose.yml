@@ -4,7 +4,9 @@ services:
     spectre:
         cap_add:
             - NET_ADMIN
-        image: spectre-dev-${USER}
+        build:
+            context: ..
+            dockerfile: Dockerfile.opensource
         depends_on:
             - syslog
             - metrics
