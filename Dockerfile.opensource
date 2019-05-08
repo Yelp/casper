@@ -10,6 +10,7 @@ RUN apt-get -o Acquire::ForceIPv4=true update && \
         ca-certificates \
         dnsutils \
         git \
+        gpg-agent \
         libluajit-5.1-2 \
         # libyaml-dev is needed to install lyaml
         libyaml-dev \
@@ -26,9 +27,9 @@ RUN add-apt-repository -y "deb http://openresty.org/package/ubuntu $(lsb_release
 # Need to pin openresty to the 1.11.2.3 version as our tests break with newer versions.
 # I think this is due to bad test syntax on our side, so we should fix that: PERF-2785
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    openresty=1.13.6.2-1~xenial1 \
-    openresty-opm=1.13.6.2-1~xenial1 \
-    openresty-resty=1.13.6.2-1~xenial1
+    openresty \
+    openresty-opm \
+    openresty-resty
 
 # Manually install dumb-init as it's not in the public APT repo
 RUN wget https://github.com/Yelp/dumb-init/releases/download/v1.2.1/dumb-init_1.2.1_amd64.deb
