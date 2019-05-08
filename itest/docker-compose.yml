@@ -4,7 +4,7 @@ services:
     spectre:
         cap_add:
             - NET_ADMIN
-        image: spectre-dev-${USER}
+        image: ${DOCKER_TAG}
         depends_on:
             - syslog
             - metrics
