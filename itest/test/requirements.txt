@@ -22,5 +22,5 @@ simplejson==3.16.0
 six==1.11.0
 strict-rfc3339==0.7
 swagger-spec-validator==2.3.1
-urllib3==1.23
+urllib3==1.24.2
 webcolors==1.8.1
