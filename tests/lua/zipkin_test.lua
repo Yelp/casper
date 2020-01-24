@@ -8,7 +8,7 @@ describe("zipkin", function()
         zipkin = require 'zipkin'
 
         config_loader = require 'config_loader'
-        config_loader.load_services_configs('/code/tests/data/srv-configs')
+        config_loader.load_services_configs('tests/data/srv-configs')
 
         stub(ngx, 'log')
     end)

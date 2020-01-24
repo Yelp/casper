@@ -14,35 +14,15 @@ DOCKER_COMPOSE := bin/docker-compose-$(DOCKER_COMPOSE_VERSION)
 all: test itest dev
 
 .PHONY: dev
-dev: cook-image
-	docker run -t \
-		-p $(PORT):8888 \
-		-e "PAASTA_SERVICE=casper" \
-		-e "PAASTA_INSTANCE=test" \
-		-v /nail/etc:/nail/etc:ro \
-		-v /nail/srv/configs/spectre:/nail/srv/configs/spectre:ro \
-		-v /var/run/synapse/services/:/var/run/synapse/services/:ro \
-		-v $(PWD):/code:ro \
-		--name=$(DOCKER_TAG) $(DOCKER_TAG)
-	@echo 'Spectre is up and running:'
-	@echo '    curl localhost:$(PORT)/status'
-
-.PHONY: inspect
-inspect:
-	docker exec -ti $(DOCKER_TAG) bash -c 'apt-get install -y --no-install-recommends vim && bash'
+dev: minimal
+	@mkdir -p logs
+	@PAASTA_SERVICE=casper \
+		PAASTA_INSTANCE=test \
+		./start.sh
 
 .PHONY: test
-test: cook-image run-test
-
-.PHONY: run-test
-run-test:
-	docker run -t \
-		-v $(PWD)/tests:/code/tests \
-		-v $(CURDIR)/tests/data/etc:/nail/etc \
-		$(DOCKER_TAG) bash -c 'make unittest'
-
-.PHONY: unittest
-unittest:
+test: deps
+	rm -f luacov.stats.out luacov.report.out
 	@ls -1 tests/lua/*.lua | xargs -i sh -c "\
 		echo 'Running tests for {}'; \
 		PAASTA_SERVICE=spectre \
@@ -50,10 +30,10 @@ unittest:
 		SRV_CONFIGS_PATH=$(SRV_CONFIGS_PATH_FOR_TESTS) \
 		SERVICES_YAML_PATH=$(SMARTSTACK_CONFIG_PATH_FOR_TESTS) \
 		METEORITE_WORKER_PORT='-1' \
-		resty {}"
+		./luawrapper resty {}"
 
-	@luacheck lua --exclude-files lua/vendor/*
-	@luacov
+	./luawrapper luacheck lua --exclude-files lua/vendor/*
+	./luawrapper luacov
 	@# We only want to print the summary, not the entire file
 	@# "grep -n" returns the line number, then we print all successive lines with awk
 	@awk "NR>$$(grep -n 'Summary' luacov.report.out | cut -d':' -f1)" luacov.report.out
@@ -84,6 +64,8 @@ cook-image: clean-docker
 .PHONY: clean
 clean: clean-docker
 	rm -rf .cache
+	rm -rf luarocks
+	rm -rf resty_modules
 
 .PHONY: clean-docker
 clean-docker: $(DOCKER_COMPOSE)
@@ -92,3 +74,27 @@ clean-docker: $(DOCKER_COMPOSE)
 	docker rm $(DOCKER_TAG) || true
 	$(DOCKER_COMPOSE) -f $(DOCKER_COMPOSE_YML) kill
 	$(DOCKER_COMPOSE) -f $(DOCKER_COMPOSE_YML) rm -f
+
+luarocks: casper-dev-0.rockspec lua-cassandra-dev-0.rockspec
+	rm -rf $@
+	mkdir $@
+	# Pin lua version so that it can work on macos' homebrew lua
+	luarocks make --lua-version=5.1 --tree=$@ casper-dev-0.rockspec
+	luarocks build --lua-version=5.1 --tree=$@ lua-cassandra-dev-0.rockspec
+	# Symlink in our Lua executable so that scripts that install with
+	# a "#!/usr/bin/env lua" shebang will get the right interpreter.
+	ln -s /usr/local/openresty/luajit/bin/luajit $@/bin/lua
+	ln -s /usr/local/openresty/luajit/bin/luajit $@/bin/luajit
+	ln -s $(CURDIR)/busted $@/bin/busted-resty
+	ln -s /usr/bin/resty $@/bin/resty
+
+resty_modules: opm-dependencies.txt
+	rm -rf $@
+	mkdir $@
+	cat opm-dependencies.txt | xargs -L 1 opm --cwd get
+
+.PHONY: minimal
+minimal: deps
+
+.PHONY: deps
+deps: luarocks resty_modules

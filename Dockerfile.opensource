@@ -37,26 +37,15 @@ RUN dpkg -i dumb-init_*.deb
 
 RUN apt-get clean
 
-# We directly pin both lua dependencies to allow for reproducible
-# deploy builds.
-RUN luarocks install lyaml 6.1.1-4
-RUN luarocks install luasocket 3.0rc1-2
-RUN luarocks install luafilesystem 1.6.3-2
-RUN luarocks install lua-resty-http 0.12-0
-RUN luarocks install crc32 1.0
-RUN luarocks install busted 2.0.rc12-1
-RUN luarocks install cluacov
-RUN luarocks install luacheck
-RUN opm get detailyang/lua-resty-rfc5424=0.1.0
-
 RUN mkdir -p /code
+RUN mkdir -p /code/logs
 WORKDIR /code
 
-# Revert after https://github.com/thibaultcha/lua-cassandra/pull/104 gets merged.
-ADD lua-cassandra-dev-0.rockspec lua-cassandra-dev-0.rockspec
-RUN luarocks build lua-cassandra-dev-0.rockspec
+ADD casper-dev-0.rockspec lua-cassandra-dev-0.rockspec opm-dependencies.txt Makefile /code/
+RUN make deps
 
 ADD . /code
+
 RUN chown -R nobody:nogroup /code /usr/local/openresty
 
 # See https://github.com/moby/moby/issues/2259

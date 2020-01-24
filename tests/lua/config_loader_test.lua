@@ -42,9 +42,9 @@ describe("config_loader", function()
 
     it("returns nil and log if config file is missing", function()
         stub(ngx, 'log')
-        local config = config_loader.parse_configs('/code/tests/data/srv-configs/missing_config.yaml')
+        local config = config_loader.parse_configs('tests/data/srv-configs/missing_config.yaml')
         assert.is_nil(config)
-        assert.stub(ngx.log).was.called.with(ngx.ERR, 'File missing, cannot parse: /code/tests/data/srv-configs/missing_config.yaml')
+        assert.stub(ngx.log).was.called.with(ngx.ERR, 'File missing, cannot parse: tests/data/srv-configs/missing_config.yaml')
     end)
 
     it("file has not changed, returns nil", function()
