@@ -39,7 +39,7 @@ describe('cassandra_helper', function()
     describe('get_cluster_hosts', function()
         it('returns the Cassandra connection string', function()
             local actual = cassandra_helper.get_cluster_hosts()
-            local expected = {'10.56.6.22:31321','10.40.25.42:31725'}
+            local expected = {'10.56.6.22','10.40.25.42'}
 
             assert.are.same(expected, actual)
         end)
@@ -48,7 +48,7 @@ describe('cassandra_helper', function()
             local old_region = configs['local_region']
             configs['local_region'] = 'uswest1'
             local actual = cassandra_helper.get_cluster_hosts()
-            local expected = {'10.40.25.42:31725' }
+            local expected = {'10.40.25.42' }
             configs['local_region'] = old_region
 
             assert.are.same(expected, actual)
@@ -84,7 +84,7 @@ describe('cassandra_helper', function()
         local cluster_module = {
             new = function(opts)
                 assert.are.equal('test_shm', opts['shm'])
-                assert.are.same({'10.56.6.22:31321','10.40.25.42:31725'}, opts['contact_points'])
+                assert.are.same({'10.56.6.22','10.40.25.42'}, opts['contact_points'])
                 assert.are.equal(configs['keyspace'], opts['keyspace'])
                 assert.are.equal(10 / 1000, opts['lock_timeout'])
                 assert.are.equal(configs['connect_timeout_ms'], opts['timeout_connect'])

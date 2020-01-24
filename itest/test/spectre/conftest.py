@@ -13,10 +13,12 @@ def wait_for_casper():
     while the tests usually start immediately without waiting.
     """
     for i in range(60):
-        response = get_from_spectre('/status?check_cassandra=true')
-        if response.status_code == 200:
-            return
-        else:
-            time.sleep(1)
+        try:
+            response = get_from_spectre('/status?check_cassandra=true')
+            if response.status_code == 200:
+                return
+        except Exception:
+            pass
+        time.sleep(1)
     else:
         raise RuntimeError("Spectre was not ready after 60 seconds")
