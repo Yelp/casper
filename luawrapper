@@ -1,0 +1,12 @@
+#!/bin/bash
+set -euo pipefail
+
+# Based on the output on `luarocks path`, but adjusted for a local
+# installation.
+export LUA_PATH='luarocks/share/lua/5.1/?.lua;luarocks/share/lua/5.1/?/init.lua;resty_modules/lualib/?.lua;lua/?.lua'
+export LUA_CPATH='luarocks/lib/lua/5.1/?.so'
+
+# Put luarocks on the PATH.
+export PATH="$(readlink -f luarocks/bin):$PATH"
+
+exec "luarocks/bin/$1" "${@:2}"

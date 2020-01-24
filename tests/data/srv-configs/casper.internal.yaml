@@ -1,5 +1,5 @@
 cassandra:
-    seeds_file: '/code/tests/data/synapse/services/cassandra_casper.main.json'
+    seeds_file: 'tests/data/synapse/services/cassandra_casper.main.json'
     connect_timeout_ms: 100
     default_num_buckets: 1000
     keyspace: 'spectre_db'
@@ -15,7 +15,7 @@ http:
     timeout_ms: 10000
 
 yelp_meteorite:
-    etc_path: '/code/tests/data/etc'
+    etc_path: 'tests/data/etc'
     metrics-relay:
         host: 127.0.0.1
         port: 1234

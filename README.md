@@ -17,6 +17,12 @@ remnants of "Spectre" in the code, that's why!
 * `docker`: make sure it's installed on your system by following the
 instruction for your platform [here](https://docs.docker.com/install/).
 * `make`: ensure you can run `make` targets with your OS (on Windows, use `nmake`.)
+* `lua 5.1`
+* `luarocks`
+* `openresty`: follow the instructions at https://openresty.org/en/installation.html
+
+On macos you can install most of those packages easily via homebrew (https://brew.sh/).
+Just run `brew install lua@5.1 openresty/brew/openresty luarocks make`.
 
 ## Building locally
 
@@ -26,18 +32,13 @@ To start Casper, run
 
 To make sure it's up (change the port accordingly if you change the default):
 
-    $ curl -v localhost:32927/status
+    $ curl -v localhost:8888/status
 
 For basic debugging (is it missing/hitting the cache? Am I being correctly
 proxied? etc), curl, and pay attention to the "Spectre-Cache-Status" header:
 
     $ curl -o /dev/null -iv -H 'X-Source-Id: test' -H 'X-Smartstack-Destination: yelp-main.internalapi' -H 'X-Smartstack-Source: spectre.main' -H 'Host: internalapi' 'localhost:32927/category_yelp/?locale=en_US' 2>&1 | grep 'Spectre-Cache-Status'
     < Spectre-Cache-Status: hit
-
-To debug deeper it's highly recommended that you hop in the docker container
-in which nginx/lua are running with:
-
-    $ make inspect
 
 It can help, to get as much information as possible, to set nginx logging to
 debug granularity. In `nginx.conf`, replace the `error_log` directive by:

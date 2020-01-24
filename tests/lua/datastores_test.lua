@@ -30,7 +30,7 @@ describe('cassandra_helper', function()
         metrics_helper = require 'metrics_helper'
 
         config_loader = require 'config_loader'
-        config_loader.load_services_configs('/code/tests/data/srv-configs')
+        config_loader.load_services_configs('tests/data/srv-configs')
         configs = config_loader.get_spectre_config_for_namespace(config_loader.CASPER_INTERNAL_NAMESPACE)['cassandra']
 
         stub(ngx, 'log')

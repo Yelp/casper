@@ -20,7 +20,7 @@ describe("spectre_common", function()
         }
 
         config_loader = require 'config_loader'
-        config_loader.load_services_configs('/code/tests/data/srv-configs')
+        config_loader.load_services_configs('tests/data/srv-configs')
         spectre_common = require 'spectre_common'
 
         stub(ngx, 'log')
@@ -29,7 +29,7 @@ describe("spectre_common", function()
     describe("spectre_common", function()
         before_each(function()
             config_loader.clear_mod_time_table()
-            config_loader.load_services_configs('/code/tests/data/srv-configs')
+            config_loader.load_services_configs('tests/data/srv-configs')
         end)
 
         it("disable caching via configs", function()

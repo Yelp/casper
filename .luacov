@@ -1,2 +1,2 @@
-include = {'./lua/*'}
-exclude = {'./lua/vendor/*', '/opt', '/usr', 'tests'}
+include = {'lua/*'}
+exclude = {'lua/vendor/*', '/opt', '/usr', 'tests', 'luarocks', 'resty_modules'}
