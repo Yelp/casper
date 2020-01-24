@@ -4,7 +4,7 @@ version = "dev-0"
 -- https://github.com/thibaultcha/lua-cassandra/pull/104
 source = {
   url = "git://github.com/drolando/lua-cassandra",
-  branch = "add_stream_id_support_dev"
+  branch = "add_stream_id_1_5_0_lua_master"
 }
 description = {
   summary = "A pure Lua client library for Apache Cassandra",
@@ -25,7 +25,9 @@ build = {
     ["resty.cassandra.cluster"] = "lib/resty/cassandra/cluster.lua",
     ["resty.cassandra.policies.lb"] = "lib/resty/cassandra/policies/lb/init.lua",
     ["resty.cassandra.policies.lb.rr"] = "lib/resty/cassandra/policies/lb/rr.lua",
+    ["resty.cassandra.policies.lb.req_rr"] = "lib/resty/cassandra/policies/lb/req_rr.lua",
     ["resty.cassandra.policies.lb.dc_rr"] = "lib/resty/cassandra/policies/lb/dc_rr.lua",
+    ["resty.cassandra.policies.lb.req_dc_rr"] = "lib/resty/cassandra/policies/lb/req_dc_rr.lua",
     ["resty.cassandra.policies.reconnection"] = "lib/resty/cassandra/policies/reconnection/init.lua",
     ["resty.cassandra.policies.reconnection.exp"] = "lib/resty/cassandra/policies/reconnection/exp.lua",
     ["resty.cassandra.policies.reconnection.const"] = "lib/resty/cassandra/policies/reconnection/const.lua",

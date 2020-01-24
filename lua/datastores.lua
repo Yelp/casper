@@ -61,9 +61,8 @@ function cassandra_helper.get_cluster_hosts()
                 -- If host is not an ip, resolve it
                 host = socket.dns.toip(host)
             end
-            table.insert(hosts, string.format('%s:%s',
-                host,
-                v['port']
+            table.insert(hosts, string.format('%s',
+                host
             ))
         end
     end
@@ -104,6 +103,7 @@ function cassandra_helper.create_cluster(cluster_module, shm, timeout)
         timeout_connect = tonumber(configs['connect_timeout_ms']),
         timeout_read = timeout,
         retry_on_timeout = configs['retry_on_timeout'],
+        default_port = 9042,
         retry_policy = cassandra_helper.retry_policy(configs['num_retries'])
     }
 

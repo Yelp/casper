@@ -4,7 +4,10 @@ services:
     spectre:
         cap_add:
             - NET_ADMIN
-        image: ${DOCKER_TAG}
+        build:
+            context: ./casper
+            args:
+                CASPER_IMAGE: ${DOCKER_TAG}
         depends_on:
             - syslog
             - metrics
@@ -15,6 +18,7 @@ services:
             - SERVICES_YAML_PATH=/code/itest/data/services.yaml
             - WORKER_PROCESSES=1
             - DISABLE_STDOUT_ACCESS_LOG=1
+            - WAIT_ON=10.5.0.5:9042
         volumes:
             - /var/log/nginx
             - ./data/etc:/nail/etc:ro
