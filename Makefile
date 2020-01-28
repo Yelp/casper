@@ -79,7 +79,7 @@ luarocks: casper-dev-0.rockspec lua-cassandra-dev-0.rockspec
 	rm -rf $@
 	mkdir $@
 	# Pin lua version so that it can work on macos' homebrew lua
-	luarocks make --lua-version=5.1 --tree=$@ casper-dev-0.rockspec
+	cat luarocks-dependencies.txt | xargs -L 1 luarocks install --lua-version=5.1 --tree=$@
 	luarocks build --lua-version=5.1 --tree=$@ lua-cassandra-dev-0.rockspec
 	# Symlink in our Lua executable so that scripts that install with
 	# a "#!/usr/bin/env lua" shebang will get the right interpreter.
