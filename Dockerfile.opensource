@@ -41,7 +41,7 @@ RUN mkdir -p /code
 RUN mkdir -p /code/logs
 WORKDIR /code
 
-ADD casper-dev-0.rockspec lua-cassandra-dev-0.rockspec opm-dependencies.txt Makefile /code/
+ADD luarocks-dependencies.txt lua-cassandra-dev-0.rockspec opm-dependencies.txt Makefile /code/
 RUN make deps
 
 ADD . /code
