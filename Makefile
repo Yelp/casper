@@ -75,7 +75,7 @@ clean-docker: $(DOCKER_COMPOSE)
 	$(DOCKER_COMPOSE) -f $(DOCKER_COMPOSE_YML) kill
 	$(DOCKER_COMPOSE) -f $(DOCKER_COMPOSE_YML) rm -f
 
-luarocks: casper-dev-0.rockspec lua-cassandra-dev-0.rockspec
+luarocks: luarocks-dependencies.txt lua-cassandra-dev-0.rockspec
 	rm -rf $@
 	mkdir $@
 	# Pin lua version so that it can work on macos' homebrew lua
