@@ -84,7 +84,11 @@ def post_through_spectre(path, data=None, extra_headers=None):
 
 
 def purge_resource(args):
-    return spectre_swagger_client.purge.purge(**args).result()
+    try:
+        return spectre_swagger_client.purge.purge(**args).result()
+    except Exception as e:
+        print(str(e))
+        raise
 
 
 def get_from_spectre(path):
