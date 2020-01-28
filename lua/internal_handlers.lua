@@ -58,6 +58,20 @@ local function status_handler(_)
             status_info['cassandra_status'] = 'down'
             status = ngx.HTTP_INTERNAL_SERVER_ERROR
         end
+
+        local read_conn = cassandra_helper.get_connection(cassandra_helper.READ_CONN)
+        local peers = read_conn.get_peers(read_conn)
+        local nodes_status = {}
+        for i = 1, #peers do
+            table.insert(nodes_status, {
+                host = peers[i].host,
+                data_center = peers[i].data_center,
+                up = peers[i].up,
+                err = peers[i].err,
+            })
+        end
+        status_info['cassandra_nodes'] = nodes_status
+
     end
 
     -- Ensure config file at /nail/etc/services/services.yaml is parsed
