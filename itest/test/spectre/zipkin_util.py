@@ -3,12 +3,12 @@ import re
 import time
 from collections import namedtuple
 
-Span = namedtuple('Span', ['trace_id', 'id', 'parent_id'])
+Span = namedtuple('Span', ['trace_id', 'id', 'parent_id', 'cache_status'])
 
 regex = re.compile(
     'spectre/zipkin (?P<trace_id>[a-fA-F0-9]*) (?P<id>[a-fA-F0-9]*) (?P<parent_id>[a-fA-F0-9]*) '
     '0 (?P<sampled>[01]) (?P<start_time_us>[0-9]*) (?P<end_time_us>[0-9]*)'
-    '[^,]*, client: (?P<client>[0-9\.]*), server: [^,]*, '
+    '[^,]*, client: (?P<client>[0-9\.]*), server: [^,]*, (?:cache_status: (?P<cache_status>[^,]*), )?'
     'request: "[A-Z]* [^ "]* (?P<method>[^ "]*)"'
 )
 
@@ -29,4 +29,5 @@ def get_zipkin_span_from_line(line):
         trace_id=match.group('trace_id'),
         id=match.group('id'),
         parent_id=match.group('parent_id'),
+        cache_status=match.group('cache_status'),
     )

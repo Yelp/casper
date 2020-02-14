@@ -76,7 +76,7 @@ class TestZipkinLogging(object):
     def _assert_no_span_in_logs(self):
         assert load_zipkin_spans(SYSLOG_FILE) == []
 
-    def _check_span_logs(self, trace_id, span_id, parent_span_id, num_lines=1):
+    def _check_span_logs(self, trace_id, span_id, parent_span_id, num_lines=1, cache_status=None):
         """Check that Zipkin span information is logged to the local error log
         file. We clear out the error file's contents before individual tests,
         so we only check for single log lines.
@@ -88,6 +88,8 @@ class TestZipkinLogging(object):
         assert spans[-1].trace_id == trace_id
         assert spans[-1].id == span_id
         assert spans[-1].parent_id == parent_span_id
+        if cache_status:
+            assert spans[-1].cache_status == cache_status
 
     def test_logs_zipkin_info_to_error_log(self, clean_log_files):
         trace_id, span_id, parent_span_id = self._get_random_zipkin_ids()
@@ -130,7 +132,7 @@ class TestZipkinLogging(object):
             url='/long_ttl/zipkin',
         )
         assert uncached_response.headers['Spectre-Cache-Status'] == 'miss'
-        self._check_span_logs(trace_id, span_id, parent_span_id)
+        self._check_span_logs(trace_id, span_id, parent_span_id, cache_status='miss')
         uncached_backend_headers = uncached_response.json()['received_headers']
         self._check_backend_headers(
             trace_id,
@@ -152,7 +154,7 @@ class TestZipkinLogging(object):
         # header. In the uncached case, that's the responsibility of the
         # backend service to set it themselves.
         assert cached_response.headers['X-Zipkin-Id'] == trace_id
-        self._check_span_logs(trace_id, span_id, parent_span_id, num_lines=2)
+        self._check_span_logs(trace_id, span_id, parent_span_id, num_lines=2, cache_status='hit')
 
     def test_dont_emit_span_if_no_headers(self, clean_log_files):
         response = get_through_spectre(

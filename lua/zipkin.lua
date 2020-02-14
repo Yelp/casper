@@ -80,7 +80,7 @@ end
 -- If Zipkin headers exist, then log them to syslog. X-B3-Flags and X-B3-Sampled
 -- are optional in the Zipkin spec, so we'll emit a '-' if they're not present.
 -- Start and end times are in epoch seconds, but Zipkin wants them in microseconds.
-function zipkin.emit_syslog(headers, start_time, end_time)
+function zipkin.emit_syslog(headers, start_time, end_time, response)
     if headers['X-B3-TraceId'] ~= nil and
             headers['X-B3-SpanId'] ~= nil and
             headers['X-B3-ParentSpanId'] ~= nil then
@@ -92,7 +92,7 @@ function zipkin.emit_syslog(headers, start_time, end_time)
         )
 
         local message = string.format(
-            'spectre/zipkin %s %s %s %s %s %d %d, client: %s, server: , request: %s',
+            'spectre/zipkin %s %s %s %s %s %d %d, client: %s, server: , cache_status: %s, request: %s',
             headers['X-B3-TraceId'],
             headers['X-B3-SpanId'],
             headers['X-B3-ParentSpanId'],
@@ -101,6 +101,7 @@ function zipkin.emit_syslog(headers, start_time, end_time)
             start_time * 1000000,
             end_time * 1000000,
             ngx.var.remote_addr,
+            response.cacheability_info.reason,
             request_string
         )
 
