@@ -11,7 +11,7 @@ RUN     DEBIAN_FRONTEND=noninteractive apt-get update \
             openjdk-8-jdk \
             wget
 
-RUN     curl https://www.apache.org/dist/cassandra/KEYS | apt-key add -
+RUN     curl https://downloads.apache.org/cassandra/KEYS | apt-key add -
 RUN     echo "deb http://www.apache.org/dist/cassandra/debian 311x main" | tee -a /etc/apt/sources.list.d/cassandra.sources.list
 
 RUN     DEBIAN_FRONTEND=noninteractive apt-get update \
