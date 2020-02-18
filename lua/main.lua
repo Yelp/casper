@@ -40,7 +40,7 @@ local function post_request(incoming_zipkin_headers, start_time, end_time, names
         metrics_helper.emit_cache_metrics(start_time, end_time, namespace, response, status)
     end
 
-    zipkin.emit_syslog(incoming_zipkin_headers, start_time, end_time)
+    zipkin.emit_syslog(incoming_zipkin_headers, start_time, end_time, response)
 end
 
 -- Handles any errors arising from processing in any part of Spectre
