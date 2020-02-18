@@ -101,7 +101,7 @@ function zipkin.emit_syslog(headers, start_time, end_time, response)
             start_time * 1000000,
             end_time * 1000000,
             ngx.var.remote_addr,
-            response.cacheability_info.reason,
+            response.headers['Spectre-Cache-Status'],
             request_string
         )
 
