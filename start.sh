@@ -2,6 +2,7 @@
 
 SRV_CONFIGS_PATH=${SRV_CONFIGS_PATH:-/nail/srv/configs/spectre}
 SERVICES_YAML_PATH=${SERVICES_YAML_PATH:-/nail/etc/services/services.yaml}
+ENVOY_CONFIGS=${ENVOY_CONFIGS:-/nail/srv/configs/envoy_client.yaml}
 CASSANDRA_CLUSTER_CONFIG=${CASSANDRA_CLUSTER_CONFIG:-/var/run/synapse/services/cassandra_spectre.main.json}
 # We run 1 worker per container in production
 WORKER_PROCESSES=${WORKER_PROCESSES:-1}
@@ -31,6 +32,7 @@ echo "Starting casper"
 
 SRV_CONFIGS_PATH=$SRV_CONFIGS_PATH \
     SERVICES_YAML_PATH=$SERVICES_YAML_PATH \
+    ENVOY_CONFIGS=$ENVOY_CONFIGS \
     /usr/local/openresty/nginx/sbin/nginx \
         -c $NGINX_CONF \
         -p $(pwd) \
