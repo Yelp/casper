@@ -251,15 +251,26 @@ local function get_smartstack_destination(headers)
 end
 
 local function get_target_uri(request_uri, request_headers)
+    local casper_configs = config_loader.get_spectre_config_for_namespace(
+        config_loader.CASPER_INTERNAL_NAMESPACE
+    )
     local destination = get_smartstack_destination(request_headers)
-    local info = config_loader.get_smartstack_info_for_namespace(destination)
-    local host = info['host']
+    local host, port
+    if casper_configs['route_through_envoy'] then
+        host = casper_configs['envoy']['host']
+        port = casper_configs['envoy']['port']
+        request_headers['Host'] = destination
+    else
+        local info = config_loader.get_smartstack_info_for_namespace(destination)
+        host = info['host']
+        port = info['port']
+    end
     if ngx.re.match(host, '^[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}$') == nil then
         -- If host is not an IP, resolve it
         host = socket.dns.toip(host)
     end
 
-    return 'http://' .. host .. ':' .. info['port'] .. request_uri
+    return 'http://' .. host .. ':' .. port .. request_uri
 end
 
 -- Utility function to perform request to underlying service and write response

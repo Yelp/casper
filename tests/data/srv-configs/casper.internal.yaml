@@ -25,3 +25,8 @@ zipkin:
     syslog:
         host: 127.0.0.1
         port: 514
+
+route_through_envoy: false
+envoy:
+    host: '169.254.255.254'
+    port: 1337
