@@ -12,6 +12,7 @@ services:
             - syslog
             - metrics
         environment:
+            - ENVOY_CONFIGS_PATH=/code/itest/data
             - PAASTA_SERVICE=spectre
             - PAASTA_INSTANCE=itest
             - SRV_CONFIGS_PATH=/code/itest/data/srv-configs
@@ -22,6 +23,7 @@ services:
         volumes:
             - /var/log/nginx
             - ./data/etc:/nail/etc:ro
+            - ./data/envoy_client.yaml:/code/itest/data/envoy_client.yaml:ro
             - ./drop_all.sh:/opt/drop_all.sh
         networks:
             spectre_net:
