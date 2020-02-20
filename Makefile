@@ -4,6 +4,7 @@ export DOCKER_TAG ?= spectre-dev-$(USER)
 export PORT ?= 32927
 export DOCKER_COMPOSE_YML ?= itest/docker-compose.yml
 export SRV_CONFIGS_PATH_FOR_TESTS=$(PWD)/tests/data/srv-configs
+export ENVOY_CONFIGS_PATH_FOR_TESTS=$(PWD)/tests/data/srv-configs
 export SMARTSTACK_CONFIG_PATH_FOR_TESTS=$(PWD)/tests/data/services.yaml
 export GIT_SHA ?= $(shell git rev-parse --short HEAD)
 
@@ -25,6 +26,7 @@ test: deps
 	rm -f luacov.stats.out luacov.report.out
 	@ls -1 tests/lua/*.lua | xargs -i sh -c "\
 		echo 'Running tests for {}'; \
+		ENVOY_CONFIGS_PATH=$(ENVOY_CONFIGS_PATH_FOR_TESTS) \
 		PAASTA_SERVICE=spectre \
 		PAASTA_INSTANCE=test \
 		SRV_CONFIGS_PATH=$(SRV_CONFIGS_PATH_FOR_TESTS) \

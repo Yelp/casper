@@ -4,6 +4,7 @@ local lfs = require 'lfs'
 local SRV_CONFIG_FOLDER = './tests/data/srv-configs'
 local SMARTSTACK_CONFIG = './tests/data/services.yaml'
 local SRV1_CONFIG_PATH = './tests/data/srv-configs/service1.main.yaml'
+local ENVOY_CONFIGS_PATH = './tests/data/srv-configs'
 
 describe("config_loader", function()
     local config_loader
@@ -13,6 +14,8 @@ describe("config_loader", function()
                 return SRV_CONFIG_FOLDER
             elseif e == 'SERVICES_YAML_PATH' then
                 return SMARTSTACK_CONFIG
+            elseif e == 'ENVOY_CONFIGS_PATH' then
+                return ENVOY_CONFIGS_PATH
             end
             return e
         end

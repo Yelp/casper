@@ -594,6 +594,25 @@ describe("spectre_common", function()
             )
             assert.are.equal('http://127.1.2.3:12345/quux', uri)
         end)
+
+        it("Can route through envoy", function()
+            config_loader.set_smartstack_info_for_namespace('srv.main', {
+                host = 'localhost',
+                port = 12345,
+            })
+            casper_configs = config_loader.get_spectre_config_for_namespace(
+                config_loader.CASPER_INTERNAL_NAMESPACE
+            )
+            casper_configs.route_through_envoy = true
+            headers = {['X-Smartstack-Destination'] = 'srv.main'}
+
+            local uri = spectre_common.get_target_uri(
+                '/quux',
+                headers
+            )
+            assert.are.equal('http://169.254.255.254:1337/quux', uri)
+            assert.are.equal('srv.main', headers['Host'])
+        end)
     end)
 
     describe("forward_to_destination", function()

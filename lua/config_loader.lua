@@ -4,7 +4,9 @@ local util = require 'util'
 
 local SRV_CONFIGS_PATH = os.getenv('SRV_CONFIGS_PATH')
 local SERVICES_YAML_PATH = os.getenv('SERVICES_YAML_PATH')
+local ENVOY_CONFIGS_PATH = os.getenv('ENVOY_CONFIGS_PATH')
 local CASPER_INTERNAL_NAMESPACE = 'casper.internal'
+local ENVOY_NAMESPACE = 'envoy_client'
 
 local RELOAD_DELAY = 30  -- seconds
 
@@ -114,18 +116,24 @@ local function parse_configs(config_file_path)
 end
 
 -- Load all services configs
-local function load_services_configs(path)
-    for file in lfs.dir(path) do
-        local file_path = path..'/'..file
-        if lfs.attributes(file_path, 'mode') == 'file' and
-               string.find(file, '.yaml$') then
-            local config = parse_configs(file_path)
-            if config ~= nil then
-                local service_namespace = string.gsub(file, '.yaml', '')
-                set_spectre_config_for_namespace(service_namespace, config)
-            end
+local function load_services_config(path, file)
+    local file_path = path..'/'..file
+    if lfs.attributes(file_path, 'mode') == 'file' and
+            string.find(file, '.yaml$') then
+        local config = parse_configs(file_path)
+        if config ~= nil then
+            local service_namespace = string.gsub(file, '.yaml', '')
+            set_spectre_config_for_namespace(service_namespace, config)
         end
     end
+end
+
+-- Load all services configs
+local function load_services_configs(path)
+    for file in lfs.dir(path) do
+        load_services_config(path, file)
+    end
+    load_services_config(ENVOY_CONFIGS_PATH, 'envoy_client.yaml')
 end
 
 -- Load the smartstack information from disk if the file has changed
@@ -179,4 +187,5 @@ return {
     has_spectre_configs = has_spectre_configs,
 
     CASPER_INTERNAL_NAMESPACE = CASPER_INTERNAL_NAMESPACE,
+    ENVOY_NAMESPACE = ENVOY_NAMESPACE,
 }
