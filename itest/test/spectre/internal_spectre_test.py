@@ -45,6 +45,11 @@ class TestCanReachStatuses(object):
             },
         }
 
+    def test_can_reach_nginx_status(self):
+        response = get_from_spectre('/nginx-status')
+        assert response.status_code == 200
+        assert 'Active connections'  in response.text
+
 
 class TestConfigs(object):
 
