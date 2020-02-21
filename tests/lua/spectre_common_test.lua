@@ -576,7 +576,7 @@ describe("spectre_common", function()
                 host = '169.254.255.254',
                 port = 12345,
             })
-            local uri = spectre_common.get_target_uri(
+            local uri, new_headers = spectre_common.get_target_uri(
                 '/quux',
                 {['X-Smartstack-Destination'] = 'srv.main'}
             )
@@ -588,7 +588,7 @@ describe("spectre_common", function()
                 host = 'localhost',
                 port = 12345,
             })
-            local uri = spectre_common.get_target_uri(
+            local uri, new_headers = spectre_common.get_target_uri(
                 '/quux',
                 {['X-Smartstack-Destination'] = 'srv.main'}
             )
@@ -606,12 +606,14 @@ describe("spectre_common", function()
             casper_configs.route_through_envoy = true
             headers = {['X-Smartstack-Destination'] = 'srv.main'}
 
-            local uri = spectre_common.get_target_uri(
+            local uri, new_headers = spectre_common.get_target_uri(
                 '/quux',
                 headers
             )
             assert.are.equal('http://169.254.255.254:1337/quux', uri)
-            assert.are.equal('srv.main', headers['Host'])
+            -- Let's make sure we haven't mutated the original headers
+            assert.are.equal('srv.main', new_headers['Host'])
+            assert.is_nil(headers['Host'])
         end)
     end)
 

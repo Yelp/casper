@@ -250,6 +250,10 @@ local function get_smartstack_destination(headers)
     return headers['X-Smartstack-Destination']
 end
 
+local function clone_table(tbl)
+  return {unpack(tbl)}
+end
+
 local function get_target_uri(request_uri, request_headers)
     local casper_configs = config_loader.get_spectre_config_for_namespace(
         config_loader.CASPER_INTERNAL_NAMESPACE
@@ -259,9 +263,12 @@ local function get_target_uri(request_uri, request_headers)
         local envoy_configs = config_loader.get_spectre_config_for_namespace(
             config_loader.ENVOY_NAMESPACE
         )
-        request_headers['Host'] = destination
+        -- Do not mutate the original headers since they're used as part of the
+        -- cache key. Let's make a copy instead and change that.
+        local new_headers = clone_table(request_headers)
+        new_headers['Host'] = destination
         -- in envoy_configs['url'], we have a '/' at the end of the url, so we need to remove it from request_url
-        return envoy_configs['url'] .. string.sub(request_uri, 2)
+        return envoy_configs['url'] .. string.sub(request_uri, 2), new_headers
     else
         local info = config_loader.get_smartstack_info_for_namespace(destination)
         local host = info['host']
@@ -270,7 +277,7 @@ local function get_target_uri(request_uri, request_headers)
             -- If host is not an IP, resolve it
             host = socket.dns.toip(host)
         end
-        return 'http://' .. host .. ':' .. port .. request_uri
+        return 'http://' .. host .. ':' .. port .. request_uri, request_headers
     end
 
 end
@@ -278,13 +285,13 @@ end
 -- Utility function to perform request to underlying service and write response
 -- @return (response status, response body, cacheable_headers, uncacheable_headers)
 local function forward_to_destination(method, request_uri, request_headers)
-    local target_uri = get_target_uri(request_uri, request_headers)
+    local target_uri, new_headers = get_target_uri(request_uri, request_headers)
     local destination = get_smartstack_destination(request_headers)
 
     local response, error_message = http.make_http_request(
         method,
         target_uri,
-        request_headers
+        new_headers
     )
 
     if not response then
