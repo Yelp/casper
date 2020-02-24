@@ -251,7 +251,11 @@ local function get_smartstack_destination(headers)
 end
 
 local function clone_table(tbl)
-  return {unpack(tbl)}
+  local new_tbl = {}
+  for k, v in pairs(tbl) do
+    new_tbl[k] = v
+  end
+  return new_tbl
 end
 
 local function get_target_uri(request_uri, request_headers)
@@ -614,6 +618,7 @@ return {
     add_zipkin_headers_to_response_headers = add_zipkin_headers_to_response_headers,
     get_smartstack_destination = get_smartstack_destination,
     get_response_from_remote_service = get_response_from_remote_service,
+    clone_table = clone_table,
     get_target_uri = get_target_uri,
     is_header_hop_by_hop = is_header_hop_by_hop,
     is_header_uncacheable = is_header_uncacheable,
