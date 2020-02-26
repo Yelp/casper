@@ -11,10 +11,10 @@ json.decodeNumbersAsObjects = true
 json.strictTypes = true
 
 local PLEASE_DO_NOT_CACHE_HEADERS = {
-    ['X-Strongly-Consistent-Read']={'1', 'true'},
-    ['X-Force-Master-Read']={'1', 'true'},
-    ['Cache-Control']={'no-cache'},
-    ['Pragma']={'no-cache', 'spectre-no-cache'},
+    ['x-strongly-consistent-read']={'1', 'true'},
+    ['x-force-master-read']={'1', 'true'},
+    ['cache-control']={'no-cache'},
+    ['pragma']={'no-cache', 'spectre-no-cache'},
 }
 
 local HEADERS = {
@@ -24,7 +24,7 @@ local HEADERS = {
 }
 
 local SUPPORTED_ENCODING_FOR_ID_EXTRACTION = {
-    ['Content-Type']={'application/json'}
+    ['content-type']={'application/json'}
 }
 
 local DEFAULT_REQUEST_METHOD = 'GET'
@@ -63,10 +63,18 @@ end
 -- Helper function to check if available header value
 -- satisfies the comparison function for marker header lists.
 local function _check_headers_helper(headers, marker_header_list, compare_fn)
+    -- Header keys are case insensitive and you can mix - and _ at will
+    -- So let's first normalize them to lowercase and with -
+    -- We're also normalizing the header values here just to be sure, since
+    -- anyway we only care about some very specific headers.
+    local normalized_headers = {}
+    for k, v in pairs(headers) do
+        local norm_key = string.gsub(tostring(k):lower(), "_", "-")
+        normalized_headers[norm_key] = tostring(v):lower()
+    end
     for header, values in pairs(marker_header_list) do
         for _, v in pairs(values) do
-            local lowercase_header_value = tostring(headers[header]):lower()
-            if compare_fn(lowercase_header_value, v) then
+            if compare_fn(normalized_headers[header], v) then
                 return true
             end
         end

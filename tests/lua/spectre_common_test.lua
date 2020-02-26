@@ -559,6 +559,12 @@ describe("spectre_common", function()
 
                 headers = {['Content-Type']='application/json; charset=utf-16'}
                 assert.is_true(spectre_common.has_supported_content_type(headers))
+
+                headers = {['content-type']='application/json; charset=utf-16'}
+                assert.is_true(spectre_common.has_supported_content_type(headers))
+
+                headers = {['content-type']='Application/JSON; charset=utf-16'}
+                assert.is_true(spectre_common.has_supported_content_type(headers))
             end)
 
             it("doesn't match other content type", function()
