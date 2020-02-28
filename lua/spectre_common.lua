@@ -258,14 +258,6 @@ local function get_smartstack_destination(headers)
     return headers['X-Smartstack-Destination']
 end
 
-local function clone_table(tbl)
-  local new_tbl = {}
-  for k, v in pairs(tbl) do
-    new_tbl[k] = v
-  end
-  return new_tbl
-end
-
 local function get_target_uri(request_uri, request_headers)
     local casper_configs = config_loader.get_spectre_config_for_namespace(
         config_loader.CASPER_INTERNAL_NAMESPACE
@@ -275,12 +267,9 @@ local function get_target_uri(request_uri, request_headers)
         local envoy_configs = config_loader.get_spectre_config_for_namespace(
             config_loader.ENVOY_NAMESPACE
         )
-        -- Do not mutate the original headers since they're used as part of the
-        -- cache key. Let's make a copy instead and change that.
-        local new_headers = clone_table(request_headers)
-        new_headers['Host'] = destination
+        request_headers['Host'] = destination
         -- in envoy_configs['url'], we have a '/' at the end of the url, so we need to remove it from request_url
-        return envoy_configs['url'] .. string.sub(request_uri, 2), new_headers
+        return envoy_configs['url'] .. string.sub(request_uri, 2), request_headers
     else
         local info = config_loader.get_smartstack_info_for_namespace(destination)
         local host = info['host']
@@ -626,7 +615,6 @@ return {
     add_zipkin_headers_to_response_headers = add_zipkin_headers_to_response_headers,
     get_smartstack_destination = get_smartstack_destination,
     get_response_from_remote_service = get_response_from_remote_service,
-    clone_table = clone_table,
     get_target_uri = get_target_uri,
     is_header_hop_by_hop = is_header_hop_by_hop,
     is_header_uncacheable = is_header_uncacheable,
