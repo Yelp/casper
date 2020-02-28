@@ -576,29 +576,6 @@ describe("spectre_common", function()
 
     end)
 
-    describe("clone_table", function()
-        it("works with empty table", function()
-            assert.are.same({}, spectre_common.clone_table({}))
-        end)
-
-        it("doesn't drop existing key/values", function()
-            assert.are.same(
-                {key1 = 'val1', key2 = 'val2'},
-                spectre_common.clone_table({key1 = 'val1', key2 = 'val2'})
-            )
-        end)
-
-        it("works with lists as value", function()
-            tbl =  {key1 = {'val1', 'val2'}}
-            new_tbl = spectre_common.clone_table(tbl)
-            assert.are.same(tbl, new_tbl)
-            -- clone_table does a shallow copy, so the pointer to the list keeps
-            -- pointing to the exact same list. That's why I'm using `equal` rather
-            -- than `same` here.
-            assert.are.equal(tbl['key1'], new_tbl['key1'])
-        end)
-    end)
-
     describe("get_target_uri", function()
         it("Contructs a full URI based on service host/port", function()
             config_loader.set_smartstack_info_for_namespace('srv.main', {
@@ -640,10 +617,8 @@ describe("spectre_common", function()
                 headers
             )
             assert.are.equal('http://169.254.255.254:1337/quux', uri)
-            -- Let's make sure we haven't mutated the original headers
-            assert.are.equal('srv.main', new_headers['Host'])
+            assert.are.equal('srv.main', new_headers['X-Yelp-Svc'])
             assert.are.equal('srv.main', new_headers['X-Smartstack-Destination'])
-            assert.is_nil(headers['Host'])
         end)
     end)
 
