@@ -617,7 +617,7 @@ describe("spectre_common", function()
                 headers
             )
             assert.are.equal('http://169.254.255.254:1337/quux', uri)
-            assert.are.equal('srv.main', new_headers['Host'])
+            assert.are.equal('srv.main', new_headers['X-Yelp-Svc'])
             assert.are.equal('srv.main', new_headers['X-Smartstack-Destination'])
         end)
     end)

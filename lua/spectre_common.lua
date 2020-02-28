@@ -267,7 +267,7 @@ local function get_target_uri(request_uri, request_headers)
         local envoy_configs = config_loader.get_spectre_config_for_namespace(
             config_loader.ENVOY_NAMESPACE
         )
-        request_headers['Host'] = destination
+        request_headers['X-Yelp-Svc'] = destination
         -- in envoy_configs['url'], we have a '/' at the end of the url, so we need to remove it from request_url
         return envoy_configs['url'] .. string.sub(request_uri, 2), request_headers
     else
