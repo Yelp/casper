@@ -8,7 +8,7 @@ local ENVOY_CONFIGS_PATH = os.getenv('ENVOY_CONFIGS_PATH')
 local CASPER_INTERNAL_NAMESPACE = 'casper.internal'
 local ENVOY_NAMESPACE = 'envoy_client'
 
-local RELOAD_DELAY = 30  -- seconds
+local RELOAD_DELAY = 10  -- seconds
 
 -- _mod_time_table keeps track of files and their last modification time to
 -- trigger reload only if files change
