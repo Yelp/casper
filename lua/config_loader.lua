@@ -153,6 +153,10 @@ local function reload_configs(premature)
     load_services_configs(SRV_CONFIGS_PATH)
     load_smartstack_info(SERVICES_YAML_PATH)
 
+    -- Refresh cluster topology
+    ngx.shared.cassandra_write_cluster:refresh()
+    ngx.shared.cassandra_read_cluster:refresh()
+
     -- https://github.com/openresty/lua-nginx-module#ngxtimerat
     if premature then
         return
