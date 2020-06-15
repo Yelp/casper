@@ -53,8 +53,6 @@ function caching_handlers._post_request_callback(response, request_info, cacheab
     local cache_uri = caching_handlers._get_cache_uri(request_info)
     local success, err = xpcall(
         function()
-            -- Refresh cluster topology before writing the result
-            cassandra_helper.refresh()
 
             spectre_common.cache_store(
                 cassandra_helper,

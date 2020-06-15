@@ -155,7 +155,22 @@ local function reload_configs(premature)
 
     -- Refresh cluster topology
     ngx.shared.cassandra_write_cluster:refresh()
-    ngx.shared.cassandra_read_cluster:refresh()
+    local ok, err, topology = ngx.shared.cassandra_read_cluster:refresh()
+      if not ok then
+        ngx.log(ngx.ERR, "[cassandra] failed to refresh cluster topology: ",
+                         err)
+
+      elseif topology then
+        if #topology.added > 0 then
+          ngx.log(ngx.NOTICE, "[cassandra] peers added to cluster topology: ",
+                              table.concat(topology.added, ", "))
+        end
+
+        if #topology.removed > 0 then
+          ngx.log(ngx.NOTICE, "[cassandra] peers removed from cluster topology: ",
+                              table.concat(topology.removed, ", "))
+        end
+      end
 
     -- https://github.com/openresty/lua-nginx-module#ngxtimerat
     if premature then
