@@ -156,7 +156,7 @@ local function reload_configs(premature)
     -- Refresh cluster topology
     timeout = 2
     ngx.shared.cassandra_write_cluster:refresh(timeout)
-    local ok, err, topology = ngx.shared.cassandra_read_cluster:refresh()
+    local ok, err, topology = ngx.shared.cassandra_read_cluster:refresh(timeout)
       if not ok then
         ngx.log(ngx.ERR, "[cassandra] failed to refresh cluster topology: ",
                          err)
