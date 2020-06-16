@@ -154,7 +154,8 @@ local function reload_configs(premature)
     load_smartstack_info(SERVICES_YAML_PATH)
 
     -- Refresh cluster topology
-    ngx.shared.cassandra_write_cluster:refresh()
+    timeout = 2
+    ngx.shared.cassandra_write_cluster:refresh(timeout)
     local ok, err, topology = ngx.shared.cassandra_read_cluster:refresh()
       if not ok then
         ngx.log(ngx.ERR, "[cassandra] failed to refresh cluster topology: ",
