@@ -7,6 +7,7 @@ export SRV_CONFIGS_PATH_FOR_TESTS=$(PWD)/tests/data/srv-configs
 export ENVOY_CONFIGS_PATH_FOR_TESTS=$(PWD)/tests/data/srv-configs
 export SMARTSTACK_CONFIG_PATH_FOR_TESTS=$(PWD)/tests/data/services.yaml
 export GIT_SHA ?= $(shell git rev-parse --short HEAD)
+export PIP_INDEX_URL ?= https://pypi.org/simple
 
 DOCKER_COMPOSE_VERSION := 1.19.0
 DOCKER_COMPOSE := bin/docker-compose-$(DOCKER_COMPOSE_VERSION)
