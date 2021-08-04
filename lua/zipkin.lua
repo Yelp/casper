@@ -90,6 +90,11 @@ function zipkin.emit_syslog(headers, start_time, end_time, response)
             ngx.var.request_uri,
             ngx.var.server_protocol
         )
+        -- For DELETEs which might not have any response,assume spectre_cache_status is MISS 
+        local spectre_cache_status = "MISS"
+        if ngx.var.request_method ~= 'DELETE' then
+          spectre_cache_status = response.headers['Spectre-Cache-Status']
+        end
 
         local message = string.format(
             'spectre/zipkin %s %s %s %s %s %d %d, client: %s, server: , cache_status: %s, request: %s',
@@ -101,7 +106,7 @@ function zipkin.emit_syslog(headers, start_time, end_time, response)
             start_time * 1000000,
             end_time * 1000000,
             ngx.var.remote_addr,
-            response.headers['Spectre-Cache-Status'],
+            spectre_cache_status,
             request_string
         )
 
