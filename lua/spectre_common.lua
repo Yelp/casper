@@ -295,6 +295,11 @@ local function forward_to_destination(method, request_uri, request_headers)
         new_headers
     )
 
+    -- If a downstream error was encountered, record this in a response header
+    if response.status ~= ngx.HTTP_OK then
+        response.headers['x-downstream-error'] = response.status
+    end
+
     if not response then
         local body = "Error requesting " .. request_uri .. ": " .. error_message
 
