@@ -21,6 +21,7 @@ local HEADERS = {
     CACHE_STATUS = 'Spectre-Cache-Status',
     B3_TRACEID = 'X-B3-TraceId',
     ZIPKIN_ID = 'X-Zipkin-Id',
+    DOWNSTREAM_ERROR = 'X-Downstream-Error'
 }
 
 local SUPPORTED_ENCODING_FOR_ID_EXTRACTION = {
@@ -294,11 +295,6 @@ local function forward_to_destination(method, request_uri, request_headers)
         target_uri,
         new_headers
     )
-
-    -- If a downstream error was encountered, record this in a response header
-    if response.status ~= ngx.HTTP_OK then
-        response.headers['x-downstream-error'] = response.status
-    end
 
     if not response then
         local body = "Error requesting " .. request_uri .. ": " .. error_message
@@ -609,7 +605,6 @@ local function get_response_from_remote_service(incoming_zipkin_headers, method,
         uri,
         request_headers
     )
-
     return response
 end
 

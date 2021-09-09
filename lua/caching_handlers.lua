@@ -125,6 +125,8 @@ function caching_handlers._caching_handler(request_info, cacheability_info)
             'non-cacheable-response: status code is %d',
             response.status
         )
+        headers[spectre_common.HEADERS.DOWNSTREAM_ERROR] = response.status
+
     end
     for k, v in pairs(response.cacheable_headers) do headers[k] = v end
 
@@ -140,6 +142,7 @@ end
 -- fit the caching criteria OR because of some failures
 -- @cache_status: The value of the header Spectre-Cache-Status
 -- @incoming_zipkin_headers: Headers sent in from the request
+-- @downstream_error: The value of the header X-Downstream-Error
 function caching_handlers._forward_non_handleable_requests(cache_status, incoming_zipkin_headers)
     local response = spectre_common.get_response_from_remote_service(
         incoming_zipkin_headers,
@@ -149,7 +152,11 @@ function caching_handlers._forward_non_handleable_requests(cache_status, incomin
     )
     local headers = response.uncacheable_headers
     headers[spectre_common.HEADERS.CACHE_STATUS] = cache_status
+    if response.status ~= ngx.HTTP_OK then
+        headers[spectre_common.HEADERS.DOWNSTREAM_ERROR] = response.status
+    end
     for k, v in pairs(response.cacheable_headers) do headers[k] = v end
+
 
     return {
         status = response.status,
