@@ -413,7 +413,8 @@ insulate('caching_handlers', function()
             assert.are.same({
                 ['Header1'] = 'cacheable',
                 ['Header2'] = 'uncacheable',
-                ['Spectre-Cache-Status'] = 'miss'
+                ['Spectre-Cache-Status'] = 'miss',
+                ['X-Original-Status'] = 200
             }, res.headers)
             assert.is_not_nil(res.post_request)
         end)
@@ -443,7 +444,7 @@ insulate('caching_handlers', function()
             assert.are.equal('error message', res.body)
             assert.are.same({
                 ['Spectre-Cache-Status'] = 'non-cacheable-response: status code is 501',
-                ['X-Downstream-Error'] = 501
+                ['X-Original-Status'] = 501
             }, res.headers)
             assert.is_nil(res.post_request)
         end)
@@ -474,7 +475,8 @@ insulate('caching_handlers', function()
             assert.are.same({
                 ['Header1'] = 'cacheable',
                 ['Header2'] = 'uncacheable',
-                ['Spectre-Cache-Status'] = 'miss'
+                ['Spectre-Cache-Status'] = 'miss',
+                ['X-Original-Status'] = 200
             }, res.headers)
             assert.is_nil(res.post_request)
         end)
@@ -509,6 +511,7 @@ insulate('caching_handlers', function()
                 ['Header1'] = 'cacheable',
                 ['Header2'] = 'uncacheable',
                 ['Spectre-Cache-Status'] = 'some reason',
+                ['X-Original-Status'] = 200
             }, res.headers)
         end)
 
@@ -540,7 +543,7 @@ insulate('caching_handlers', function()
                 ['Header1'] = 'cacheable',
                 ['Header2'] = 'uncacheable',
                 ['Spectre-Cache-Status'] = 'some reason',
-                ['X-Downstream-Error'] = 500
+                ['X-Original-Status'] = 500
             }, res.headers)
         end)
     end)

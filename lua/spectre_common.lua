@@ -21,7 +21,7 @@ local HEADERS = {
     CACHE_STATUS = 'Spectre-Cache-Status',
     B3_TRACEID = 'X-B3-TraceId',
     ZIPKIN_ID = 'X-Zipkin-Id',
-    DOWNSTREAM_ERROR = 'X-Downstream-Error'
+    ORIGINAL_STATUS = 'X-Original-Status'
 }
 
 local SUPPORTED_ENCODING_FOR_ID_EXTRACTION = {
