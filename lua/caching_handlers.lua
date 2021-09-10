@@ -126,7 +126,6 @@ function caching_handlers._caching_handler(request_info, cacheability_info)
             'non-cacheable-response: status code is %d',
             response.status
         )
-
     end
     for k, v in pairs(response.cacheable_headers) do headers[k] = v end
 
@@ -153,9 +152,7 @@ function caching_handlers._forward_non_handleable_requests(cache_status, incomin
     local headers = response.uncacheable_headers
     headers[spectre_common.HEADERS.CACHE_STATUS] = cache_status
     headers[spectre_common.HEADERS.ORIGINAL_STATUS] = response.status
-
     for k, v in pairs(response.cacheable_headers) do headers[k] = v end
-
 
     return {
         status = response.status,

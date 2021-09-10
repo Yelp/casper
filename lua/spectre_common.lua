@@ -605,6 +605,7 @@ local function get_response_from_remote_service(incoming_zipkin_headers, method,
         uri,
         request_headers
     )
+
     return response
 end
 
