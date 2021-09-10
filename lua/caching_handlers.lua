@@ -112,11 +112,7 @@ function caching_handlers._caching_handler(request_info, cacheability_info)
     )
     local post_request
     local headers = response.uncacheable_headers
-    if response.no_response then
-        headers[spectre_common.HEADERS.ORIGINAL_STATUS] = -1
-    else
-        headers[spectre_common.HEADERS.ORIGINAL_STATUS] = response.status
-    end
+    headers[spectre_common.HEADERS.ORIGINAL_STATUS] = response.no_response and -1 or response.status
 
     if response.status == ngx.HTTP_OK then
         headers[spectre_common.HEADERS.CACHE_STATUS] = 'miss'
@@ -155,11 +151,7 @@ function caching_handlers._forward_non_handleable_requests(cache_status, incomin
     )
     local headers = response.uncacheable_headers
     headers[spectre_common.HEADERS.CACHE_STATUS] = cache_status
-    if response.no_response then
-        headers[spectre_common.HEADERS.ORIGINAL_STATUS] = -1
-    else
-        headers[spectre_common.HEADERS.ORIGINAL_STATUS] = response.status
-    end
+    headers[spectre_common.HEADERS.ORIGINAL_STATUS] = response.no_response and -1 or response.status
     for k, v in pairs(response.cacheable_headers) do headers[k] = v end
 
     return {
