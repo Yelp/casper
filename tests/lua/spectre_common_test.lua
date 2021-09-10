@@ -671,6 +671,23 @@ describe("spectre_common", function()
             assert.are.equal(200, resp.status)
             assert.are.equal('RESULT', resp.body)
         end)
+
+        it("Checks that no response and an error sets the appropriate return values", function()
+            _G.package.loaded.http = {
+                make_http_request = function(method, uri, body, headers)
+                    return nil, "closed"
+                end
+            }
+            local spectre_common = require 'spectre_common'
+
+            local resp = spectre_common.forward_to_destination(
+                'GET', -- method
+                '/bar', -- request_uri
+                {['X-Smartstack-Destination'] = 'srv.main'} -- request_headers
+            )
+            assert.are.equal(502, resp.status)
+            assert.are.equal(true, resp.no_response)
+        end)
     end)
 
 end)

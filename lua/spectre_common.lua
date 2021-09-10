@@ -317,6 +317,9 @@ local function forward_to_destination(method, request_uri, request_headers)
             body = body,
             cacheable_headers = {},
             uncacheable_headers = {},
+            -- This indicates that the origin didn't actually respond
+            -- and that any status codes are inferred
+            no_response = true
         }
     end
 
@@ -338,6 +341,7 @@ local function forward_to_destination(method, request_uri, request_headers)
         body = response.body,
         cacheable_headers = cacheable_headers,
         uncacheable_headers = uncacheable_headers,
+        no_response = false
     }
 end
 
