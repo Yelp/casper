@@ -433,7 +433,6 @@ insulate('caching_handlers', function()
                     body = 'error message',
                     cacheable_headers = {},
                     uncacheable_headers = {},
-                    no_response = false
                 }
             end
             local res = caching_handlers._caching_handler(
