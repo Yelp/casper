@@ -141,7 +141,6 @@ end
 -- fit the caching criteria OR because of some failures
 -- @cache_status: The value of the header Spectre-Cache-Status
 -- @incoming_zipkin_headers: Headers sent in from the request
--- @original_status: The value of the header X-Original-Status
 function caching_handlers._forward_non_handleable_requests(cache_status, incoming_zipkin_headers)
     local response = spectre_common.get_response_from_remote_service(
         incoming_zipkin_headers,
