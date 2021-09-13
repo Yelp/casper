@@ -153,6 +153,7 @@ local function bulk_endpoint_caching_handler(request_info, cacheability_info)
         bulk_resp_headers_cacheable = response.cacheable_headers
         bulk_resp_headers_uncacheable = response.uncacheable_headers
         for k,v in pairs(bulk_resp_headers_uncacheable) do headers[k] = v end
+        headers[spectre_common.HEADERS.ORIGINAL_STATUS] = response.no_response and -1 or response.status
 
         -- If there's an error in the request, send back the error body
         if bulk_status ~= 200 then

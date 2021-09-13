@@ -413,7 +413,8 @@ insulate('caching_handlers', function()
             assert.are.same({
                 ['Header1'] = 'cacheable',
                 ['Header2'] = 'uncacheable',
-                ['Spectre-Cache-Status'] = 'miss'
+                ['Spectre-Cache-Status'] = 'miss',
+                ['X-Original-Status'] = 200
             }, res.headers)
             assert.is_not_nil(res.post_request)
         end)
@@ -442,7 +443,8 @@ insulate('caching_handlers', function()
             assert.are.equal(ngx.HTTP_METHOD_NOT_IMPLEMENTED, res.status)
             assert.are.equal('error message', res.body)
             assert.are.same({
-                ['Spectre-Cache-Status'] = 'non-cacheable-response: status code is 501'
+                ['Spectre-Cache-Status'] = 'non-cacheable-response: status code is 501',
+                ['X-Original-Status'] = 501
             }, res.headers)
             assert.is_nil(res.post_request)
         end)
@@ -473,7 +475,8 @@ insulate('caching_handlers', function()
             assert.are.same({
                 ['Header1'] = 'cacheable',
                 ['Header2'] = 'uncacheable',
-                ['Spectre-Cache-Status'] = 'miss'
+                ['Spectre-Cache-Status'] = 'miss',
+                ['X-Original-Status'] = 200
             }, res.headers)
             assert.is_nil(res.post_request)
         end)
@@ -508,6 +511,68 @@ insulate('caching_handlers', function()
                 ['Header1'] = 'cacheable',
                 ['Header2'] = 'uncacheable',
                 ['Spectre-Cache-Status'] = 'some reason',
+                ['X-Original-Status'] = 200
+            }, res.headers)
+        end)
+
+        it('forwards the request which errors, reports correct headers', function()
+            spectre_common.get_response_from_remote_service = function(zipkin_headers, method, uri, headers)
+                assert.are.same({['X-Trace-Id'] = '123'}, zipkin_headers)
+                assert.are.equal('GET', method)
+                assert.are.equal('/test/endpoint?ids=1&biz=2&key=3', uri)
+                assert.are.same({
+                    ['myheader'] = 'foo',
+                    ['accept-encoding'] = 'gzip, deflate',
+                    ['X-Smartstack-Destination'] = 'backend.main'
+                }, headers)
+                return {
+                    status = ngx.HTTP_INTERNAL_SERVER_ERROR,
+                    body = 'resp body',
+                    cacheable_headers = {Header1 = 'cacheable'},
+                    uncacheable_headers = {Header2 = 'uncacheable'},
+                }
+            end
+            local res = caching_handlers._forward_non_handleable_requests(
+                'some reason',
+                {['X-Trace-Id'] = '123' }
+            )
+
+            assert.are.equal(ngx.HTTP_INTERNAL_SERVER_ERROR, res.status)
+            assert.are.equal('resp body', res.body)
+            assert.are.same({
+                ['Header1'] = 'cacheable',
+                ['Header2'] = 'uncacheable',
+                ['Spectre-Cache-Status'] = 'some reason',
+                ['X-Original-Status'] = 500
+            }, res.headers)
+        end)
+
+        it('returns appropriate values when the downstream service does not respond', function()
+            spectre_common.get_response_from_remote_service = function(zipkin_headers, method, uri, headers)
+                assert.are.same({['X-Trace-Id'] = '123'}, zipkin_headers)
+                assert.are.equal('GET', method)
+                assert.are.equal('/test/endpoint?ids=1&biz=2&key=3', uri)
+                assert.are.same({
+                    ['myheader'] = 'foo',
+                    ['accept-encoding'] = 'gzip, deflate',
+                    ['X-Smartstack-Destination'] = 'backend.main',
+                }, headers)
+                return {
+                    status = 504,
+                    body = nil,
+                    cacheable_headers = {},
+                    uncacheable_headers = {},
+                    no_response = true
+                }
+            end
+            local res = caching_handlers._forward_non_handleable_requests(
+                'some reason',
+                {['X-Trace-Id'] = '123' }
+            )
+            assert.are.equal(ngx.HTTP_GATEWAY_TIMEOUT, res.status)
+            assert.are.same({
+                ['Spectre-Cache-Status'] = 'some reason',
+                ['X-Original-Status'] = -1
             }, res.headers)
         end)
     end)

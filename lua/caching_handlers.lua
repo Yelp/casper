@@ -110,9 +110,10 @@ function caching_handlers._caching_handler(request_info, cacheability_info)
         ngx.var.request_uri,
         ngx.req.get_headers()
     )
-
-    local headers = response.uncacheable_headers
     local post_request
+    local headers = response.uncacheable_headers
+    headers[spectre_common.HEADERS.ORIGINAL_STATUS] = response.no_response and -1 or response.status
+
     if response.status == ngx.HTTP_OK then
         headers[spectre_common.HEADERS.CACHE_STATUS] = 'miss'
         if not cached_value['cassandra_error'] then
@@ -149,6 +150,7 @@ function caching_handlers._forward_non_handleable_requests(cache_status, incomin
     )
     local headers = response.uncacheable_headers
     headers[spectre_common.HEADERS.CACHE_STATUS] = cache_status
+    headers[spectre_common.HEADERS.ORIGINAL_STATUS] = response.no_response and -1 or response.status
     for k, v in pairs(response.cacheable_headers) do headers[k] = v end
 
     return {
