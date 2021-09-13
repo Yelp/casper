@@ -669,6 +669,7 @@ describe("spectre_common", function()
             )
 
             assert.are.equal(200, resp.status)
+            assert.are.equal(false, resp.no_response)
             assert.are.equal('RESULT', resp.body)
         end)
 
