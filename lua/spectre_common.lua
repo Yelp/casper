@@ -315,7 +315,7 @@ local function forward_to_destination(method, request_uri, request_headers)
 
         -- Log any "no_response" errors
         local log_error_message = HEADERS.ORIGINAL_STATUS .. ": -1, message: " .. error_message
-        log(ngx.ERR, { err=log_error_message, critical=false })
+        log(ngx.ERR, { err=log_error_message, critical=true })
 
         return {
             status = status,
