@@ -632,24 +632,6 @@ describe("spectre_common", function()
             _G.package.loaded.http = nil
         end)
 
-        it("Errors out when HTTP request fails", function()
-            _G.package.loaded.http = {
-                make_http_request = function(method, uri, body, headers)
-                    return nil, 'there was an error. Whoops.'
-                end
-            }
-            local spectre_common = require 'spectre_common'
-
-            local resp = spectre_common.forward_to_destination(
-                'GET', -- method
-                '/bar', -- request_uri
-                {['X-Smartstack-Destination'] = 'srv.main'} -- request_headers
-            )
-
-            assert.are.equal(500, resp.status)
-            assert.are.equal('Error requesting /bar: there was an error. Whoops.', resp.body)
-        end)
-
         it("Forwards body when HTTP request succeeds", function()
             _G.package.loaded.http = {
                 make_http_request = function(method, uri, body, headers)
@@ -673,6 +655,29 @@ describe("spectre_common", function()
             assert.are.equal('RESULT', resp.body)
         end)
 
+        it("Errors out when the downstream HTTP request returns an error", function()
+            _G.package.loaded.http = {
+                make_http_request = function(method, uri, body, headers)
+                    return {
+                        status=500,
+                        body='Error',
+                        headers={},
+                    }, "Internal server error"
+                end
+            }
+            local spectre_common = require 'spectre_common'
+
+            local resp = spectre_common.forward_to_destination(
+                'GET', -- method
+                '/bar', -- request_uri
+                {['X-Smartstack-Destination'] = 'srv.main'} -- request_headers
+            )
+
+            assert.are.equal(500, resp.status)
+            assert.are.equal(false, resp.no_response)
+            assert.are.equal('Error', resp.body)
+        end)
+
         it("Checks that no response and an error sets the appropriate return values", function()
             _G.package.loaded.http = {
                 make_http_request = function(method, uri, body, headers)
@@ -688,6 +693,7 @@ describe("spectre_common", function()
             )
             assert.are.equal(502, resp.status)
             assert.are.equal(true, resp.no_response)
+            assert.are.equal('Error requesting /bar: closed', resp.body)
         end)
     end)
 
