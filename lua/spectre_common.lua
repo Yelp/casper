@@ -312,6 +312,11 @@ local function forward_to_destination(method, request_uri, request_headers)
             message = error_message,
             status_code = status,
         })
+
+        -- Log any "no_response" errors
+        local log_error_message = HEADERS.ORIGINAL_STATUS .. ": -1, message: " .. error_message
+        log(ngx.ERR, { err=log_error_message, critical=true })
+
         return {
             status = status,
             body = body,
@@ -321,6 +326,12 @@ local function forward_to_destination(method, request_uri, request_headers)
             -- and that any status codes are inferred
             no_response = true
         }
+    end
+
+    -- Log any 5xx errors
+    if string.match(response.status, '5%d%d') then
+        local log_error_message = HEADERS.ORIGINAL_STATUS .. ": " .. response.status .. ", message: " .. error_message
+        log(ngx.ERR, { err=log_error_message, critical=false })
     end
 
     local cacheable_headers = {}
