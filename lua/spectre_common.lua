@@ -6,7 +6,6 @@ local config_loader = require 'config_loader'
 local http = require "http"
 local metrics_helper = require 'metrics_helper'
 local zipkin = require 'zipkin'
-local util = require 'util'
 
 json.decodeNumbersAsObjects = true
 json.strictTypes = true
@@ -315,7 +314,7 @@ local function forward_to_destination(method, request_uri, request_headers)
         })
 
         -- Log any "no_response" errors
-        local log_error_message = HEADERS.ORIGINAL_STATUS .. ": -1, message: " .. util.to_string(error_message)
+        local log_error_message = HEADERS.ORIGINAL_STATUS .. ": -1, message: " .. tostring(error_message)
         log(ngx.ERR, { err=log_error_message, critical=true })
 
         return {
@@ -332,7 +331,7 @@ local function forward_to_destination(method, request_uri, request_headers)
     -- Log any 5xx errors
     if string.match(response.status, '5%d%d') then
         local log_error_message = HEADERS.ORIGINAL_STATUS .. ": " .. response.status ..
-              ", message: " ..  util.to_string(error_message)
+              ", message: " .. tostring(error_message)
         log(ngx.ERR, { err=log_error_message, critical=false })
     end
 
