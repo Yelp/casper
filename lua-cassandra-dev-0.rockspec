@@ -1,6 +1,7 @@
 package = "lua-cassandra"
 version = "dev-0"
 -- yelp lua-cassandra fork with stream_id support
+-- upstream original repo: https://github.com/thibaultcha/lua-cassandra
 source = {
   url = "git://github.com/yelp/lua-cassandra",
   branch = "master"
