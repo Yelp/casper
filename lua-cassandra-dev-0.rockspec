@@ -1,10 +1,10 @@
 package = "lua-cassandra"
 version = "dev-0"
--- lua-cassandra fork with stream_id support
--- https://github.com/thibaultcha/lua-cassandra/pull/104
+-- yelp lua-cassandra fork with stream_id support
+-- upstream original repo: https://github.com/thibaultcha/lua-cassandra
 source = {
-  url = "git://github.com/drolando/lua-cassandra",
-  branch = "add_stream_id_1_5_0_lua_master"
+  url = "git://github.com/yelp/lua-cassandra",
+  branch = "master"
 }
 description = {
   summary = "A pure Lua client library for Apache Cassandra",
