@@ -1,0 +1,5 @@
+[main]
+num_threads = 4
+
+[[middleware]]
+code = "require('lua.test')"

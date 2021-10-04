@@ -1,0 +1,200 @@
+use std::collections::HashMap;
+use std::ops::{Deref, DerefMut};
+
+use hyper::{
+    body::HttpBody,
+    header::{HeaderName, HeaderValue},
+    Body, Response, StatusCode,
+};
+use mlua::{
+    ExternalError, ExternalResult, Lua, Result as LuaResult, String as LuaString, Table, ToLua,
+    UserData, UserDataFields, UserDataMethods, Value,
+};
+
+pub struct LuaResponse<T>(Response<T>);
+
+impl<T> LuaResponse<T> {
+    pub fn new(response: Response<T>) -> Self {
+        LuaResponse(response)
+    }
+
+    pub fn into_inner(self) -> Response<T> {
+        self.0
+    }
+}
+
+impl<T> Deref for LuaResponse<T> {
+    type Target = Response<T>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<T> DerefMut for LuaResponse<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl<T> UserData for LuaResponse<T>
+where
+    T: HttpBody<Error = hyper::Error> + Unpin + 'static,
+{
+    fn add_fields<'lua, F: UserDataFields<'lua, Self>>(fields: &mut F) {
+        fields.add_field_method_get("status", |_, this| Ok(this.status().as_u16()));
+        fields.add_field_method_set("status", |_, this, status: u16| {
+            *this.status_mut() = StatusCode::from_u16(status).to_lua_err()?;
+            Ok(())
+        });
+    }
+
+    fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
+        methods.add_method("header", |lua, this, name: String| {
+            if let Some(val) = this.headers().get(name) {
+                return lua.create_string(val.as_bytes()).map(Value::String);
+            }
+            Ok(Value::Nil)
+        });
+
+        methods.add_method("header_all", |lua, this, name: String| {
+            let vals = this.headers().get_all(name);
+            let vals = vals
+                .into_iter()
+                .map(|val| lua.create_string(val.as_bytes()))
+                .collect::<LuaResult<Vec<_>>>()?;
+            if vals.is_empty() {
+                return Ok(Value::Nil);
+            }
+            vals.to_lua(lua)
+        });
+
+        methods.add_method("header_cnt", |_, this, name: String| {
+            Ok(this.headers().get_all(name).into_iter().count())
+        });
+
+        methods.add_method_mut("del_header", |_, this, name: String| {
+            this.headers_mut().remove(name);
+            Ok(())
+        });
+
+        methods.add_method_mut(
+            "add_header",
+            |_, this, (name, value): (String, LuaString)| {
+                let name = HeaderName::from_bytes(name.as_bytes()).to_lua_err()?;
+                let value = HeaderValue::from_bytes(value.as_bytes()).to_lua_err()?;
+                this.headers_mut().append(name, value);
+                Ok(())
+            },
+        );
+
+        methods.add_method_mut(
+            "set_header",
+            |_, this, (name, value): (String, LuaString)| {
+                let name = HeaderName::from_bytes(name.as_bytes()).to_lua_err()?;
+                let value = HeaderValue::from_bytes(value.as_bytes()).to_lua_err()?;
+                this.headers_mut().insert(name, value);
+                Ok(())
+            },
+        );
+
+        methods.add_method("headers", |lua, this, ()| {
+            let mut headers = HashMap::new();
+            for (name, value) in this.headers() {
+                headers
+                    .entry(name.to_string())
+                    .or_insert(Vec::new())
+                    .push(lua.create_string(value.as_bytes())?);
+            }
+            Ok(headers)
+        });
+    }
+}
+
+impl LuaResponse<Body> {
+    // Constructor
+    pub fn constructor(lua: &Lua, (arg, body): (Value, Value)) -> LuaResult<LuaResponse<Body>> {
+        let res = match arg {
+            Value::Integer(_) => {
+                let status: u16 = lua.unpack(arg)?;
+                let res = Response::builder().status(status);
+                match body {
+                    Value::Nil => res.body(Body::empty()),
+                    Value::String(b) => res.body(Body::from(b.as_bytes().to_vec())),
+                    _ => {
+                        let err = format!("invalid body type: {}", body.type_name());
+                        return Err(err.to_lua_err());
+                    }
+                }
+            }
+            Value::Table(params) => {
+                let mut res = Response::builder();
+
+                // Set status
+                if let Some(status) = params.raw_get::<_, Option<u16>>("status")? {
+                    res = res.status(status);
+                }
+
+                // Append headers
+                if let Some(headers) = params.raw_get::<_, Option<Table>>("headers")? {
+                    for kv in headers.pairs::<String, Value>() {
+                        let (name, value) = kv?;
+                        // Maybe `value` is a list of header values
+                        if let Value::Table(values) = value {
+                            for value in values.sequence_values::<LuaString>() {
+                                res = res.header(name.clone(), value?.as_bytes());
+                            }
+                        } else {
+                            let value = lua.unpack::<LuaString>(value)?;
+                            res = res.header(name, value.as_bytes());
+                        }
+                    }
+                }
+
+                // Set body
+                if let Some(body) = params.raw_get::<_, Option<LuaString>>("body")? {
+                    res.body(Body::from(body.as_bytes().to_vec()))
+                } else {
+                    res.body(Body::empty())
+                }
+            }
+            _ => {
+                let err = format!("invalid arg type: {}", arg.type_name());
+                return Err(err.to_lua_err());
+            }
+        }
+        .to_lua_err()?;
+        Ok(LuaResponse(res))
+    }
+}
+
+// #[cfg(test)]
+// mod tests {
+//     use mlua::{ExternalResult, Lua, LuaSerdeExt, Result, ToLua, Value};
+
+//     #[test]
+//     fn test_uri() -> Result<()> {
+//         let lua = Lua::new();
+//         // lua.globals().set("Url", LuaUrl("http:/".parse().unwrap()))?;
+
+//         let query = "a=b&a=c&c=d&d";
+//         let table = lua.create_table()?;
+//         for (k, v) in form_urlencoded::parse(query.as_bytes()) {
+//             match table.raw_get::<_, Option<Value>>(&*k)? {
+//                 None => table.raw_set(k, v)?,
+//                 Some(Value::Table(t)) => {
+//                     t.raw_insert(t.raw_len() + 1, v)?;
+//                 }
+//                 Some(val) => {
+//                     let inner_table = lua.create_sequence_from([val, v.to_lua(&lua)?])?;
+//                     table.raw_set(k, inner_table)?;
+//                 }
+//             }
+//         }
+
+//         let x = serde_json::to_value(table).unwrap();
+//         println!("{}", x);
+
+//         Ok(())
+//     }
+// }
