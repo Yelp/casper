@@ -5,3 +5,6 @@ luacov.report.out
 luacov.stats.out
 luarocks/
 resty_modules/
+
+# Rust patterns
+/target
