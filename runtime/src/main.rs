@@ -16,7 +16,7 @@ use tokio::net::TcpListener;
 
 use crate::worker::LocalWorker;
 
-pub static CLIENT: Lazy<Client<HttpConnector>> = Lazy::new(|| Client::new());
+pub static CLIENT: Lazy<Client<HttpConnector>> = Lazy::new(Client::new);
 
 struct AddrIncomingStream(AddrIncoming);
 

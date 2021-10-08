@@ -1,11 +1,12 @@
 use std::collections::HashMap;
 use std::convert::TryFrom;
+use std::mem;
 use std::ops::{Deref, DerefMut};
 
 use bytes::BufMut;
 use http::Request;
-use hyper::body::HttpBody;
 use hyper::{
+    body::{Body, HttpBody},
     header::{HeaderName, HeaderValue},
     Method, Uri,
 };
@@ -48,10 +49,7 @@ impl<T> DerefMut for LuaRequest<T> {
     }
 }
 
-impl<T> UserData for LuaRequest<T>
-where
-    T: HttpBody<Error = hyper::Error> + Unpin + 'static,
-{
+impl UserData for LuaRequest<Body> {
     fn add_fields<'lua, F: UserDataFields<'lua, Self>>(fields: &mut F) {
         fields.add_field_method_get("method", |_, this| Ok(this.method().to_string()));
         fields.add_field_method_set("method", |_, this, method: String| {
@@ -125,7 +123,7 @@ where
             for (name, value) in this.headers() {
                 headers
                     .entry(name.to_string())
-                    .or_insert(Vec::new())
+                    .or_insert_with(Vec::new)
                     .push(lua.create_string(value.as_bytes())?);
             }
             Ok(headers)
@@ -157,7 +155,9 @@ where
 
         methods.add_async_function("read_body", |lua, this: AnyUserData| async move {
             let mut this = this.borrow_mut::<Self>()?;
-            let body = this.body_mut();
+
+            let mut body = Body::empty();
+            mem::swap(this.body_mut(), &mut body);
 
             let mut vec = Vec::new();
             while let Some(buf) = body.data().await {

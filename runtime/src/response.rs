@@ -103,7 +103,7 @@ where
             for (name, value) in this.headers() {
                 headers
                     .entry(name.to_string())
-                    .or_insert(Vec::new())
+                    .or_insert_with(Vec::new)
                     .push(lua.create_string(value.as_bytes())?);
             }
             Ok(headers)

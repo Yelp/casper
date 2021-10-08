@@ -39,7 +39,7 @@ impl LocalWorker {
 
         let lua = Lua::new();
         let mut worker_data = WorkerData {
-            config: config.clone(),
+            config,
             middleware: Vec::new(),
         };
         Self::init_lua(&lua, &mut worker_data).unwrap();
