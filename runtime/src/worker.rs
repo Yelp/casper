@@ -1,6 +1,8 @@
+use std::ops::Deref;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::thread;
+use std::time::{Instant, SystemTime};
 
 use anyhow::Result;
 use hyper::server::conn::{AddrStream, Http};
@@ -24,13 +26,28 @@ pub struct Middleware {
     pub after_response: Option<LuaRegistryKey>,
 }
 
+#[derive(Debug)]
+struct IncomingStream {
+    stream: AddrStream,
+    accept_time: Instant,
+    system_time: SystemTime,
+}
+
+impl Deref for IncomingStream {
+    type Target = AddrStream;
+
+    fn deref(&self) -> &Self::Target {
+        &self.stream
+    }
+}
+
 pub struct LocalWorker {
-    send: mpsc::UnboundedSender<AddrStream>,
+    send: mpsc::UnboundedSender<IncomingStream>,
 }
 
 impl LocalWorker {
     pub fn new(config: Arc<Config>) -> Self {
-        let (send, mut recv) = mpsc::unbounded_channel::<AddrStream>();
+        let (send, mut recv) = mpsc::unbounded_channel::<IncomingStream>();
 
         let rt = runtime::Builder::new_current_thread()
             .enable_all()
@@ -66,7 +83,7 @@ impl LocalWorker {
                             .with_executor(LocalExecutor)
                             .http1_only(true)
                             .http1_keep_alive(true)
-                            .serve_connection(stream, service)
+                            .serve_connection(stream.stream, service)
                             .await;
 
                         if let Err(err) = result {
@@ -109,8 +126,14 @@ impl LocalWorker {
     }
 
     pub fn spawn(&self, stream: AddrStream) {
+        let in_stream = IncomingStream {
+            stream,
+            accept_time: Instant::now(),
+            system_time: SystemTime::now(),
+        };
+
         self.send
-            .send(stream)
+            .send(in_stream)
             .expect("Thread with LocalSet has shut down.");
     }
 }

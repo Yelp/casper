@@ -1,15 +1,12 @@
 local core = require("core")
 local Response = core.Response
 
-local function is_cacheable(req)
-    -- TODO
-    return {}
-end
-
 local function on_request(req)
+    -- Is this request for a proxied service?
     if req:header_cnt("X-Smartstack-Source") ~= 1 or
         req:header_cnt("X-Smartstack-Destination") ~= 1 then
-        return Response(400)
+        -- TODO: emit metric
+        return Response(400, "invalid or empty `x-smartstack-<source|destination>`")
     end
 
     -- TODO: Normalize uri

@@ -15,14 +15,14 @@ use mlua::{
     UserDataFields, UserDataMethods, Value,
 };
 
-pub struct LuaRequest<T> {
-    req: Request<T>,
+pub struct LuaRequest {
+    req: Request<Body>,
     body: Option<Vec<u8>>,
     destination: Option<Uri>,
 }
 
-impl<T> LuaRequest<T> {
-    pub fn new(request: Request<T>) -> Self {
+impl LuaRequest {
+    pub fn new(request: Request<Body>) -> Self {
         LuaRequest {
             req: request,
             body: None,
@@ -30,26 +30,26 @@ impl<T> LuaRequest<T> {
         }
     }
 
-    pub fn into_parts(self) -> (Request<T>, Option<Vec<u8>>, Option<Uri>) {
+    pub fn into_parts(self) -> (Request<Body>, Option<Vec<u8>>, Option<Uri>) {
         (self.req, self.body, self.destination)
     }
 }
 
-impl<T> Deref for LuaRequest<T> {
-    type Target = Request<T>;
+impl Deref for LuaRequest {
+    type Target = Request<Body>;
 
     fn deref(&self) -> &Self::Target {
         &self.req
     }
 }
 
-impl<T> DerefMut for LuaRequest<T> {
+impl DerefMut for LuaRequest {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.req
     }
 }
 
-impl UserData for LuaRequest<Body> {
+impl UserData for LuaRequest {
     fn add_fields<'lua, F: UserDataFields<'lua, Self>>(fields: &mut F) {
         fields.add_field_method_get("method", |_, this| Ok(this.method().to_string()));
         fields.add_field_method_set("method", |_, this, method: String| {

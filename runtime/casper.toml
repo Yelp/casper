@@ -3,3 +3,7 @@ num_threads = 4
 
 [[middleware]]
 code = "require('lua.test')"
+
+[storage.memory]
+backend = "memory"
+capacity = 100

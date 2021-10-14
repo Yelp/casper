@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use std::ops::{Deref, DerefMut};
 
 use hyper::{
-    body::HttpBody,
     header::{HeaderName, HeaderValue},
     Body, Response, StatusCode,
 };
@@ -11,37 +10,51 @@ use mlua::{
     UserData, UserDataFields, UserDataMethods, Value,
 };
 
-pub struct LuaResponse<T>(Response<T>);
+pub struct LuaResponse {
+    response: Response<Body>,
+    pub use_after_response: bool,
+    pub is_proxied: bool,
+    pub is_cached: bool,
+}
 
-impl<T> LuaResponse<T> {
-    pub fn new(response: Response<T>) -> Self {
-        LuaResponse(response)
+impl LuaResponse {
+    pub fn new(response: Response<Body>) -> Self {
+        LuaResponse {
+            response,
+            use_after_response: false,
+            is_proxied: false,
+            is_cached: false,
+        }
     }
 
-    pub fn into_inner(self) -> Response<T> {
-        self.0
+    pub fn into_inner(self) -> Response<Body> {
+        self.response
+    }
+
+    pub fn response_mut(&mut self) -> &mut Response<Body> {
+        &mut self.response
     }
 }
 
-impl<T> Deref for LuaResponse<T> {
-    type Target = Response<T>;
+impl Deref for LuaResponse {
+    type Target = Response<Body>;
 
     fn deref(&self) -> &Self::Target {
-        &self.0
+        &self.response
     }
 }
 
-impl<T> DerefMut for LuaResponse<T> {
+impl DerefMut for LuaResponse {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
+        &mut self.response
     }
 }
 
-impl<T> UserData for LuaResponse<T>
-where
-    T: HttpBody<Error = hyper::Error> + Unpin + 'static,
-{
+impl UserData for LuaResponse {
     fn add_fields<'lua, F: UserDataFields<'lua, Self>>(fields: &mut F) {
+        fields.add_field_method_get("is_proxied", |_, this| Ok(this.is_proxied));
+        fields.add_field_method_get("is_cached", |_, this| Ok(this.is_cached));
+
         fields.add_field_method_get("status", |_, this| Ok(this.status().as_u16()));
         fields.add_field_method_set("status", |_, this, status: u16| {
             *this.status_mut() = StatusCode::from_u16(status).to_lua_err()?;
@@ -108,12 +121,17 @@ where
             }
             Ok(headers)
         });
+
+        methods.add_method_mut("use_after_response", |_, this, value: bool| {
+            this.use_after_response = value;
+            Ok(())
+        });
     }
 }
 
-impl LuaResponse<Body> {
+impl LuaResponse {
     // Constructor
-    pub fn constructor(lua: &Lua, (arg, body): (Value, Value)) -> LuaResult<LuaResponse<Body>> {
+    pub fn constructor(lua: &Lua, (arg, body): (Value, Value)) -> LuaResult<Self> {
         let res = match arg {
             Value::Integer(_) => {
                 let status: u16 = lua.unpack(arg)?;
@@ -164,7 +182,25 @@ impl LuaResponse<Body> {
             }
         }
         .to_lua_err()?;
-        Ok(LuaResponse(res))
+        Ok(LuaResponse::new(res))
+    }
+
+    pub async fn clone(&mut self) -> hyper::Result<Self> {
+        let bytes = hyper::body::to_bytes(self.body_mut()).await?;
+        *self.body_mut() = Body::from(bytes.clone());
+
+        let mut resp_builder = Response::builder().status(self.status());
+        *resp_builder.headers_mut().expect("invalid response") = self.headers().clone();
+
+        let mut resp = LuaResponse::new(
+            resp_builder
+                .body(Body::from(bytes))
+                .expect("cannot build response"),
+        );
+        resp.is_cached = self.is_cached;
+        resp.is_proxied = self.is_proxied;
+
+        Ok(resp)
     }
 }
 
