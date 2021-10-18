@@ -4,9 +4,16 @@ use std::time::{Duration, SystemTime};
 use async_trait::async_trait;
 use http::{HeaderMap, Response, StatusCode};
 use lru_time_cache::LruCache;
+use serde::Deserialize;
 use tokio::sync::Mutex;
 
 use crate::storage::Storage;
+
+// Memory backend configuration
+#[derive(Deserialize)]
+pub struct Config {
+    capacity: usize,
+}
 
 struct Value {
     status: StatusCode,
@@ -20,9 +27,9 @@ pub struct MemoryBackend {
 }
 
 impl MemoryBackend {
-    pub fn new(capacity: usize) -> Self {
+    pub fn new(config: &Config) -> Self {
         MemoryBackend {
-            cache: Mutex::new(LruCache::with_capacity(capacity)),
+            cache: Mutex::new(LruCache::with_capacity(config.capacity)),
         }
     }
 }
@@ -51,7 +58,7 @@ impl Storage for MemoryBackend {
                     if value.expires.is_none() || value.expires > Some(SystemTime::now()) =>
                 {
                     let headers: hyper_serde::De<HeaderMap> =
-                        flexbuffers::from_slice(&value.headers).unwrap();
+                        flexbuffers::from_slice(&value.headers)?;
                     let body = hyper::Body::from(value.body.clone());
 
                     let mut resp = Response::new(body);
@@ -96,6 +103,7 @@ impl Storage for MemoryBackend {
             let value = Value {
                 status: resp.status(),
                 headers: flexbuffers::to_vec(&hyper_serde::Ser::new(resp.headers()))?,
+                // Likely body already has been read concurrently in Lua and now available as a byte array
                 body: hyper::body::to_bytes(resp.body_mut()).await?.to_vec(),
                 expires: ttl.map(|ttl| SystemTime::now() + ttl),
             };
@@ -113,6 +121,7 @@ mod tests {
     use http::HeaderValue;
     use hyper::{Body, Response};
 
+    use crate::backends::memory::Config;
     use crate::backends::MemoryBackend;
     use crate::storage::Storage;
 
@@ -124,7 +133,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_memory_backend() {
-        let memory = MemoryBackend::new(100);
+        let memory = MemoryBackend::new(&Config { capacity: 100 });
         let mut resp = make_response("hello, world");
 
         resp.headers_mut()
@@ -152,7 +161,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_memory_backend_ttl() {
-        let memory = MemoryBackend::new(100);
+        let memory = MemoryBackend::new(&Config { capacity: 100 });
         let mut resp = make_response("hello, world");
 
         resp.headers_mut()

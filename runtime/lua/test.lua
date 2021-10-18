@@ -1,5 +1,7 @@
 local core = require("core")
 
+local memory = core.storage.memory
+
 local function on_request(req, ctx)
     print("on_request")
 
@@ -8,7 +10,7 @@ local function on_request(req, ctx)
     ctx.caching_key = req.uri
 
     -- Fetch from cache
-    local resp = core.storage:get_response(ctx.caching_key)
+    local resp = memory:get_response(ctx.caching_key)
     if resp ~= nil then
         print("got response from the cache")
         return resp
@@ -31,7 +33,7 @@ local function after_response(ctx, resp)
     -- Cache response
     if resp ~= nil and not resp.is_cached then
         print("caching response")
-        core.storage:cache_response(ctx.caching_key, resp)
+        memory:cache_response(ctx.caching_key, resp)
     end
 end
 

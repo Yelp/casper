@@ -6,7 +6,7 @@ use std::time::{Instant, SystemTime};
 
 use anyhow::Result;
 use hyper::server::conn::{AddrStream, Http};
-use mlua::{Function, Lua, RegistryKey as LuaRegistryKey, Table, Value};
+use mlua::{Function, Lua, RegistryKey as LuaRegistryKey, Table};
 use tokio::runtime;
 use tokio::sync::mpsc;
 use tokio::task::LocalSet;
@@ -16,6 +16,7 @@ use crate::core;
 use crate::service::Svc;
 
 pub struct WorkerData {
+    pub id: usize,
     pub config: Arc<Config>,
     pub middleware: Vec<Middleware>,
 }
@@ -42,12 +43,12 @@ impl Deref for IncomingStream {
 }
 
 pub struct LocalWorker {
-    send: mpsc::UnboundedSender<IncomingStream>,
+    sender: mpsc::UnboundedSender<IncomingStream>,
 }
 
 impl LocalWorker {
-    pub fn new(config: Arc<Config>) -> Self {
-        let (send, mut recv) = mpsc::unbounded_channel::<IncomingStream>();
+    pub fn new(id: usize, config: Arc<Config>) -> Self {
+        let (sender, mut recv) = mpsc::unbounded_channel::<IncomingStream>();
 
         let rt = runtime::Builder::new_current_thread()
             .enable_all()
@@ -56,6 +57,7 @@ impl LocalWorker {
 
         let lua = Lua::new();
         let mut worker_data = WorkerData {
+            id,
             config,
             middleware: Vec::new(),
         };
@@ -95,13 +97,16 @@ impl LocalWorker {
             rt.block_on(local);
         });
 
-        Self { send }
+        Self { sender }
     }
 
     /// Initializes Lua instance for Worker updating WorkerData
     fn init_lua(lua: &Lua, worker_data: &mut WorkerData) -> Result<()> {
         // Register core module
-        let _: Value = lua.load_from_function("core", core::make_core_module(lua)?)?;
+        let core: Table = lua.load_from_function("core", core::make_core_module(lua)?)?;
+
+        // Set worker id
+        core.set("worker_id", worker_data.id)?;
 
         // Load middleware code
         for middleware in &worker_data.config.middleware {
@@ -132,7 +137,7 @@ impl LocalWorker {
             system_time: SystemTime::now(),
         };
 
-        self.send
+        self.sender
             .send(in_stream)
             .expect("Thread with LocalSet has shut down.");
     }

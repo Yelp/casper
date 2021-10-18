@@ -1,9 +1,8 @@
-use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 
-use anyhow::Result;
+use anyhow::Context as _;
 use futures::{Stream, TryStreamExt};
 use hyper::{
     client::HttpConnector,
@@ -28,22 +27,28 @@ impl Stream for AddrIncomingStream {
     }
 }
 
-#[tokio::main(flavor = "current_thread")]
-async fn main() -> Result<()> {
+async fn main_inner() -> anyhow::Result<()> {
     pretty_env_logger::init();
 
     let config = Arc::new(config::read_config("./casper.toml")?);
 
-    // println!("{:?}", config);
+    // Register storage backends defined in the config
+    backends::register_backends(config.storage.clone())
+        .context("cannot register storage backends")?;
+
+    let main_config = &config.main;
 
     let mut workers = Vec::new();
-    let num_threads = config.main.as_ref().map(|cfg| cfg.num_threads).unwrap_or(4);
-    for _ in 0..num_threads {
-        workers.push(LocalWorker::new(config.clone()));
+    let num_threads = main_config.num_threads;
+    for id in 0..num_threads {
+        workers.push(LocalWorker::new(id, config.clone()));
     }
 
-    let addr: SocketAddr = ([0, 0, 0, 0], 8888).into();
+    let addr = &main_config.listen;
     let listener = TcpListener::bind(addr).await?;
+
+    println!("Listening on http://{}", addr);
+
     let mut incoming = AddrIncomingStream(AddrIncoming::from_listener(listener)?);
     let mut accept_count = 0;
     while let Some(stream) = incoming.try_next().await? {
@@ -53,6 +58,13 @@ async fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+#[tokio::main(flavor = "current_thread")]
+async fn main() {
+    if let Err(err) = main_inner().await {
+        eprintln!("{:?}", err);
+    }
 }
 
 mod backends;

@@ -146,11 +146,20 @@ where
                 lua.unpack_multi(args)?;
             let this = this.borrow::<Self>()?;
             let mut resp = resp.borrow_mut::<LuaResponse>()?;
+
+            // Read response body and save it to restore after caching
+            let body = hyper::body::to_bytes(resp.body_mut()).await.to_lua_err()?;
+            *resp.body_mut() = Body::from(body.clone());
+
             let ttl = ttl.map(Duration::from_secs_f32);
             this.0
                 .cache_response(&key, resp.response_mut(), ttl)
                 .await
-                .to_lua_err()
+                .to_lua_err()?;
+
+            *resp.body_mut() = Body::from(body.clone());
+
+            Ok(())
         });
 
         methods.add_async_function(
@@ -172,18 +181,31 @@ where
                 // Convert each `response` from `AnyUserData` to an instance of `LuaResponse`
                 let mut items_ready = Vec::new();
                 for (key, resp, ttl) in &items_pre {
-                    let resp = resp.borrow_mut::<LuaResponse>()?;
-                    items_ready.push((key, resp, *ttl));
+                    let mut resp = resp.borrow_mut::<LuaResponse>()?;
+
+                    // Read body and save it
+                    // TODO: Enable concurrency
+                    let body = hyper::body::to_bytes(resp.body_mut()).await.to_lua_err()?;
+                    *resp.body_mut() = Body::from(body.clone());
+
+                    items_ready.push((key, resp, body, *ttl));
                 }
 
                 this.0
                     .cache_responses(
                         items_ready
                             .iter_mut()
-                            .map(|(key, resp, ttl)| (key, resp.response_mut(), *ttl)),
+                            .map(|(key, resp, _, ttl)| (key, resp.response_mut(), *ttl)),
                     )
                     .await
-                    .to_lua_err()
+                    .to_lua_err()?;
+
+                // Restore body
+                for (_, mut resp, body, _) in items_ready {
+                    *resp.body_mut() = Body::from(body);
+                }
+
+                Ok(())
             },
         );
     }
