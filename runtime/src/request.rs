@@ -93,6 +93,21 @@ impl UserData for LuaRequest {
             Ok(this.headers().get_all(name).into_iter().count())
         });
 
+        methods.add_method(
+            "header_match",
+            |lua, this, (name, pattern): (String, String)| {
+                let regex = crate::regex::regex_new(lua, pattern)?;
+                for hdr_val in this.headers().get_all(name) {
+                    if let Ok(val) = hdr_val.to_str() {
+                        if regex.is_match(val) {
+                            return Ok(true);
+                        }
+                    }
+                }
+                Ok(false)
+            },
+        );
+
         methods.add_method_mut("del_header", |_, this, name: String| {
             this.headers_mut().remove(name);
             Ok(())
@@ -153,21 +168,32 @@ impl UserData for LuaRequest {
             Ok(())
         });
 
-        methods.add_async_function("read_body", |lua, this: AnyUserData| async move {
-            let mut this = this.borrow_mut::<Self>()?;
-
-            let mut body = Body::empty();
-            mem::swap(this.body_mut(), &mut body);
-
-            let mut vec = Vec::new();
-            while let Some(buf) = body.data().await {
-                vec.put(buf.to_lua_err()?);
+        methods.add_async_function("body", |lua, this: AnyUserData| async move {
+            // Check attached value
+            if let Some(body) = this.get_user_value::<Option<LuaString>>()? {
+                return Ok(Value::String(body));
             }
 
-            let lua_body = lua.create_string(&vec)?;
-            this.body = Some(vec);
+            let body = {
+                let mut this = this.borrow_mut::<Self>()?;
 
-            Ok(Value::String(lua_body))
+                let mut body = Body::empty();
+                mem::swap(this.body_mut(), &mut body);
+
+                let mut vec = Vec::new();
+                while let Some(buf) = body.data().await {
+                    vec.put(buf.to_lua_err()?);
+                }
+
+                let lua_body = lua.create_string(&vec)?;
+                this.body = Some(vec);
+                lua_body
+            };
+
+            // Cache it
+            this.set_user_value(body.clone())?;
+
+            Ok(Value::String(body))
         });
     }
 }

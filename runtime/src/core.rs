@@ -2,8 +2,11 @@ use mlua::{Function, Lua, Result as LuaResult, Table};
 use std::sync::Arc;
 
 use crate::backends::{self, Backend};
+use crate::config_loader;
+use crate::regex;
 use crate::response::LuaResponse;
 use crate::storage::LuaStorage;
+use crate::utils;
 
 pub fn init_core(lua: &Lua) -> LuaResult<Table> {
     let core = lua.create_table()?;
@@ -21,6 +24,27 @@ pub fn init_core(lua: &Lua) -> LuaResult<Table> {
         )?;
     }
     core.set("storage", storage)?;
+
+    // Create `config` module
+    let config = lua.create_table()?;
+    config.set(
+        "get_config",
+        lua.create_async_function(config_loader::lua::get_config)?,
+    )?;
+    core.set("config", config)?;
+
+    // Create `regex` module
+    let regex = lua.create_table()?;
+    regex.set("new", lua.create_function(regex::regex_new)?)?;
+    core.set("regex", regex)?;
+
+    // Create `utils` module
+    let utils = lua.create_table()?;
+    utils.set(
+        "normalize_uri",
+        lua.create_function(utils::lua::normalize_uri)?,
+    )?;
+    core.set("utils", utils)?;
 
     Ok(core)
 }
