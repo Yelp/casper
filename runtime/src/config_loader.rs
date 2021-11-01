@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime};
@@ -66,7 +68,7 @@ where
                 yaml: serde_yaml::from_slice(&fs::read(config).await?)?,
                 last_checked: Instant::now(),
                 modified,
-                interval: interval.unwrap_or(Duration::from_secs(1)),
+                interval: interval.unwrap_or_else(|| Duration::from_secs(1)),
             };
             CONFIGS.write().await.insert(config.into(), value.clone());
             Ok(traverse_value(&value.yaml, keys).cloned())

@@ -3,6 +3,7 @@ local ngx_re = require 'ngx.re'
 local socket = require 'socket'
 
 local config_loader = require 'config_loader'
+local dynamodb = require 'dynamodb_helper'
 local http = require "http"
 local metrics_helper = require 'metrics_helper'
 local zipkin = require 'zipkin'
@@ -244,6 +245,11 @@ local function is_header_uncacheable(header_name, namespace)
         if string.lower(header_name) == string.lower(uncacheable_header) then
             return true
         end
+    end
+
+    -- Skip `Spectre-Cache-Status` and `X-Original-Status`
+    if header_name == HEADERS.CACHE_STATUS or header_name == HEADERS.ORIGINAL_STATUS then
+        return true
     end
 
     return false
@@ -530,15 +536,23 @@ local function fetch_from_cache(cassandra_helper, id, uri, destination, cache_na
     -- Check if datastore already has url cached
     -- Returns the response body. Fills out the the headers
     local start_time = socket.gettime()
-    local cached_value = cassandra_helper.fetch_body_and_headers(
-        cassandra_helper.get_connection(cassandra_helper.READ_CONN),
-        id,
-        uri,
-        destination,
-        cache_name,
-        vary_headers,
-        num_buckets
-    )
+
+    local dynamodb_enabled = true
+
+    local cached_value
+    if dynamodb_enabled then
+        cached_value = dynamodb.fetch_body_and_headers(id, uri, destination, cache_name, vary_headers)
+    else
+        cached_value = cassandra_helper.fetch_body_and_headers(
+            cassandra_helper.get_connection(cassandra_helper.READ_CONN),
+            id,
+            uri,
+            destination,
+            cache_name,
+            vary_headers,
+            num_buckets
+        )
+    end
 
     local cache_status = cached_value['body'] ~= nil and 'hit' or 'miss'
     local dims = {{'namespace', destination}, {'cache_name', cache_name}, {'cache_status', cache_status}}
@@ -562,18 +576,25 @@ local function cache_store(
 )
     local start_time = socket.gettime()
 
-    cassandra_helper.store_body_and_headers(
-        cassandra_helper.get_connection(cassandra_helper.WRITE_CONN),
-        ids,
-        uri,
-        destination,
-        cache_name,
-        response_body,
-        response_headers,
-        vary_headers,
-        ttl,
-        num_buckets
-    )
+    local dynamodb_enabled = true
+
+    if dynamodb_enabled then
+        dynamodb.store_body_and_headers(ids, uri, destination, cache_name, response_body,
+                                        response_headers, vary_headers, ttl)
+    else
+        cassandra_helper.store_body_and_headers(
+            cassandra_helper.get_connection(cassandra_helper.WRITE_CONN),
+            ids,
+            uri,
+            destination,
+            cache_name,
+            response_body,
+            response_headers,
+            vary_headers,
+            ttl,
+            num_buckets
+        )
+    end
 
     local dims = {{'namespace', destination}, {'cache_name', cache_name}}
     metrics_helper.emit_timing('spectre.store_body_and_headers', (socket.gettime() - start_time) * 1000, dims)
@@ -581,12 +602,20 @@ end
 
 local function purge_cache(cassandra_helper, namespace, cache_name, id)
     local start_time = socket.gettime()
-    local status, body = cassandra_helper.purge(
-        cassandra_helper.get_connection(cassandra_helper.WRITE_CONN),
-        namespace,
-        cache_name,
-        id
-    )
+
+    local dynamodb_enabled = true
+
+    local status, body
+    if dynamodb_enabled then
+        status, body = dynamodb.purge(namespace, cache_name, id)
+    else
+        status, body = cassandra_helper.purge(
+            cassandra_helper.get_connection(cassandra_helper.WRITE_CONN),
+            namespace,
+            cache_name,
+            id
+        )
+    end
 
     local dims = {{'namespace', namespace}, {'cache_name', cache_name}}
     metrics_helper.emit_timing('spectre.purge_cache', (socket.gettime() - start_time) * 1000, dims)

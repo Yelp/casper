@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use mlua::{Function, Lua, Result as LuaResult, Table};
 use std::sync::Arc;
 

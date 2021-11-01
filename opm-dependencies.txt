@@ -1,1 +1,3 @@
 detailyang/lua-resty-rfc5424=0.1.0
+openresty/lua-resty-lock=0.08
+ledgetech/lua-resty-http=0.16.1

@@ -4,6 +4,7 @@ use std::sync::Arc;
 use anyhow::{anyhow, bail, Context};
 use once_cell::sync::OnceCell;
 
+pub use memory::Config as MemoryBackendConfig;
 pub use memory::MemoryBackend;
 
 static REGISTERED_BACKENDS: OnceCell<HashMap<String, Backend>> = OnceCell::new();
@@ -27,18 +28,16 @@ pub fn register_backends(backends_config: HashMap<String, toml::Value>) -> anyho
                     format!("invalid backend configuration for storage `{}`", name)
                 })?;
 
-                registered_backends.insert(
-                    name.into(),
-                    Backend::Memory(Arc::new(MemoryBackend::new(&config))),
-                );
+                registered_backends
+                    .insert(name, Backend::Memory(Arc::new(MemoryBackend::new(&config))));
             }
             _ => bail!("unknown backend `{}` for storage `{}`", backend, name),
         }
     }
 
-    if REGISTERED_BACKENDS.set(registered_backends).is_err() {
-        bail!("register_backends() must be called once");
-    }
+    REGISTERED_BACKENDS
+        .set(registered_backends)
+        .map_err(|_| anyhow!("register_backends() must be called once"))?;
 
     Ok(())
 }

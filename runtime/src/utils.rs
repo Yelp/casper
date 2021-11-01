@@ -28,7 +28,7 @@ where
 
             // Build query again from the sorted list
             let query = query_pairs
-                .into_iter()
+                .iter()
                 .map(|kv| kv.join("="))
                 .collect::<Box<_>>()
                 .join("&");

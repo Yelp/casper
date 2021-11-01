@@ -24,7 +24,7 @@ struct RegexCaptures {
 
 impl UserData for Regex {
     fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
-        methods.add_method("is_match", |_, this, text: Box<str>| {
+        methods.add_method("is_match", |_, this, text: String| {
             Ok(this.0.is_match(&text))
         });
 
@@ -35,6 +35,17 @@ impl UserData for Regex {
                 return Ok(Value::UserData(lua.create_userdata(caps)?));
             }
             Ok(Value::Nil)
+        });
+
+        methods.add_method("split", |_, this, text: String| {
+            Ok(this.split(&text).map(String::from).collect::<Vec<_>>())
+        });
+
+        methods.add_method("splitn", |_, this, (text, limit): (String, usize)| {
+            Ok(this
+                .splitn(&text, limit)
+                .map(String::from)
+                .collect::<Vec<_>>())
         });
     }
 }

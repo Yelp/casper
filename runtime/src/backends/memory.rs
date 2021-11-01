@@ -14,7 +14,7 @@ use crate::storage::{Item, ItemKey, Storage};
 #[derive(Deserialize)]
 pub struct Config {
     /// Store up to `max_size` bytes (soft limit)
-    max_size: usize,
+    pub max_size: usize,
 }
 
 type Key = Vec<u8>;
@@ -56,7 +56,7 @@ struct MemoryBackendImpl {
 
 impl MemoryBackendImpl {
     /// Creates a new instance that can hold up to `max_size` bytes (soft limit)
-    fn new(max_size: usize) -> Self {
+    pub fn new(max_size: usize) -> Self {
         MemoryBackendImpl {
             max_size,
             size: 0,
@@ -66,9 +66,9 @@ impl MemoryBackendImpl {
     }
 
     /// Inserts key/value to the cache while maintaining `max_size`
-    fn insert(&mut self, key: Key, val: Value) {
+    pub fn insert(&mut self, key: Key, val: Value) {
         // Ensure that we have free space to store the value
-        while self.cache.len() > 0 && self.size + val.size() > self.max_size {
+        while !self.cache.is_empty() && self.size + val.size() > self.max_size {
             self.pop_lru();
         }
 
@@ -139,7 +139,7 @@ impl MemoryBackendImpl {
     }
 }
 
-#[async_trait(?Send)]
+#[async_trait]
 impl Storage for MemoryBackend {
     type Body = hyper::Body;
     type Error = anyhow::Error;
@@ -149,8 +149,9 @@ impl Storage for MemoryBackend {
         keys: KI,
     ) -> Result<Vec<Option<Response<Self::Body>>>, Self::Error>
     where
-        KI: IntoIterator<Item = K>,
-        K: AsRef<[u8]>,
+        KI: IntoIterator<Item = K> + Send,
+        <KI as IntoIterator>::IntoIter: Send,
+        K: AsRef<[u8]> + Send,
     {
         let mut result = Vec::new();
 
@@ -178,8 +179,9 @@ impl Storage for MemoryBackend {
 
     async fn delete_responses<K, KI>(&self, keys: KI) -> Result<(), Self::Error>
     where
-        KI: IntoIterator<Item = ItemKey<K>>,
-        K: AsRef<[u8]>,
+        KI: IntoIterator<Item = ItemKey<K>> + Send,
+        <KI as IntoIterator>::IntoIter: Send,
+        K: AsRef<[u8]> + Send,
     {
         let mut memory = self.0.lock().await;
         for key in keys {
@@ -197,10 +199,11 @@ impl Storage for MemoryBackend {
 
     async fn cache_responses<K, R, SK, I>(&self, items: I) -> Result<(), Self::Error>
     where
-        I: IntoIterator<Item = Item<K, R, SK>>,
-        K: AsRef<[u8]>,
-        R: BorrowMut<Response<Self::Body>>,
-        SK: AsRef<[u8]>,
+        I: IntoIterator<Item = Item<K, R, SK>> + Send,
+        <I as IntoIterator>::IntoIter: Send,
+        K: AsRef<[u8]> + Send,
+        R: BorrowMut<Response<Self::Body>> + Send,
+        SK: AsRef<[u8]> + Send,
     {
         let mut memory = self.0.lock().await;
         for mut it in items {

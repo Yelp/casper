@@ -4,14 +4,15 @@ use std::rc::Rc;
 use http::header::{self, HeaderName};
 use http::uri::Scheme;
 use http::HeaderMap;
-use hyper::{Body, Request, Response, Uri};
+use hyper::{client::HttpConnector, Body, Client, Request, Response, Uri};
 use mlua::{Function as LuaFunction, Lua, Table as LuaTable, Value, Variadic};
 use once_cell::sync::Lazy;
 
 use crate::request::LuaRequest;
 use crate::response::LuaResponse;
 use crate::worker::WorkerData;
-use crate::CLIENT;
+
+pub static CLIENT: Lazy<Client<HttpConnector>> = Lazy::new(Client::new);
 
 static HOP_BY_HOP_HEADERS: Lazy<[HeaderName; 8]> = Lazy::new(|| {
     [

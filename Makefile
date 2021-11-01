@@ -56,7 +56,7 @@ run-itest: $(DOCKER_COMPOSE)
 	$(DOCKER_COMPOSE) -f $(DOCKER_COMPOSE_YML) up -d spectre backend cassandra syslog
 	$(DOCKER_COMPOSE) -f $(DOCKER_COMPOSE_YML) run test python3 -m pytest -vv spectre
 	$(DOCKER_COMPOSE) -f $(DOCKER_COMPOSE_YML) exec --user=root -T spectre /opt/drop_all.sh
-	$(DOCKER_COMPOSE) -f $(DOCKER_COMPOSE_YML) run test python3 -m pytest -vv cassandra
+	# $(DOCKER_COMPOSE) -f $(DOCKER_COMPOSE_YML) run test python3 -m pytest -vv cassandra
 	$(DOCKER_COMPOSE) -f $(DOCKER_COMPOSE_YML) kill
 	$(DOCKER_COMPOSE) -f $(DOCKER_COMPOSE_YML) rm -f
 
@@ -91,6 +91,10 @@ luarocks: luarocks-dependencies.txt lua-cassandra-dev-0.rockspec
 	ln -s $(CURDIR)/busted $@/bin/busted-resty
 	ln -s /usr/bin/resty $@/bin/resty
 
+rust_plugin:
+	(cd plugin && cargo build --release)
+	cp -f target/release/libdynamodb.so luarocks/lib/lua/5.1/dynamodb.so
+
 resty_modules: opm-dependencies.txt
 	rm -rf $@
 	mkdir $@
@@ -100,4 +104,4 @@ resty_modules: opm-dependencies.txt
 minimal: deps
 
 .PHONY: deps
-deps: luarocks resty_modules
+deps: luarocks resty_modules rust_plugin

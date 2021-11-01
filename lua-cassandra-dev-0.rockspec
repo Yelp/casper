@@ -3,16 +3,13 @@ version = "dev-0"
 -- yelp lua-cassandra fork with stream_id support
 -- upstream original repo: https://github.com/thibaultcha/lua-cassandra
 source = {
-  url = "git://github.com/yelp/lua-cassandra",
+  url = "git+https://github.com/yelp/lua-cassandra",
   branch = "master"
 }
 description = {
   summary = "A pure Lua client library for Apache Cassandra",
   homepage = "https://github.com/thibaultcha/lua-cassandra",
   license = "MIT"
-}
-dependencies = {
-  "luabitop"
 }
 build = {
   type = "builtin",

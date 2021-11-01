@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use std::borrow::BorrowMut;
 use std::error::Error as StdError;
 use std::iter::IntoIterator;
@@ -5,11 +7,11 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
+use bstr::BString;
 use hyper::body::HttpBody;
 use hyper::{Body, Response};
 use mlua::{
-    AnyUserData, ExternalResult, Result as LuaResult, String as LuaString, Table as LuaTable,
-    UserData, UserDataMethods,
+    AnyUserData, ExternalResult, Result as LuaResult, Table as LuaTable, UserData, UserDataMethods,
 };
 
 use crate::response::LuaResponse;
@@ -34,7 +36,6 @@ impl<K, R> Item<K, R, Vec<u8>> {
 }
 
 impl<K, R, SK> Item<K, R, SK> {
-    #[cfg(test)]
     pub fn new_with_skeys(
         key: K,
         response: R,
@@ -55,7 +56,7 @@ pub enum ItemKey<K> {
     Surrogate(K),
 }
 
-#[async_trait(?Send)]
+#[async_trait]
 pub trait Storage {
     type Body: HttpBody;
     type Error;
@@ -65,20 +66,23 @@ pub trait Storage {
         keys: KI,
     ) -> Result<Vec<Option<Response<Self::Body>>>, Self::Error>
     where
-        KI: IntoIterator<Item = K>,
-        K: AsRef<[u8]>;
+        KI: IntoIterator<Item = K> + Send,
+        <KI as IntoIterator>::IntoIter: Send,
+        K: AsRef<[u8]> + Send;
 
     async fn delete_responses<K, KI>(&self, keys: KI) -> Result<(), Self::Error>
     where
-        KI: IntoIterator<Item = ItemKey<K>>,
-        K: AsRef<[u8]>;
+        KI: IntoIterator<Item = ItemKey<K>> + Send,
+        <KI as IntoIterator>::IntoIter: Send,
+        K: AsRef<[u8]> + Send;
 
     async fn cache_responses<K, R, SK, I>(&self, items: I) -> Result<(), Self::Error>
     where
-        I: IntoIterator<Item = Item<K, R, SK>>,
-        K: AsRef<[u8]>,
-        R: BorrowMut<Response<Self::Body>>,
-        SK: AsRef<[u8]>;
+        I: IntoIterator<Item = Item<K, R, SK>> + Send,
+        <I as IntoIterator>::IntoIter: Send,
+        K: AsRef<[u8]> + Send,
+        R: BorrowMut<Response<Self::Body>> + Send,
+        SK: AsRef<[u8]> + Send;
 
     //
     // Provided implementation
@@ -86,7 +90,7 @@ pub trait Storage {
 
     async fn get_response<K>(&self, key: K) -> Result<Option<Response<Self::Body>>, Self::Error>
     where
-        K: AsRef<[u8]>,
+        K: AsRef<[u8]> + Send,
     {
         let mut responses = self.get_responses([key]).await?;
         Ok(responses.pop().flatten())
@@ -94,16 +98,16 @@ pub trait Storage {
 
     async fn delete_response<K>(&self, key: K) -> Result<(), Self::Error>
     where
-        K: AsRef<[u8]>,
+        K: AsRef<[u8]> + Send,
     {
         self.delete_responses([ItemKey::Primary(key)]).await
     }
 
     async fn cache_response<K, R, SK>(&self, item: Item<K, R, SK>) -> Result<(), Self::Error>
     where
-        K: AsRef<[u8]>,
-        R: BorrowMut<Response<Self::Body>>,
-        SK: AsRef<[u8]>,
+        K: AsRef<[u8]> + Send,
+        R: BorrowMut<Response<Self::Body>> + Send,
+        SK: AsRef<[u8]> + Send,
     {
         self.cache_responses([item]).await
     }
@@ -119,7 +123,7 @@ impl<T: Storage> LuaStorage<T> {
 
 impl<T> UserData for LuaStorage<T>
 where
-    T: Storage<Body = Body> + 'static,
+    T: Storage<Body = Body> + Send + Sync + 'static,
     <T as Storage>::Error: Into<Box<dyn StdError + Send + Sync>>,
 {
     fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
@@ -128,9 +132,9 @@ where
         //
         methods.add_async_function(
             "get_response",
-            |_, (this, key): (AnyUserData, LuaString)| async move {
+            |_, (this, key): (AnyUserData, BString)| async move {
                 let this = this.borrow::<Self>()?;
-                let resp = this.0.get_response(&key).await.to_lua_err()?;
+                let resp = this.0.get_response(key).await.to_lua_err()?;
                 Ok(resp.map(|resp| {
                     let mut resp = LuaResponse::new(resp);
                     resp.is_cached = true;
@@ -141,7 +145,7 @@ where
 
         methods.add_async_function(
             "get_responses",
-            |_, (this, keys): (AnyUserData, Vec<LuaString>)| async move {
+            |_, (this, keys): (AnyUserData, Vec<BString>)| async move {
                 let this = this.borrow::<Self>()?;
                 let responses = this.0.get_responses(keys).await.to_lua_err()?;
                 Ok(responses
@@ -162,7 +166,7 @@ where
         //
         methods.add_async_function(
             "delete_response",
-            |_, (this, key): (AnyUserData, LuaString)| async move {
+            |_, (this, key): (AnyUserData, BString)| async move {
                 let this = this.borrow::<Self>()?;
                 this.0.delete_response(key).await.to_lua_err()
             },
@@ -175,18 +179,18 @@ where
                 if keys.raw_len() > 0 {
                     // Primary cache keys provided
                     let keys = keys
-                        .raw_sequence_values::<LuaString>()
+                        .raw_sequence_values::<BString>()
                         .collect::<LuaResult<Vec<_>>>()?;
                     this.0
                         .delete_responses(keys.into_iter().map(ItemKey::Primary))
                         .await
                         .to_lua_err()?;
                 } else {
-                    let surrogate_keys: Option<Vec<LuaString>> = keys.raw_get("surrogate_keys")?;
+                    let surrogate_keys: Option<Vec<BString>> = keys.raw_get("surrogate_keys")?;
                     let surrogate_keys = surrogate_keys
                         .unwrap_or_default()
                         .into_iter()
-                        .map(|sk| ItemKey::Surrogate(sk));
+                        .map(ItemKey::Surrogate);
                     this.0.delete_responses(surrogate_keys).await.to_lua_err()?;
                 }
                 Ok(())
@@ -201,9 +205,9 @@ where
             |_, (this, item): (AnyUserData, LuaTable)| async move {
                 let this = this.borrow::<Self>()?;
 
-                let key: LuaString = item.raw_get("key")?;
+                let key: BString = item.raw_get("key")?;
                 let resp: AnyUserData = item.raw_get("response")?;
-                let surrogate_keys: Option<Vec<LuaString>> = item.raw_get("surrogate_keys")?;
+                let surrogate_keys: Option<Vec<BString>> = item.raw_get("surrogate_keys")?;
                 let ttl: Option<f32> = item.raw_get("ttl")?;
 
                 let mut resp = resp.borrow_mut::<LuaResponse>()?;
@@ -236,9 +240,9 @@ where
                 // Convert `Vec<LuaTable>` to a Vector of (key, response, surrogate_keys, ttl)
                 let mut items_pre = Vec::new();
                 for it in items {
-                    let key: LuaString = it.raw_get("key")?;
+                    let key: BString = it.raw_get("key")?;
                     let resp: AnyUserData = it.raw_get("response")?;
-                    let surrogate_keys: Option<Vec<LuaString>> = it.raw_get("surrogate_keys")?;
+                    let surrogate_keys: Option<Vec<BString>> = it.raw_get("surrogate_keys")?;
                     let ttl: Option<f32> = it.raw_get("ttl")?;
                     items_pre.push((key, resp, surrogate_keys, ttl));
                 }
@@ -257,14 +261,17 @@ where
                 }
 
                 this.0
-                    .cache_responses(items_ready.iter_mut().map(
-                        |(key, resp, _, surrogate_keys, ttl)| Item {
-                            key,
-                            response: resp.response_mut(),
-                            surrogate_keys: surrogate_keys.take().unwrap_or_default(),
-                            ttl: ttl.map(Duration::from_secs_f32),
-                        },
-                    ))
+                    .cache_responses(
+                        items_ready
+                            .iter_mut()
+                            .map(|(key, resp, _, surrogate_keys, ttl)| Item {
+                                key,
+                                response: resp.response_mut(),
+                                surrogate_keys: surrogate_keys.take().unwrap_or_default(),
+                                ttl: ttl.map(Duration::from_secs_f32),
+                            })
+                            .collect::<Vec<_>>(),
+                    )
                     .await
                     .to_lua_err()?;
 
