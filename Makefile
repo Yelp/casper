@@ -53,7 +53,12 @@ itest: clean-docker $(DOCKER_COMPOSE) cook-image run-itest
 .PHONY: run-itest
 run-itest: $(DOCKER_COMPOSE)
 	$(DOCKER_COMPOSE) -f $(DOCKER_COMPOSE_YML) build
-	$(DOCKER_COMPOSE) -f $(DOCKER_COMPOSE_YML) up -d spectre backend cassandra syslog
+	$(DOCKER_COMPOSE) -f $(DOCKER_COMPOSE_YML) up -d spectre backend cassandra syslog localstack
+	sleep 10
+	AWS_DEFAULT_REGION="local-stack" \
+	AWS_ACCESS_KEY_ID="TEST" \
+	AWS_SECRET_ACCESS_KEY="TEST" \
+	aws dynamodb create-table --cli-input-json file://itest/create_table.json --endpoint-url http://localhost:4566 --region local-stack
 	$(DOCKER_COMPOSE) -f $(DOCKER_COMPOSE_YML) run test python3 -m pytest -vv spectre
 	$(DOCKER_COMPOSE) -f $(DOCKER_COMPOSE_YML) exec --user=root -T spectre /opt/drop_all.sh
 	# $(DOCKER_COMPOSE) -f $(DOCKER_COMPOSE_YML) run test python3 -m pytest -vv cassandra

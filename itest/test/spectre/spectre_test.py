@@ -23,8 +23,10 @@ class TestGetMethod(object):
 
     @pytest.fixture(autouse=True)
     def purge(self):
+        time.sleep(1)
         purge_resource({'namespace': 'backend.main', 'cache_name': 'timestamp'})
         purge_resource({'namespace': 'backend.main', 'cache_name': 'long_ttl'})
+        time.sleep(1)
 
     def test_get_request(self):
         response = get_through_spectre('/timestamp/get')
@@ -58,8 +60,8 @@ class TestGetMethod(object):
         cached_value, miss_values = get_timestamp_until_hit('/timestamp/ttl')
         assert cached_value in miss_values
 
-        # Cache entry should be expired after 2 seconds
-        time.sleep(2)
+        # Cache entry should be expired after 3 seconds
+        time.sleep(3)
         new_value = get_timestamp('/timestamp/ttl')
         assert new_value != cached_value
 
@@ -149,6 +151,7 @@ class TestGetMethod(object):
     def test_query_params_ordering(self):
         val1 = get_through_spectre('/happy/?k1=v1&k2=v2')
         assert val1.headers['Spectre-Cache-Status'] == 'miss'
+        time.sleep(1)
         assert_is_in_spectre_cache('/happy/?k1=v1&k2=v2')
         assert_is_in_spectre_cache('/happy/?k2=v2&k1=v1')
 
@@ -187,6 +190,7 @@ class TestGetMethod(object):
     def test_caching_works_with_id_extraction(self):
         response = get_through_spectre('/biz?foo=bar&business_id=1234')
         assert response.headers['Spectre-Cache-Status'] == 'miss'
+        time.sleep(1)
 
         # ensure extracting the id is not messing up the caching logic
         assert_is_in_spectre_cache('/biz?foo=bar&business_id=1234')
@@ -220,9 +224,11 @@ class TestPostMethod(object):
 
     @pytest.fixture(autouse=True)
     def purge(self):
+        time.sleep(1)
         purge_resource({'namespace': 'backend.main', 'cache_name': 'post_no_id'})
         purge_resource({'namespace': 'backend.main', 'cache_name': 'post_with_id'})
         purge_resource({'namespace': 'backend.main', 'cache_name': 'post_with_id_varying_body'})
+        time.sleep(1)
 
     def test_post_request(self):
         response = post_through_spectre('/timestamp/post')
@@ -332,6 +338,7 @@ class TestPostMethod(object):
         )
         assert response.status_code == 200
         assert response.headers['Spectre-Cache-Status'] == 'miss'
+        time.sleep(1)
 
         # Calling again with more fields in body which are ignored would also be a cache hit
         assert_is_in_spectre_cache(
@@ -357,6 +364,7 @@ class TestPostMethod(object):
         )
         assert response.status_code == 200
         assert response.headers['Spectre-Cache-Status'] == 'miss'
+        time.sleep(1)
 
         # Calling again with same request_id should be a cache hit
         assert_is_in_spectre_cache(
@@ -539,14 +547,17 @@ class TestGetBulkRequest(object):
         return headers, body
 
     def purge(self):
+        time.sleep(1)
         purge_resource({'namespace': 'backend.main', 'cache_name': 'bulk_requester_does_not_cache_missing_ids'})
         purge_resource({'namespace': 'backend.main', 'cache_name': 'bulk_requester_default'})
+        time.sleep(1)
 
     def test_unicode_chars_in_bulk_response(self):
         # Test retrieval of unicode url arguments returned during bulk requests)
         miss_headers, miss_body = self.make_request([self.UNICODE_BIZ_ID])
         assert miss_headers['Spectre-Cache-Status'] == 'miss'
         assert miss_body[0]['bulk_id'] == u'délfínä-san-francisco-2'
+        time.sleep(1)
 
         headers, body = self.make_request_and_assert_hit([self.UNICODE_BIZ_ID])
         assert miss_body == body
@@ -555,6 +566,7 @@ class TestGetBulkRequest(object):
         # Makes the same request twice, one a hit, one a miss
         miss_headers, miss_body = self.make_request([4])
         assert miss_headers['Spectre-Cache-Status'] == 'miss'
+        time.sleep(1)
 
         headers, body = self.make_request_and_assert_hit([4])
         assert miss_body == body
@@ -596,6 +608,7 @@ class TestGetBulkRequest(object):
     def test_different_ordering(self):
         # Tests that different orderings of ids result in cache hit
         headers, body = self.make_request_and_assert_hit([3, 2, 1])
+        time.sleep(1)
 
         # Correctness
         for i in range(3):
@@ -635,6 +648,7 @@ class TestGetBulkRequest(object):
         response = get_through_spectre(path.format(ids='10,5000,11'))
         assert len(response.json()) == 2
         assert response.headers['Spectre-Cache-Status'] == 'miss'
+        time.sleep(1)
 
         # "5000" is an invalid id; but by default cache_missing_ids is set to true, so the
         # empty response would've been cached from the above request
@@ -690,6 +704,7 @@ class TestGetBulkRequest(object):
     def test_single_correctness(self):
         for i in range(1, 15):
             self.make_request([i])
+            time.sleep(1)
             cache_headers, cache_body = self.make_request_and_assert_hit([i])
             headers, body = self.make_request([i], cache=False)
             assert headers['Spectre-Cache-Status'] != 'hit'
@@ -756,6 +771,7 @@ class TestGetBulkRequest(object):
         # Bulk was a miss
         bulk_headers, bulk_body = resp_1.headers, resp_1.json()
         assert bulk_headers['Spectre-Cache-Status'] == 'miss'
+        time.sleep(1)
 
         resp_2 = assert_is_in_spectre_cache("{}/{}/v1?k1=v2".format(base_path, '2'))
         _, body = resp_2.headers, resp_2.json()
@@ -799,8 +815,10 @@ class TestPurge(object):
         val2_before = get_timestamp('/timestamp/purge/2')
         val3_before = get_timestamp('/long_ttl/no-purge')
 
+        time.sleep(1)
         response = purge_resource({'namespace': 'backend.main', 'cache_name': 'timestamp'})
         assert response == 'Purged namespace: backend.main & cache_name: timestamp'
+        time.sleep(1)
 
         val1_after = get_timestamp('/timestamp/purge/1')
         val2_after = get_timestamp('/timestamp/purge/2')
@@ -815,9 +833,11 @@ class TestPurge(object):
     def test_purge_cassandra_by_id(self):
         get_through_spectre('/bulk_requester?ids=1')
         assert_is_in_spectre_cache('/bulk_requester?ids=1')
+        time.sleep(1)
 
         # Purge id 1
         purge_resource({'namespace': 'backend.main', 'cache_name': 'bulk_requester_does_not_cache_missing_ids', 'id': '1'})
+        time.sleep(1)
         get_resp_3 = get_through_spectre('/bulk_requester?ids=1')
         # resp 3 was no longer cached.
         assert get_resp_3.headers['Spectre-Cache-Status'] == 'miss'
@@ -826,6 +846,7 @@ class TestPurge(object):
         # Delete after PERF-2453 is done
         get_through_spectre('/bulk_requester?ids=1')
         assert_is_in_spectre_cache('/bulk_requester?ids=1')
+        time.sleep(1)
 
         # Purge id 1
         res = requests.request(
@@ -834,6 +855,7 @@ class TestPurge(object):
             headers=util.HAPROXY_ADDED_HEADERS
         )
         assert res.status_code == 200
+        time.sleep(1)
 
         get_resp_3 = get_through_spectre('/bulk_requester?ids=1')
         # resp 3 was no longer cached.

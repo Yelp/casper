@@ -151,6 +151,7 @@ def test_bulk_endpoint_miss(log_file):
     response = get_through_spectre(
         '/bulk_requester_2/10,11/v1?foo=bar',
     )
+    time.sleep(1)
     assert response.status_code == 200
     assert response.headers['Spectre-Cache-Status'] == 'miss'
 

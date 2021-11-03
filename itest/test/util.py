@@ -54,6 +54,7 @@ def assert_is_in_spectre_cache(*args, **kwargs):
         if response.headers['Spectre-Cache-Status'] == 'hit':
             return response
         else:
+            time.sleep(0.1)
             continue
     raise AssertionError(
         "No hit after {num_attempts} attempts (headers: '{headers}')".format(
