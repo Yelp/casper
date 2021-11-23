@@ -532,12 +532,30 @@ local function extract_ids_from_string(ids_string)
     return individual_ids, separator
 end
 
+
+-- Deterministically calculates whether the dynamodb backend is enabled for a given cache item
+-- Uses the "dynamodb_enabled" percentage value when making the decision
+local function is_dynamodb_enabled(cache_key)
+
+    local spectre_config = config_loader.get_spectre_config_for_namespace(
+        config_loader.CASPER_INTERNAL_NAMESPACE
+    )
+    local dynamodb_percent = spectre_config['dynamodb_enabled']
+
+    -- Take first 7 characters of the hash, as we want to get a 32bit number
+    local hash = ngx.md5(cache_key):sub(1, 7)
+    local hash_mod = math.fmod(tonumber(hash, 16), 100)
+
+    return hash_mod < dynamodb_percent
+end
+
+
 local function fetch_from_cache(cassandra_helper, id, uri, destination, cache_name, vary_headers, num_buckets)
     -- Check if datastore already has url cached
     -- Returns the response body. Fills out the the headers
     local start_time = socket.gettime()
 
-    local dynamodb_enabled = true
+    local dynamodb_enabled = is_dynamodb_enabled(cache_name .. uri .. vary_headers)
 
     local cached_value
     if dynamodb_enabled then
@@ -576,7 +594,7 @@ local function cache_store(
 )
     local start_time = socket.gettime()
 
-    local dynamodb_enabled = true
+    local dynamodb_enabled = is_dynamodb_enabled(cache_name .. uri .. vary_headers)
 
     if dynamodb_enabled then
         dynamodb.store_body_and_headers(ids, uri, destination, cache_name, response_body,
@@ -603,12 +621,24 @@ end
 local function purge_cache(cassandra_helper, namespace, cache_name, id)
     local start_time = socket.gettime()
 
-    local dynamodb_enabled = true
-
     local status, body
-    if dynamodb_enabled then
+
+    -- Because we calculate the backend based on the URI etc, and we don't purge on URI
+    -- just purge both backends to make sure we purge all items
+    -- unless we have completely disabled a backend, then we can skip the purge
+
+    local spectre_config = config_loader.get_spectre_config_for_namespace(
+        config_loader.CASPER_INTERNAL_NAMESPACE
+    )
+    local dynamodb_percent = spectre_config['dynamodb_enabled']
+
+    -- purge dynamodb
+    if dynamodb_percent > 0 then
         status, body = dynamodb.purge(namespace, cache_name, id)
-    else
+    end
+
+    -- purge cassandra
+    if dynamodb_percent < 100 then
         status, body = cassandra_helper.purge(
             cassandra_helper.get_connection(cassandra_helper.WRITE_CONN),
             namespace,

@@ -316,7 +316,6 @@ impl DynamoDbCacheClient {
                 record_expired = true;
             }
         }
-        println!("Cache record expired? : {:?}", record_expired);
 
         if !record_expired {
             // Extract the response headers, body and status code
