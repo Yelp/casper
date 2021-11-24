@@ -36,11 +36,22 @@ impl Default for DynamoDbCacheClient {
 
 impl DynamoDbCacheClient {
     pub fn new() -> DynamoDbCacheClient {
-        DynamoDbCacheClient {
-            connector: DynamoDbClient::new(Region::Custom {
-                name: env::var("DYNAMO_NAME").unwrap(),
+        let connector;
+
+        // Setup a local-stack based client
+        if env::var("AWS_DEFAULT_REGION").unwrap_or_else(|_| "".to_string()) == "local-stack" {
+            connector = DynamoDbClient::new(Region::Custom {
+                name: env::var("AWS_DEFAULT_REGION").unwrap(),
                 endpoint: env::var("DYNAMO_ENDPOINT").unwrap(),
-            }),
+            });
+
+        // Setup an AWS based client
+        } else {
+            connector = DynamoDbClient::new(Region::default());
+        }
+
+        DynamoDbCacheClient {
+            connector,
             cache_key_name: String::from("key"),
             cache_resp_headers_name: String::from("response_headers"),
             cache_resp_body_name: String::from("response_body"),
@@ -270,7 +281,12 @@ impl DynamoDbCacheClient {
         let item_output = self
             .get_item(key.to_vec(), projection_expression)
             .await
-            .unwrap();
+            .unwrap_or_else(|_| {
+                panic!(
+                    "Error when calling get_item with key: {:?}",
+                    hex::encode(key.to_vec())
+                )
+            });
 
         // If we don't get an item back from dynamoDB return None
         item_output.item.as_ref()?;
@@ -422,7 +438,8 @@ impl Storage for DynamoDbCacheClient {
                 Ok(_res) => _res,
                 Err(error) => panic!(
                     "Error when trying to cache item with key: {:?} error: {}",
-                    key, error
+                    hex::encode(key.to_vec()).as_str(),
+                    error
                 ),
             };
         }
