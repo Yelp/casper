@@ -30,6 +30,8 @@ local SUPPORTED_ENCODING_FOR_ID_EXTRACTION = {
 }
 
 local DEFAULT_REQUEST_METHOD = 'GET'
+local DYNAMODB_BACKEND_NAME = 'dynamodb'
+local CASSANDRA_BACKEND_NAME = 'cassandra'
 
 -- JSON encode the message table provided and logs it
 local function log(level, err)
@@ -556,10 +558,12 @@ local function fetch_from_cache(cassandra_helper, id, uri, destination, cache_na
     local start_time = socket.gettime()
 
     local dynamodb_enabled = is_dynamodb_enabled(cache_name .. uri .. vary_headers)
+    local backend
 
     local cached_value
     if dynamodb_enabled then
         cached_value = dynamodb.fetch_body_and_headers(id, uri, destination, cache_name, vary_headers)
+        backend = DYNAMODB_BACKEND_NAME
     else
         cached_value = cassandra_helper.fetch_body_and_headers(
             cassandra_helper.get_connection(cassandra_helper.READ_CONN),
@@ -570,10 +574,12 @@ local function fetch_from_cache(cassandra_helper, id, uri, destination, cache_na
             vary_headers,
             num_buckets
         )
+        backend = CASSANDRA_BACKEND_NAME
     end
 
     local cache_status = cached_value['body'] ~= nil and 'hit' or 'miss'
-    local dims = {{'namespace', destination}, {'cache_name', cache_name}, {'cache_status', cache_status}}
+    local dims = {{'namespace', destination}, {'cache_name', cache_name}, {'cache_status', cache_status},
+                  {'backend', backend}}
     metrics_helper.emit_timing('spectre.fetch_body_and_headers', (socket.gettime() - start_time) * 1000, dims)
     metrics_helper.emit_counter('spectre.hit_rate', dims)
 
@@ -595,10 +601,12 @@ local function cache_store(
     local start_time = socket.gettime()
 
     local dynamodb_enabled = is_dynamodb_enabled(cache_name .. uri .. vary_headers)
+    local backend
 
     if dynamodb_enabled then
         dynamodb.store_body_and_headers(ids, uri, destination, cache_name, response_body,
                                         response_headers, vary_headers, ttl)
+        backend = DYNAMODB_BACKEND_NAME
     else
         cassandra_helper.store_body_and_headers(
             cassandra_helper.get_connection(cassandra_helper.WRITE_CONN),
@@ -612,9 +620,10 @@ local function cache_store(
             ttl,
             num_buckets
         )
+        backend = CASSANDRA_BACKEND_NAME
     end
 
-    local dims = {{'namespace', destination}, {'cache_name', cache_name}}
+    local dims = {{'namespace', destination}, {'cache_name', cache_name}, {'backend', backend}}
     metrics_helper.emit_timing('spectre.store_body_and_headers', (socket.gettime() - start_time) * 1000, dims)
 end
 
