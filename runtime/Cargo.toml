@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2018"
 
 [dependencies]
-mlua = { git = "https://github.com/khvzak/mlua.git", branch = "dev", features = ["luajit", "async", "send", "vendored", "serialize"] }
+mlua = { version = "0.7", features = ["luajit52", "async", "send", "vendored", "serialize"] }
 hyper = { version = "0.14", features = ["full"] }
 tokio = { version = "1", features = ["full"] }
 futures = "0.3"

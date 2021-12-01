@@ -7,14 +7,11 @@ edition = "2018"
 name = "dynamodb"
 crate-type = ["cdylib"]
 
-[features]
-luajit = []
-
 [dependencies]
 casper-runtime = { path = "../runtime" }
 
 once_cell = "1"
-mlua = { git = "https://github.com/khvzak/mlua.git", branch = "dev", features = ["luajit", "async", "send", "vendored", "serialize", "module"] }
+mlua = { version = "0.7", features = ["luajit52", "async", "send", "vendored", "serialize", "module"] }
 hyper = { version = "0.14", features = ["full"] }
 tokio = { version = "1", features = ["full"] }
 tower = { version = "0.4", features = ["make"] }
