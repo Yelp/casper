@@ -4,7 +4,7 @@ use std::sync::Arc;
 use anyhow::{anyhow, bail, Context};
 use once_cell::sync::OnceCell;
 
-pub use dynamodb::DynamoDbCacheClient;
+pub use dynamodb::DynamodDbBackend;
 pub use memory::Config as MemoryBackendConfig;
 pub use memory::MemoryBackend;
 

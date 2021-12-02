@@ -19,11 +19,11 @@ use serde_json::{json, Value as JsonValue};
 use tower::make::Shared;
 
 use casper_runtime::{
-    backends::DynamoDbCacheClient,
+    backends::DynamodDbBackend,
     storage::{Item, ItemKey, Storage},
 };
 
-static BACKEND: Lazy<DynamoDbCacheClient> = Lazy::new(DynamoDbCacheClient::new);
+static BACKEND: Lazy<DynamodDbBackend> = Lazy::new(DynamodDbBackend::new);
 
 #[derive(serde::Deserialize)]
 struct MethodArg<'a> {

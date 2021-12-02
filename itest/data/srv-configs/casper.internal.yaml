@@ -12,7 +12,7 @@ cassandra:
     write_timeout_ms: 1000
 
 # Expects a value from 0 to 100, where 0 disables the dynamodb backend and 100 sends all traffic to dynamodb
-dynamodb_enabled: 1
+dynamodb_enabled_pct: 1
 
 http:
     # Lower http timeout to test that we return a 504 on timeouts

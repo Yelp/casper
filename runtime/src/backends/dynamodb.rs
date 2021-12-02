@@ -1,3 +1,4 @@
+use crate::storage::{Item, ItemKey, Storage};
 use anyhow::Result;
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -11,11 +12,7 @@ use rusoto_dynamodb::{
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use std::{collections::HashMap, env};
 
-extern crate flexbuffers;
-
-use crate::storage::{Item, ItemKey, Storage};
-
-pub struct DynamoDbCacheClient {
+pub struct DynamodDbBackend {
     connector: DynamoDbClient,
     cache_key_name: String,
     cache_resp_headers_name: String,
@@ -28,14 +25,14 @@ pub struct DynamoDbCacheClient {
     cache_table_name: String,
 }
 
-impl Default for DynamoDbCacheClient {
+impl Default for DynamodDbBackend {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl DynamoDbCacheClient {
-    pub fn new() -> DynamoDbCacheClient {
+impl DynamodDbBackend {
+    pub fn new() -> DynamodDbBackend {
         let connector;
 
         // Setup a local-stack based client
@@ -50,7 +47,7 @@ impl DynamoDbCacheClient {
             connector = DynamoDbClient::new(Region::default());
         }
 
-        DynamoDbCacheClient {
+        DynamodDbBackend {
             connector,
             cache_key_name: String::from("key"),
             cache_resp_headers_name: String::from("response_headers"),
@@ -368,7 +365,7 @@ impl DynamoDbCacheClient {
 }
 
 #[async_trait]
-impl Storage for DynamoDbCacheClient {
+impl Storage for DynamodDbBackend {
     type Body = hyper::Body;
     type Error = anyhow::Error;
 

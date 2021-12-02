@@ -536,13 +536,13 @@ end
 
 
 -- Deterministically calculates whether the dynamodb backend is enabled for a given cache item
--- Uses the "dynamodb_enabled" percentage value when making the decision
+-- Uses the "dynamodb_enabled_pct" value when making the decision
 local function is_dynamodb_enabled(cache_key)
 
     local spectre_config = config_loader.get_spectre_config_for_namespace(
         config_loader.CASPER_INTERNAL_NAMESPACE
     )
-    local dynamodb_percent = spectre_config['dynamodb_enabled']
+    local dynamodb_percent = spectre_config['dynamodb_enabled_pct']
 
     -- Take first 7 characters of the hash, as we want to get a 32bit number
     local hash = ngx.md5(cache_key):sub(1, 7)
@@ -639,7 +639,7 @@ local function purge_cache(cassandra_helper, namespace, cache_name, id)
     local spectre_config = config_loader.get_spectre_config_for_namespace(
         config_loader.CASPER_INTERNAL_NAMESPACE
     )
-    local dynamodb_percent = spectre_config['dynamodb_enabled']
+    local dynamodb_percent = spectre_config['dynamodb_enabled_pct']
 
     -- purge dynamodb
     if dynamodb_percent > 0 then
