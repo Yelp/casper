@@ -29,3 +29,10 @@ anyhow = "1"
 num_cpus = "1.13"
 regex = "1.5"
 linked-hash-map = "0.5.4"
+
+# dynamodb requirements
+rusoto_core = "0.47.0"
+rusoto_dynamodb = "0.47.0"
+chrono = "0.4"
+openssl = { version = "0.10", features = ["vendored"] }
+hex = "0.4.3"

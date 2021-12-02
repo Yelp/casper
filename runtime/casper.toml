@@ -6,5 +6,5 @@ listen = "0.0.0.0:8888"
 code = "require('lua.test')"
 
 [storage.memory]
-backend = "memory"
+backend = "dynamodb"
 capacity = 100

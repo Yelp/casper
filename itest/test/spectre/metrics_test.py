@@ -86,7 +86,7 @@ def _assert_request_timing_metrics(metrics, cache_name):
     }
 
 
-def _assert_fetch_hit_rate(metrics, cache_name):
+def _assert_fetch_hit_rate(metrics, cache_name, backend):
     assert len(metrics) == 2
     assert metrics[0].dimensions == {
         'metric_name': 'spectre.fetch_body_and_headers',
@@ -96,6 +96,7 @@ def _assert_fetch_hit_rate(metrics, cache_name):
         'instance_name': 'itest',
         'cache_name': cache_name,
         'cache_status': 'miss',
+        'backend': backend
     }
 
     assert metrics[1].dimensions == {
@@ -105,11 +106,13 @@ def _assert_fetch_hit_rate(metrics, cache_name):
         'namespace': 'backend.main',
         'instance_name': 'itest',
         'cache_name': cache_name,
-        'cache_status': 'miss'
+        'cache_status': 'miss',
+        'backend': backend
     }
 
 
-def _assert_store_metric(metric, cache_name):
+def _assert_store_metric(metric, cache_name, backend):
+
     assert metric.dimensions == {
         'metric_name': 'spectre.store_body_and_headers',
         'habitat': 'uswest1a',
@@ -117,6 +120,7 @@ def _assert_store_metric(metric, cache_name):
         'namespace': 'backend.main',
         'instance_name': 'itest',
         'cache_name': cache_name,
+        'backend': backend
     }
 
 
@@ -130,11 +134,14 @@ def test_cache_miss(log_file):
 
     metrics = _load_metrics(log_file)
 
+    # We need to know if the backend is DynamoDB or Cassandra
+    backend = metrics[0].dimensions['backend']
+
     # First 2 metrics are `spectre.fetch_body_and_headers` and `spectre.hit_rate`
-    _assert_fetch_hit_rate(metrics[0:2], 'timestamp')
+    _assert_fetch_hit_rate(metrics[0:2], 'timestamp', backend)
 
     # Then since it's a miss we have a `spectre.store_body_and_headers`
-    _assert_store_metric(metrics[2], 'timestamp')
+    _assert_store_metric(metrics[2], 'timestamp', backend)
 
     # Finally the `spectre.request_timing`
     _assert_request_timing_metrics(metrics[3:7], 'timestamp')
@@ -151,19 +158,23 @@ def test_bulk_endpoint_miss(log_file):
     response = get_through_spectre(
         '/bulk_requester_2/10,11/v1?foo=bar',
     )
+
+    time.sleep(1)
     assert response.status_code == 200
     assert response.headers['Spectre-Cache-Status'] == 'miss'
 
     metrics = _load_metrics(log_file)
+    # We need to know if the backend is dynamodb or cassandra
+    backend = metrics[0].dimensions['backend']
 
     # We have `spectre.fetch_body_and_headers` and `spectre.hit_rate` twice
     # since we have 2 ids in the url.
-    _assert_fetch_hit_rate(metrics[0:2], 'bulk_requester_default')
-    _assert_fetch_hit_rate(metrics[2:4], 'bulk_requester_default')
+    _assert_fetch_hit_rate(metrics[0:2], 'bulk_requester_default', backend)
+    _assert_fetch_hit_rate(metrics[2:4], 'bulk_requester_default', backend)
 
     # Then we have 2 `spectre.store_body_and_headers`
-    _assert_store_metric(metrics[4], 'bulk_requester_default')
-    _assert_store_metric(metrics[5], 'bulk_requester_default')
+    _assert_store_metric(metrics[4], 'bulk_requester_default', backend)
+    _assert_store_metric(metrics[5], 'bulk_requester_default', backend)
 
     # Then the `spectre.request_timing`
     _assert_request_timing_metrics(metrics[6:10], 'bulk_requester_default')
@@ -195,11 +206,13 @@ def test_no_cache_header_metrics(log_file):
     assert response.status_code == 200
 
     metrics = _load_metrics(log_file)
+    # We need to know if the backend is dynamodb or cassandra
+    backend = metrics[0].dimensions['backend']
 
     # Since we send the no-cache header we don't have a `spectre.fetch_body_and_headers`
     # or `spectre.hit_rate`. We still update the cache though, so we have the
     # `spectre.store_body_and_headers`
-    _assert_store_metric(metrics[0], 'timestamp')
+    _assert_store_metric(metrics[0], 'timestamp', backend)
 
     # Finally we emit the `spectre.no_cache_header`
     assert metrics[1].dimensions == {

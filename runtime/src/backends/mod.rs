@@ -4,6 +4,7 @@ use std::sync::Arc;
 use anyhow::{anyhow, bail, Context};
 use once_cell::sync::OnceCell;
 
+pub use dynamodb::DynamodDbBackend;
 pub use memory::Config as MemoryBackendConfig;
 pub use memory::MemoryBackend;
 
@@ -48,4 +49,5 @@ pub fn registered_backends() -> &'static HashMap<String, Backend> {
         .expect("register_backends() must be called first")
 }
 
+mod dynamodb;
 mod memory;

@@ -19,15 +19,11 @@ use serde_json::{json, Value as JsonValue};
 use tower::make::Shared;
 
 use casper_runtime::{
-    backends::{MemoryBackend, MemoryBackendConfig},
+    backends::DynamodDbBackend,
     storage::{Item, ItemKey, Storage},
 };
 
-static BACKEND: Lazy<MemoryBackend> = Lazy::new(|| {
-    MemoryBackend::new(&MemoryBackendConfig {
-        max_size: 1024 * 1024 * 1024, // 1 GB
-    })
-});
+static BACKEND: Lazy<DynamodDbBackend> = Lazy::new(DynamodDbBackend::new);
 
 #[derive(serde::Deserialize)]
 struct MethodArg<'a> {
