@@ -13,20 +13,15 @@ use hyper::{
     Body, Request, Response, Server, StatusCode,
 };
 use mlua::{Lua, Table};
-use once_cell::sync::Lazy;
 use ripemd160::{Digest, Ripemd160};
 use serde_json::{json, Value as JsonValue};
+use tokio::sync::OnceCell;
 use tower::make::Shared;
 
 use casper_runtime::{
     backends::DynamodDbBackend,
     storage::{Item, ItemKey, Storage},
 };
-
-static BACKEND: Lazy<DynamodDbBackend> = Lazy::new(|| {
-    let handle = tokio::runtime::Handle::current();
-    handle.block_on(async { DynamodDbBackend::new().await })
-});
 
 #[derive(serde::Deserialize)]
 struct MethodArg<'a> {
@@ -56,6 +51,12 @@ struct PurgeMethodArgs {
     namespace: String,
     cache_name: String,
     id: Option<String>,
+}
+
+async fn get_backend() -> &'static DynamodDbBackend {
+    static BACKEND: OnceCell<DynamodDbBackend> = OnceCell::const_new();
+
+    BACKEND.get_or_init(DynamodDbBackend::new).await
 }
 
 fn calculate_primary_key(key: &KeyArgs) -> Vec<u8> {
@@ -122,7 +123,8 @@ async fn handler_impl(mut req: Request<Body>) -> Result<Response<Body>, anyhow::
             }
         }
 
-        BACKEND
+        get_backend()
+            .await
             .cache_response(Item::new_with_skeys(key, resp, surrogate_keys, Some(ttl)))
             .await?;
 
@@ -136,7 +138,7 @@ async fn handler_impl(mut req: Request<Body>) -> Result<Response<Body>, anyhow::
         let key = calculate_primary_key(&args);
 
         // Fetch response
-        return match BACKEND.get_response(key).await? {
+        return match get_backend().await.get_response(key).await? {
             Some(mut resp) => {
                 let mut headers_map = serde_json::Map::new();
                 for (name, val) in resp.headers() {
@@ -175,7 +177,8 @@ async fn handler_impl(mut req: Request<Body>) -> Result<Response<Body>, anyhow::
             surrogate_key.push_str(&args.id.unwrap());
         }
 
-        BACKEND
+        get_backend()
+            .await
             .delete_responses([ItemKey::Surrogate(surrogate_key)])
             .await?;
 

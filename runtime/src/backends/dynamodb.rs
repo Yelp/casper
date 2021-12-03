@@ -1,3 +1,4 @@
+use std::borrow::BorrowMut;
 use std::iter::FromIterator;
 use std::str::FromStr;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -11,7 +12,6 @@ use aws_sdk_dynamodb::{
     output::{DeleteItemOutput, GetItemOutput, PutItemOutput},
     Blob, Client, Endpoint, SdkError,
 };
-use core::borrow::BorrowMut;
 use http::Uri;
 use hyper::{HeaderMap, Response, StatusCode};
 
