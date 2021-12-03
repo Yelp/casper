@@ -36,3 +36,5 @@ rusoto_dynamodb = "0.47.0"
 chrono = "0.4"
 openssl = { version = "0.10", features = ["vendored"] }
 hex = "0.4.3"
+aws-config = "0.2.0"
+aws-sdk-dynamodb = "0.2.0"
