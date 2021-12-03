@@ -251,10 +251,10 @@ impl DynamodDbBackend {
         let item_output = self
             .get_item(key.to_vec(), projection_expression)
             .await
-            .unwrap_or_else(|_| {
+            .unwrap_or_else(|err| {
                 panic!(
-                    "Error when calling get_item with key: {:?}",
-                    hex::encode(key.to_vec())
+                    "Error when calling get_item with key {:?}: {}",
+                    hex::encode(key.to_vec()), err
                 )
             });
 
@@ -410,7 +410,7 @@ impl Storage for DynamodDbBackend {
             let _res = match _res {
                 Ok(_res) => _res,
                 Err(error) => panic!(
-                    "Error when trying to cache item with key: {:?} error: {}",
+                    "Error when trying to cache item with key {:?}: {}",
                     hex::encode(key.to_vec()).as_str(),
                     error
                 ),
