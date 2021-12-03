@@ -23,7 +23,10 @@ use casper_runtime::{
     storage::{Item, ItemKey, Storage},
 };
 
-static BACKEND: Lazy<DynamodDbBackend> = Lazy::new(DynamodDbBackend::new);
+static BACKEND: Lazy<DynamodDbBackend> = Lazy::new(|| {
+    let handle = tokio::runtime::Handle::current();
+    handle.block_on(async { DynamodDbBackend::new().await })
+});
 
 #[derive(serde::Deserialize)]
 struct MethodArg<'a> {
