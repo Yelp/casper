@@ -254,7 +254,8 @@ impl DynamodDbBackend {
             .unwrap_or_else(|err| {
                 panic!(
                     "Error when calling get_item with key {:?}: {}",
-                    hex::encode(key.to_vec()), err
+                    hex::encode(key.to_vec()),
+                    err
                 )
             });
 
