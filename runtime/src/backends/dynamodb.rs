@@ -1,19 +1,24 @@
-use crate::storage::{Item, ItemKey, Storage};
-use anyhow::Result;
-use async_trait::async_trait;
-use bytes::Bytes;
-use core::borrow::BorrowMut;
-use hyper::{HeaderMap, Response, StatusCode};
-use rusoto_core::{Region, RusotoError};
-use rusoto_dynamodb::{
-    AttributeValue, DeleteItemError, DeleteItemInput, DeleteItemOutput, DynamoDb, DynamoDbClient,
-    GetItemError, GetItemInput, GetItemOutput, PutItemError, PutItemInput, PutItemOutput,
-};
+use std::borrow::BorrowMut;
+use std::iter::FromIterator;
+use std::str::FromStr;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use std::{collections::HashMap, env};
 
+use anyhow::Result;
+use async_trait::async_trait;
+use aws_sdk_dynamodb::{
+    error::{DeleteItemError, GetItemError, PutItemError},
+    model::AttributeValue,
+    output::{DeleteItemOutput, GetItemOutput, PutItemOutput},
+    Blob, Client, Endpoint, SdkError,
+};
+use http::Uri;
+use hyper::{HeaderMap, Response, StatusCode};
+
+use crate::storage::{Item, ItemKey, Storage};
+
 pub struct DynamodDbBackend {
-    connector: DynamoDbClient,
+    client: Client,
     cache_key_name: String,
     cache_resp_headers_name: String,
     cache_resp_body_name: String,
@@ -25,30 +30,23 @@ pub struct DynamodDbBackend {
     cache_table_name: String,
 }
 
-impl Default for DynamodDbBackend {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl DynamodDbBackend {
-    pub fn new() -> DynamodDbBackend {
-        let connector;
-
-        // Setup a local-stack based client
-        if env::var("AWS_DEFAULT_REGION").unwrap_or_else(|_| "".to_string()) == "local-stack" {
-            connector = DynamoDbClient::new(Region::Custom {
-                name: env::var("AWS_DEFAULT_REGION").unwrap(),
-                endpoint: env::var("DYNAMO_ENDPOINT").unwrap(),
-            });
-
-        // Setup an AWS based client
+    pub async fn new() -> DynamodDbBackend {
+        let config = aws_config::load_from_env().await;
+        let client = if env::var("AWS_DEFAULT_REGION") == Ok("local-stack".into()) {
+            // Setup a local-stack based client
+            let endpoint = env::var("DYNAMO_ENDPOINT").unwrap();
+            let endpoint = Endpoint::immutable(Uri::from_str(&endpoint).unwrap());
+            let dynamodb_config = aws_sdk_dynamodb::config::Builder::from(&config)
+                .endpoint_resolver(endpoint)
+                .build();
+            Client::from_conf(dynamodb_config)
         } else {
-            connector = DynamoDbClient::new(Region::default());
-        }
+            Client::new(&config)
+        };
 
         DynamodDbBackend {
-            connector,
+            client,
             cache_key_name: String::from("key"),
             cache_resp_headers_name: String::from("response_headers"),
             cache_resp_body_name: String::from("response_body"),
@@ -57,7 +55,7 @@ impl DynamodDbBackend {
             cache_creation_ts_name: String::from("creation_timestamp"),
             cache_expiry_ts_name: String::from("expiry_timestamp"),
             sk_timestamp_name: String::from("sk_timestamp"),
-            cache_table_name: env::var("DYNAMO_TABLE")
+            cache_table_name: env::var("DYNAMODB_TABLE")
                 .unwrap_or_else(|_| String::from("casper_cache")),
         }
     }
@@ -66,43 +64,37 @@ impl DynamodDbBackend {
         &self,
         key: Vec<u8>,
         projection_expression: Option<String>,
-    ) -> Result<GetItemOutput, RusotoError<GetItemError>> {
-        let attribute_value_key = AttributeValue {
-            b: Option::Some(Bytes::from(key)),
-            ..Default::default()
-        };
+    ) -> Result<GetItemOutput, SdkError<GetItemError>> {
+        let key = HashMap::from_iter([(
+            self.cache_key_name.clone(),
+            AttributeValue::B(Blob::new(key)),
+        )]);
 
-        let mut get_item = HashMap::new();
-        get_item.insert(self.cache_key_name.clone(), attribute_value_key);
-
-        let get_item_input = GetItemInput {
-            key: get_item,
-            table_name: self.cache_table_name.clone(),
-            projection_expression,
-            consistent_read: Some(true),
-            ..Default::default()
-        };
-
-        self.connector.get_item(get_item_input).await
+        self.client
+            .get_item()
+            .set_key(Some(key))
+            .set_table_name(Some(self.cache_table_name.clone()))
+            .set_projection_expression(projection_expression)
+            .set_consistent_read(Some(true))
+            .send()
+            .await
     }
 
     async fn delete_item(
         &self,
         key: Vec<u8>,
-    ) -> Result<DeleteItemOutput, RusotoError<DeleteItemError>> {
-        let attribute_value_key = AttributeValue {
-            b: Option::Some(Bytes::from(key)),
-            ..Default::default()
-        };
-        let mut delete_item = HashMap::new();
-        delete_item.insert(self.cache_key_name.clone(), attribute_value_key);
+    ) -> Result<DeleteItemOutput, SdkError<DeleteItemError>> {
+        let key = HashMap::from_iter([(
+            self.cache_key_name.clone(),
+            AttributeValue::B(Blob::new(key)),
+        )]);
 
-        let delete_item_input = DeleteItemInput {
-            table_name: self.cache_table_name.clone(),
-            key: delete_item,
-            ..Default::default()
-        };
-        self.connector.delete_item(delete_item_input).await
+        self.client
+            .delete_item()
+            .set_key(Some(key))
+            .set_table_name(Some(self.cache_table_name.clone()))
+            .send()
+            .await
     }
 
     fn serialize_headers(&self, headers: &HeaderMap) -> Vec<u8> {
@@ -123,14 +115,12 @@ impl DynamodDbBackend {
         surrogate_keys: Vec<Vec<u8>>,
         ttl_duration: Option<Duration>,
     ) -> Result<()> {
-        // Get the response body, serialize headers etc
+        // Get the response body, headers, etc
         let resp_body = hyper::body::to_bytes(response.body_mut())
             .await
             .unwrap()
             .to_vec();
         let headers = response.headers();
-        let s_resp_headers = self.serialize_headers(headers);
-        let status = response.status().as_u16();
 
         // ttl expiry is Unix timestamp now + ttl
         let ttl_expire_ts = (SystemTime::now() + ttl_duration.unwrap())
@@ -138,39 +128,25 @@ impl DynamodDbBackend {
             .unwrap()
             .as_secs();
 
-        // Create the attribute values for the put item
-        let mut av_key: AttributeValue = Default::default();
-        let mut av_resp_headers: AttributeValue = Default::default();
-        let mut av_resp_body: AttributeValue = Default::default();
-        let mut av_resp_status: AttributeValue = Default::default();
-        let mut av_sks: AttributeValue = Default::default();
-        let mut av_creation_ts: AttributeValue = Default::default();
-        let mut av_expiry_ts: AttributeValue = Default::default();
-
-        // Create a vector of attributes for surrogate_keys
-        let mut sk_av_vec: Vec<AttributeValue> = vec![];
-        for sk in surrogate_keys.clone() {
-            let av_sk = AttributeValue {
-                b: Option::Some(Bytes::from(sk)),
-                ..Default::default()
-            };
-            sk_av_vec.push(av_sk);
-        }
-
         // Add creation timestamp for response record
         let unix_ts_now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_secs();
 
-        // Set attribute value contents
-        av_key.b = Option::Some(Bytes::from(key.to_vec()));
-        av_resp_headers.b = Option::Some(Bytes::from(s_resp_headers));
-        av_resp_body.b = Option::Some(Bytes::from(resp_body));
-        av_resp_status.n = Option::Some(status.to_string());
-        av_sks.l = Option::Some(sk_av_vec);
-        av_creation_ts.n = Option::Some(unix_ts_now.to_string());
-        av_expiry_ts.n = Option::Some(ttl_expire_ts.to_string());
+        // Set attribute values
+        let av_key = AttributeValue::B(Blob::new(key));
+        let av_resp_headers = AttributeValue::B(Blob::new(self.serialize_headers(headers)));
+        let av_resp_body = AttributeValue::B(Blob::new(resp_body));
+        let av_resp_status = AttributeValue::N(response.status().as_u16().to_string());
+        let av_sks = AttributeValue::L(
+            surrogate_keys
+                .iter()
+                .map(|k| AttributeValue::B(Blob::new(k.clone())))
+                .collect(),
+        );
+        let av_creation_ts = AttributeValue::N(unix_ts_now.to_string());
+        let av_expiry_ts = AttributeValue::N(ttl_expire_ts.to_string());
 
         // Create a PutItem using above attribute values
         let mut item = HashMap::new();
@@ -182,20 +158,19 @@ impl DynamodDbBackend {
         item.insert(self.cache_creation_ts_name.clone(), av_creation_ts);
         item.insert(self.cache_expiry_ts_name.clone(), av_expiry_ts);
 
-        let put_item = PutItemInput {
-            item,
-            table_name: self.cache_table_name.clone(),
-            ..Default::default()
-        };
-
-        // put the response item / records
-        self.connector.put_item(put_item).await?;
+        self.client
+            .put_item()
+            .set_item(Some(item))
+            .set_table_name(Some(self.cache_table_name.clone()))
+            .send()
+            .await?;
 
         // put / update the surrogate key items / records
         for sk in surrogate_keys {
             // Currently setting the DynamoDB expiry to now + 24 hours
             self.update_surrogate_item(sk, false).await?;
         }
+
         Ok(())
     }
 
@@ -213,7 +188,7 @@ impl DynamodDbBackend {
         } else {
             // If exists, store the existing sk timestamp value
             let sk_ts_av = sk_item.unwrap().get(&self.sk_timestamp_name).unwrap();
-            sk_ts = sk_ts_av.n.clone().unwrap().parse::<u64>().unwrap();
+            sk_ts = sk_ts_av.as_n().unwrap().parse::<u64>().unwrap();
         }
 
         // Expiry timestamp set to now + 24 hours
@@ -230,22 +205,21 @@ impl DynamodDbBackend {
                 .unwrap()
                 .as_secs();
         }
+
         self.put_surrogate_item(key, sk_ts, exp_ts).await?;
+
         Ok(())
     }
+
     async fn put_surrogate_item(
         &self,
         key: Vec<u8>,
         sk_ts: u64,
         exp_ts: u64,
-    ) -> Result<PutItemOutput, RusotoError<PutItemError>> {
-        let mut av_key: AttributeValue = Default::default();
-        let mut av_timestamp: AttributeValue = Default::default();
-        let mut av_expiry_ts: AttributeValue = Default::default();
-
-        av_key.b = Option::Some(Bytes::from(key.to_vec()));
-        av_timestamp.n = Option::Some(sk_ts.to_string());
-        av_expiry_ts.n = Option::Some(exp_ts.to_string());
+    ) -> Result<PutItemOutput, SdkError<PutItemError>> {
+        let av_key = AttributeValue::B(Blob::new(key));
+        let av_timestamp = AttributeValue::N(sk_ts.to_string());
+        let av_expiry_ts = AttributeValue::N(exp_ts.to_string());
 
         // Create a PutItem using above attribute values
         let mut item = HashMap::new();
@@ -253,13 +227,12 @@ impl DynamodDbBackend {
         item.insert(self.sk_timestamp_name.clone(), av_timestamp);
         item.insert(self.cache_expiry_ts_name.clone(), av_expiry_ts);
 
-        let put_item = PutItemInput {
-            item,
-            table_name: self.cache_table_name.clone(),
-            ..Default::default()
-        };
-
-        self.connector.put_item(put_item).await
+        self.client
+            .put_item()
+            .set_item(Some(item))
+            .set_table_name(Some(self.cache_table_name.clone()))
+            .send()
+            .await
     }
 
     async fn get_cached_response(&self, key: &[u8]) -> Option<Response<hyper::Body>> {
@@ -278,25 +251,26 @@ impl DynamodDbBackend {
         let item_output = self
             .get_item(key.to_vec(), projection_expression)
             .await
-            .unwrap_or_else(|_| {
+            .unwrap_or_else(|err| {
                 panic!(
-                    "Error when calling get_item with key: {:?}",
-                    hex::encode(key.to_vec())
+                    "Error when calling get_item with key {:?}: {}",
+                    hex::encode(key.to_vec()),
+                    err
                 )
             });
 
         // If we don't get an item back from dynamoDB return None
         item_output.item.as_ref()?;
 
-        let item = item_output.item.unwrap();
+        let mut item = item_output.item.unwrap();
 
         // Get the response creation and TTL timestamps before doing anything else
         let av_creation_ts = item.get(&self.cache_creation_ts_name).unwrap();
-        let creation_ts = av_creation_ts.n.clone()?.parse::<u64>().unwrap();
+        let creation_ts = av_creation_ts.as_n().unwrap().parse::<u64>().unwrap();
 
         // Because the dynamoDB item expiry can take some time, check the current time against the item TTL
         let av_expiry_ts = item.get(&self.cache_expiry_ts_name).unwrap();
-        let av_expiry_ts_extracted = av_expiry_ts.n.clone()?.parse::<u64>().unwrap();
+        let av_expiry_ts_extracted = av_expiry_ts.as_n().unwrap().parse::<u64>().unwrap();
         let now_unix_ts = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
@@ -309,11 +283,11 @@ impl DynamodDbBackend {
 
         //Get the surrogate keys, as we need to check these first to see if the record is valid (or expired)
         let av_sks = item.get(&self.cache_surrogate_keys_name).unwrap();
-        let sks_extracted = av_sks.l.clone().unwrap();
+        let sks_extracted = av_sks.as_l().unwrap().clone();
         let mut record_expired = false;
 
         for sk in sks_extracted {
-            let sk = sk.b.unwrap().to_vec();
+            let sk = value_to_vec(sk);
 
             // Get the surrogate key record, filter on the timestamp value only
             let projection_expression = Some(self.sk_timestamp_name.to_string());
@@ -323,7 +297,7 @@ impl DynamodDbBackend {
             let av_sk_item_ts = sk_item_avs.get(&self.sk_timestamp_name)?;
 
             // Convert the record number string into a u64 value
-            let sk_ts = av_sk_item_ts.n.clone()?.parse::<u64>().unwrap();
+            let sk_ts = av_sk_item_ts.as_n().unwrap().parse::<u64>().unwrap();
 
             if creation_ts < sk_ts {
                 record_expired = true;
@@ -332,20 +306,15 @@ impl DynamodDbBackend {
 
         if !record_expired {
             // Extract the response headers, body and status code
-            let av_resp_headers = item.get(&self.cache_resp_headers_name)?;
-            let av_resp_body = item.get(&self.cache_resp_body_name)?;
-            let av_resp_status = item.get(&self.cache_resp_status_name)?;
-
-            let resp_headers_extracted = av_resp_headers.b.as_ref();
-            let resp_body_extracted = av_resp_body.b.clone()?;
-            let resp_status_extracted = av_resp_status.clone().n?;
+            let av_resp_headers = value_to_vec(item.remove(&self.cache_resp_headers_name)?);
+            let av_resp_body = value_to_vec(item.remove(&self.cache_resp_body_name)?);
+            let av_resp_status = item.get(&self.cache_resp_status_name)?.as_n().unwrap();
 
             // Deserialize the response headers
-            let resp_headers_vec = resp_headers_extracted.unwrap().as_ref();
-            let d_resp_headers = self.deserialize_headers(resp_headers_vec);
+            let d_resp_headers = self.deserialize_headers(&av_resp_headers);
 
             // Convert the body into a hyper::Body
-            let resp_hyper_body = hyper::Body::from(resp_body_extracted);
+            let resp_hyper_body = hyper::Body::from(av_resp_body);
 
             // Construct a response object
             let mut constructed_resp = Response::builder().body(resp_hyper_body).unwrap();
@@ -354,13 +323,21 @@ impl DynamodDbBackend {
             *constructed_resp.headers_mut() = d_resp_headers;
 
             // Construct a StatusCode object and set it as the value for the Response status
-            let status_code_u16: u16 = resp_status_extracted.parse().unwrap();
+            let status_code_u16: u16 = av_resp_status.parse().unwrap();
             let status = StatusCode::from_u16(status_code_u16).unwrap();
             *constructed_resp.status_mut() = status;
             Some(constructed_resp)
         } else {
             None
         }
+    }
+}
+
+#[inline]
+fn value_to_vec(value: AttributeValue) -> Vec<u8> {
+    match value {
+        AttributeValue::B(b) => b.into_inner(),
+        _ => panic!("AttributeValue is not Blob"),
     }
 }
 
@@ -434,7 +411,7 @@ impl Storage for DynamodDbBackend {
             let _res = match _res {
                 Ok(_res) => _res,
                 Err(error) => panic!(
-                    "Error when trying to cache item with key: {:?} error: {}",
+                    "Error when trying to cache item with key {:?}: {}",
                     hex::encode(key.to_vec()).as_str(),
                     error
                 ),
