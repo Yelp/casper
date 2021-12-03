@@ -138,7 +138,7 @@ impl DynamodDbBackend {
         let av_key = AttributeValue::B(Blob::new(key));
         let av_resp_headers = AttributeValue::B(Blob::new(self.serialize_headers(headers)));
         let av_resp_body = AttributeValue::B(Blob::new(resp_body));
-        let av_resp_status = AttributeValue::N(response.status().to_string());
+        let av_resp_status = AttributeValue::N(response.status().as_u16().to_string());
         let av_sks = AttributeValue::L(
             surrogate_keys
                 .iter()
