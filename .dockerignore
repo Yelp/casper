@@ -1,6 +1,5 @@
 .git*
 .dockerignore
-tests/
 data/
 luarocks/
 resty_modules/
