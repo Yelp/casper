@@ -6,9 +6,10 @@ use std::{collections::HashMap, env};
 
 use anyhow::Result;
 use async_trait::async_trait;
+use aws_config::meta::region::RegionProviderChain;
 use aws_sdk_dynamodb::{
     error::{DeleteItemError, GetItemError, PutItemError},
-    model::AttributeValue,
+    model::{AttributeValue, KeysAndAttributes},
     output::{DeleteItemOutput, GetItemOutput, PutItemOutput},
     Blob, Client, Endpoint, SdkError,
 };
@@ -32,7 +33,8 @@ pub struct DynamodDbBackend {
 
 impl DynamodDbBackend {
     pub async fn new() -> DynamodDbBackend {
-        let config = aws_config::load_from_env().await;
+        let region_provider = RegionProviderChain::default_provider();
+        let config = aws_config::from_env().region(region_provider).load().await;
         let client = if env::var("AWS_DEFAULT_REGION") == Ok("local-stack".into()) {
             // Setup a local-stack based client
             let endpoint = env::var("DYNAMO_ENDPOINT").unwrap();
@@ -75,7 +77,6 @@ impl DynamodDbBackend {
             .set_key(Some(key))
             .set_table_name(Some(self.cache_table_name.clone()))
             .set_projection_expression(projection_expression)
-            .set_consistent_read(Some(true))
             .send()
             .await
     }
@@ -286,21 +287,31 @@ impl DynamodDbBackend {
         let sks_extracted = av_sks.as_l().unwrap().clone();
         let mut record_expired = false;
 
-        for sk in sks_extracted {
-            let sk = value_to_vec(sk);
-
-            // Get the surrogate key record, filter on the timestamp value only
-            let projection_expression = Some(self.sk_timestamp_name.to_string());
-
-            let sk_item = self.get_item(sk, projection_expression).await.unwrap();
-            let sk_item_avs = sk_item.item.as_ref()?;
-            let av_sk_item_ts = sk_item_avs.get(&self.sk_timestamp_name)?;
-
-            // Convert the record number string into a u64 value
-            let sk_ts = av_sk_item_ts.as_n().unwrap().parse::<u64>().unwrap();
-
-            if creation_ts < sk_ts {
+        let skeys_fetched = self
+            .client
+            .batch_get_item()
+            .request_items(
+                self.cache_table_name.clone(),
+                KeysAndAttributes::builder()
+                    .set_keys(Some(
+                        sks_extracted
+                            .into_iter()
+                            .map(|sk| HashMap::from_iter([(self.cache_key_name.clone(), sk)]))
+                            .collect(),
+                    ))
+                    .set_projection_expression(Some(self.sk_timestamp_name.to_string()))
+                    .build(),
+            )
+            .send()
+            .await
+            .unwrap()
+            .responses?;
+        for skey_item in &skeys_fetched[&self.cache_table_name] {
+            let timestamp = skey_item.get(&self.sk_timestamp_name)?;
+            let timestamp = timestamp.as_n().unwrap().parse::<u64>().unwrap();
+            if creation_ts < timestamp {
                 record_expired = true;
+                break;
             }
         }
 
