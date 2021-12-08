@@ -19,7 +19,7 @@ use tokio::sync::OnceCell;
 use tower::make::Shared;
 
 use casper_runtime::{
-    backends::DynamodDbBackend,
+    backends::{DynamodDbBackend, DynamodDbBackendConfig},
     storage::{Item, ItemKey, Storage},
 };
 
@@ -56,7 +56,9 @@ struct PurgeMethodArgs {
 async fn get_backend() -> &'static DynamodDbBackend {
     static BACKEND: OnceCell<DynamodDbBackend> = OnceCell::const_new();
 
-    BACKEND.get_or_init(DynamodDbBackend::new).await
+    BACKEND
+        .get_or_init(|| DynamodDbBackend::new(DynamodDbBackendConfig::default()))
+        .await
 }
 
 fn calculate_primary_key(key: &KeyArgs) -> Vec<u8> {
