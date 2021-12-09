@@ -49,10 +49,13 @@ pub struct Fields {
     pub status_code: String,
     #[serde(default = "Fields::default_surrogate_keys")]
     pub surrogate_keys: String,
+
+    // For cache items: last update time
+    // For surrogate keys: last refresh time after which associated items are valid
     #[serde(default = "Fields::default_timestamp")]
     pub timestamp: String,
-    #[serde(default = "Fields::default_expiry_ts")]
-    pub expiry_ts: String,
+    #[serde(default = "Fields::default_expiry_timestamp")]
+    pub expiry_timestamp: String,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -115,8 +118,8 @@ impl Fields {
         default_body() => "body",
         default_status_code() => "status_code",
         default_surrogate_keys() => "surrogate_keys",
-        default_timestamp() => "timestamp",
-        default_expiry_ts() => "expiry_ts",
+        default_timestamp() => "tstamp",
+        default_expiry_timestamp() => "expiry_timestamp",
     }
 }
 
@@ -129,7 +132,7 @@ impl Default for Fields {
             status_code: Fields::default_status_code(),
             surrogate_keys: Fields::default_surrogate_keys(),
             timestamp: Fields::default_timestamp(),
-            expiry_ts: Fields::default_expiry_ts(),
+            expiry_timestamp: Fields::default_expiry_timestamp(),
         }
     }
 }
@@ -262,7 +265,7 @@ impl DynamodDbBackend {
         item.insert(self.status_code_field(), av_num(response.status().as_u16()));
         item.insert(self.surrogate_keys_field(), av_bin_list(surrogate_keys));
         item.insert(self.timestamp_field(), av_num(unix_ts_now));
-        item.insert(self.expiry_ts_field(), av_num(ttl_expire_ts));
+        item.insert(self.expiry_timestamp_field(), av_num(ttl_expire_ts));
 
         self.client
             .put_item()
@@ -324,7 +327,7 @@ impl DynamodDbBackend {
         let mut item = HashMap::new();
         item.insert(self.key_field(), av_bin(key));
         item.insert(self.timestamp_field(), av_num(sk_ts));
-        item.insert(self.expiry_ts_field(), av_num(exp_ts));
+        item.insert(self.expiry_timestamp_field(), av_num(exp_ts));
 
         self.client
             .put_item()
@@ -342,7 +345,7 @@ impl DynamodDbBackend {
             self.headers_field(),
             self.status_code_field(),
             self.timestamp_field(),
-            self.expiry_ts_field(),
+            self.expiry_timestamp_field(),
             self.surrogate_keys_field(),
         ));
 
@@ -368,7 +371,7 @@ impl DynamodDbBackend {
         let creation_ts = av_creation_ts.as_n().unwrap().parse::<u64>().unwrap();
 
         // Because the dynamoDB item expiry can take some time, check the current time against the item TTL
-        let av_expiry_ts = item.get(&self.expiry_ts_field()).unwrap();
+        let av_expiry_ts = item.get(&self.expiry_timestamp_field()).unwrap();
         let av_expiry_ts_extracted = av_expiry_ts.as_n().unwrap().parse::<u64>().unwrap();
         let now_unix_ts = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -450,7 +453,7 @@ impl DynamodDbBackend {
         status_code_field(&self) => self.config.fields.status_code,
         surrogate_keys_field(&self) => self.config.fields.surrogate_keys,
         timestamp_field(&self) => self.config.fields.timestamp,
-        expiry_ts_field(&self) => self.config.fields.expiry_ts,
+        expiry_timestamp_field(&self) => self.config.fields.expiry_timestamp,
     }
 }
 
