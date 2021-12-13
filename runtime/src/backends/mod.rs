@@ -4,9 +4,8 @@ use std::sync::Arc;
 use anyhow::{anyhow, bail, Context};
 use once_cell::sync::OnceCell;
 
-pub use dynamodb::DynamodDbBackend;
-pub use memory::Config as MemoryBackendConfig;
-pub use memory::MemoryBackend;
+pub use dynamodb::{Config as DynamodDbBackendConfig, DynamodDbBackend};
+pub use memory::{Config as MemoryBackendConfig, MemoryBackend};
 
 static REGISTERED_BACKENDS: OnceCell<HashMap<String, Backend>> = OnceCell::new();
 

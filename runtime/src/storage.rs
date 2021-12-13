@@ -68,21 +68,21 @@ pub trait Storage {
     where
         KI: IntoIterator<Item = K> + Send,
         <KI as IntoIterator>::IntoIter: Send,
-        K: AsRef<[u8]> + Send;
+        K: AsRef<[u8]> + Send + Sync;
 
     async fn delete_responses<K, KI>(&self, keys: KI) -> Result<(), Self::Error>
     where
         KI: IntoIterator<Item = ItemKey<K>> + Send,
         <KI as IntoIterator>::IntoIter: Send,
-        K: AsRef<[u8]> + Send;
+        K: AsRef<[u8]> + Send + Sync;
 
     async fn cache_responses<K, R, SK, I>(&self, items: I) -> Result<(), Self::Error>
     where
         I: IntoIterator<Item = Item<K, R, SK>> + Send,
         <I as IntoIterator>::IntoIter: Send,
-        K: AsRef<[u8]> + Send,
+        K: AsRef<[u8]> + Send + Sync,
         R: BorrowMut<Response<Self::Body>> + Send,
-        SK: AsRef<[u8]> + Send;
+        SK: AsRef<[u8]> + Send + Sync;
 
     //
     // Provided implementation
@@ -90,7 +90,7 @@ pub trait Storage {
 
     async fn get_response<K>(&self, key: K) -> Result<Option<Response<Self::Body>>, Self::Error>
     where
-        K: AsRef<[u8]> + Send,
+        K: AsRef<[u8]> + Send + Sync,
     {
         let mut responses = self.get_responses([key]).await?;
         Ok(responses.pop().flatten())
@@ -98,16 +98,16 @@ pub trait Storage {
 
     async fn delete_response<K>(&self, key: K) -> Result<(), Self::Error>
     where
-        K: AsRef<[u8]> + Send,
+        K: AsRef<[u8]> + Send + Sync,
     {
         self.delete_responses([ItemKey::Primary(key)]).await
     }
 
     async fn cache_response<K, R, SK>(&self, item: Item<K, R, SK>) -> Result<(), Self::Error>
     where
-        K: AsRef<[u8]> + Send,
+        K: AsRef<[u8]> + Send + Sync,
         R: BorrowMut<Response<Self::Body>> + Send,
-        SK: AsRef<[u8]> + Send,
+        SK: AsRef<[u8]> + Send + Sync,
     {
         self.cache_responses([item]).await
     }
