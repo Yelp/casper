@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::env::var;
 use std::io::Write;
 use std::net::SocketAddr;
 use std::str::FromStr;
@@ -19,8 +20,8 @@ use tokio::sync::OnceCell;
 use tower::make::Shared;
 
 use casper_runtime::{
-    backends::{DynamodDbBackend, DynamodDbBackendConfig},
-    storage::{Item, ItemKey, Storage},
+    backends::{RedisBackend, RedisConfig, RedisServerConfig, RedisTimeoutConfig},
+    storage::{Item, ItemKey, Key, Storage},
 };
 
 #[derive(serde::Deserialize)]
@@ -53,15 +54,39 @@ struct PurgeMethodArgs {
     id: Option<String>,
 }
 
-async fn get_backend() -> &'static DynamodDbBackend {
-    static BACKEND: OnceCell<DynamodDbBackend> = OnceCell::const_new();
+async fn get_backend() -> &'static RedisBackend {
+    static BACKEND: OnceCell<RedisBackend> = OnceCell::const_new();
 
     BACKEND
-        .get_or_init(|| DynamodDbBackend::new(DynamodDbBackendConfig::default()))
+        .get_or_init(|| async {
+            let mut config = RedisConfig::default();
+            config.timeouts = RedisTimeoutConfig {
+                connect_timeout_ms: 3000, // 3 sec
+                fetch_timeout_ms: 1000,   // 1 sec
+                store_timeout_ms: 5000,   // 5 sec
+            };
+
+            config.enable_tls = var("REDIS_TLS_ENABLED") == Ok("1".to_string());
+
+            if let Ok(endpoint) = var("REDIS_CLUSTER_ENDPOINT") {
+                config.server = RedisServerConfig::Clustered {
+                    hosts: vec![(endpoint, 6379)],
+                }
+            } else if let Ok(endpoint) = var("REDIS_ENDPOINT") {
+                config.server = RedisServerConfig::Centralized {
+                    host: endpoint,
+                    port: 6379,
+                }
+            }
+
+            RedisBackend::new(config)
+                .await
+                .expect("cannot connect to redis")
+        })
         .await
 }
 
-fn calculate_primary_key(key: &KeyArgs) -> Vec<u8> {
+fn calculate_primary_key(key: &KeyArgs) -> Key {
     let mut hasher = Ripemd160::new();
     hasher.update(&key.cache_key);
     hasher.update(&key.namespace);
@@ -72,7 +97,7 @@ fn calculate_primary_key(key: &KeyArgs) -> Vec<u8> {
     if let Some(vary_headers) = &key.vary_headers {
         hasher.update(vary_headers);
     }
-    hasher.finalize().to_vec()
+    hasher.finalize().to_vec().into()
 }
 
 async fn handler_impl(mut req: Request<Body>) -> Result<Response<Body>, anyhow::Error> {
@@ -127,7 +152,7 @@ async fn handler_impl(mut req: Request<Body>) -> Result<Response<Body>, anyhow::
 
         get_backend()
             .await
-            .cache_response(Item::new_with_skeys(key, resp, surrogate_keys, Some(ttl)))
+            .cache_response(Item::new_with_skeys(key, resp, surrogate_keys, ttl))
             .await?;
 
         return Ok(Response::new(Body::from("Ok")));
@@ -181,7 +206,7 @@ async fn handler_impl(mut req: Request<Body>) -> Result<Response<Body>, anyhow::
 
         get_backend()
             .await
-            .delete_responses([ItemKey::Surrogate(surrogate_key)])
+            .delete_responses([ItemKey::Surrogate(surrogate_key.into())])
             .await?;
 
         return Ok(Response::new(Body::from("Ok")));

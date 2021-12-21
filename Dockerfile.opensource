@@ -7,6 +7,8 @@ LABEL maintainer="Yelp Performance Team"
 RUN apt-get -o Acquire::ForceIPv4=true update && \
     DEBIAN_FRONTEND=noninteractive apt-get -o Acquire::ForceIPv4=true install -y --no-install-recommends \
         build-essential \
+        pkg-config \
+        libssl-dev \
         ca-certificates \
         dnsutils \
         git \
@@ -35,7 +37,7 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
 RUN wget https://github.com/Yelp/dumb-init/releases/download/v1.2.1/dumb-init_1.2.1_amd64.deb
 RUN dpkg -i dumb-init_*.deb
 
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.56.1
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.57.0
 ENV PATH="/root/.cargo/bin:${PATH}"
 
 RUN apt-get clean

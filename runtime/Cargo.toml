@@ -16,12 +16,12 @@ http = "0.2"
 form_urlencoded = "1"
 serde_json = "1"
 serde_yaml = "0.8"
-bytes = "1"
+bytes = { version = "1", features = ["serde"] }
 toml = "0.5"
 serde = { version = "1", features = ["derive"] }
 hyper_serde = { git = "https://github.com/servo/hyper_serde" }
 flexbuffers = "2"
-bstr = "0.2.17"
+bstr = { version = "0.2.17", features = ["serde1"] }
 
 once_cell = "1"
 pretty_env_logger = "0.4"
@@ -29,9 +29,7 @@ anyhow = "1"
 num_cpus = "1.13"
 regex = "1.5"
 linked-hash-map = "0.5.4"
-
-# dynamodb requirements
 hex = "0.4.3"
-aws-config = "0.2.0"
-aws-sdk-dynamodb = "0.2.0"
-aws-smithy-types = "*"
+
+# Redis
+fred = { version = "4.3", default-features = false, features = ["metrics", "pool-prefer-active", "enable-tls"] }
