@@ -1,7 +1,7 @@
 use std::borrow::BorrowMut;
 use std::time::{Duration, SystemTime};
 
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use async_trait::async_trait;
 use bstr::ByteVec;
 use bytes::{BufMut, Bytes};
@@ -39,6 +39,7 @@ pub struct Config {
     #[serde(default = "Config::default_pool_size")]
     pub pool_size: usize,
 
+    #[serde(default = "Config::default_max_body_chunk_size")]
     pub max_body_chunk_size: usize,
 }
 
@@ -58,7 +59,7 @@ impl Default for ServerConfig {
 }
 
 impl ServerConfig {
-    fn to_redis_server_config(self) -> fred::types::ServerConfig {
+    fn into_redis_server_config(self) -> fred::types::ServerConfig {
         match self {
             ServerConfig::Centralized { host, port } => {
                 fred::types::ServerConfig::Centralized { host, port }
@@ -130,11 +131,11 @@ impl Config {
         1024 * 1024 // 1 MB
     }
 
-    fn to_redis_config(self) -> fred::types::RedisConfig {
+    fn into_redis_config(self) -> fred::types::RedisConfig {
         fred::types::RedisConfig {
             username: self.username,
             password: self.password,
-            server: self.server.to_redis_server_config(),
+            server: self.server.into_redis_server_config(),
             tls: if self.enable_tls {
                 Some(fred::types::TlsConfig::default())
             } else {
@@ -154,6 +155,7 @@ struct ResponseItem {
     surrogate_keys: Vec<Key>,
     body: Bytes,
     num_chunks: u32,
+    // flags: u64,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -167,9 +169,15 @@ impl RedisBackend {
         let policy = fred::types::ReconnectPolicy::default();
         let pool_size = config.pool_size;
 
-        let pool = StaticRedisPool::new(config.clone().to_redis_config(), pool_size)?;
+        let pool = StaticRedisPool::new(config.clone().into_redis_config(), pool_size)?;
         let _ = pool.connect(Some(policy));
-        let _ = pool.wait_for_connect().await?;
+
+        let connect_timeout = Duration::from_millis(config.timeouts.connect_timeout_ms);
+        timeout(connect_timeout, pool.wait_for_connect())
+            .await
+            .map_err(anyhow::Error::new)
+            .and_then(|r| r.map_err(anyhow::Error::new))
+            .context("Failed to connect to Redis")?;
 
         Ok(RedisBackend {
             config,
@@ -236,15 +244,10 @@ impl RedisBackend {
         Ok(Some(resp))
     }
 
-    async fn get_response_with_timeout(&self, key: Key) -> Result<Option<Response<hyper::Body>>> {
-        let fetch_timeout = self.get_fetch_timeout();
-        Ok(timeout(fetch_timeout, self.get_response_inner(key)).await??)
-    }
-
-    async fn delete_response_inner(&self, key: ItemKey) -> Result<()> {
+    async fn delete_responses_inner(&self, key: ItemKey) -> Result<()> {
         match key {
-            ItemKey::Primary(k) => Ok(self.client.del(RedisKey::new(k)).await?),
-            ItemKey::Surrogate(sk) => {
+            ItemKey::Primary(key) => Ok(self.client.del(RedisKey::new(key)).await?),
+            ItemKey::Surrogate(skey) => {
                 let sk_item = SurrogateKeyItem {
                     timestamp: unix_timestamp(),
                 };
@@ -253,7 +256,7 @@ impl RedisBackend {
                 Ok(self
                     .client
                     .set(
-                        RedisKey::new(sk),
+                        RedisKey::new(skey),
                         RedisValue::Bytes(sk_item_enc),
                         Some(Expiration::KEEPTTL), // Retain the TTL associated with the key
                         Some(SetOptions::XX),      // Only set the key if it already exist
@@ -262,11 +265,6 @@ impl RedisBackend {
                     .await?)
             }
         }
-    }
-
-    async fn delete_response_with_timeout(&self, key: ItemKey) -> Result<()> {
-        let store_timeout = self.get_store_timeout();
-        Ok(timeout(store_timeout, self.delete_response_inner(key)).await??)
     }
 
     async fn store_response_inner(
@@ -349,21 +347,6 @@ impl RedisBackend {
         Ok(())
     }
 
-    async fn store_response_with_timeout(
-        &self,
-        key: Key,
-        response: &mut Response<hyper::Body>,
-        surrogate_keys: Vec<Key>,
-        ttl: Duration,
-    ) -> Result<()> {
-        let store_timeout = self.get_store_timeout();
-        Ok(timeout(
-            store_timeout,
-            self.store_response_inner(key, response, surrogate_keys, ttl),
-        )
-        .await??)
-    }
-
     fn get_fetch_timeout(&self) -> Duration {
         Duration::from_millis(self.config.timeouts.fetch_timeout_ms)
     }
@@ -378,63 +361,39 @@ impl Storage for RedisBackend {
     type Body = hyper::Body;
     type Error = anyhow::Error;
 
-    async fn get_responses<KI>(
-        &self,
-        keys: KI,
-    ) -> Result<Vec<Option<Response<Self::Body>>>, Self::Error>
-    where
-        KI: IntoIterator<Item = Key> + Send,
-        <KI as IntoIterator>::IntoIter: Send,
-    {
-        // Create list of pending futures to poll them in parallel
-        let mut pending_responses = stream::iter(
-            keys.into_iter()
-                .map(|key| self.get_response_with_timeout(key)),
-        )
-        .buffered(100);
-
-        let mut responses = Vec::new();
-        while let Some(resp) = pending_responses.next().await {
-            responses.push(resp?);
-        }
-        Ok(responses)
+    async fn get_response(&self, key: Key) -> Result<Option<Response<Self::Body>>, Self::Error> {
+        let fetch_timeout = self.get_fetch_timeout();
+        timeout(fetch_timeout, self.get_response_inner(key.clone()))
+            .await
+            .map_err(anyhow::Error::new)
+            .and_then(|x| x)
+            .with_context(|| format!("Failed to fetch Response for key {}", hex::encode(key)))
     }
 
-    async fn delete_responses<KI>(&self, keys: KI) -> Result<(), Self::Error>
-    where
-        KI: IntoIterator<Item = ItemKey> + Send,
-        <KI as IntoIterator>::IntoIter: Send,
-    {
-        // Create list of pending futures to poll them in parallel
-        let mut pending_results = stream::iter(
-            keys.into_iter()
-                .map(|key| self.delete_response_with_timeout(key)),
-        )
-        .buffer_unordered(100);
-
-        while let Some(res) = pending_results.next().await {
-            res?;
-        }
-        Ok(())
+    async fn delete_responses(&self, key: ItemKey) -> Result<(), Self::Error> {
+        let store_timeout = self.get_store_timeout();
+        timeout(store_timeout, self.delete_responses_inner(key.clone()))
+            .await
+            .map_err(anyhow::Error::new)
+            .and_then(|x| x)
+            .with_context(|| format!("Failed to delete Response(s) for key {}", key))
     }
 
-    async fn cache_responses<R, I>(&self, items: I) -> Result<(), Self::Error>
+    async fn store_response<R>(&self, mut item: Item<R>) -> Result<(), Self::Error>
     where
-        I: IntoIterator<Item = Item<R>> + Send,
-        <I as IntoIterator>::IntoIter: Send,
         R: BorrowMut<Response<Self::Body>> + Send,
     {
-        let mut pending_results = stream::iter(items.into_iter().map(|mut it| async move {
-            let resp = it.response.borrow_mut();
-            self.store_response_with_timeout(it.key, resp, it.surrogate_keys, it.ttl)
-                .await
-        }))
-        .buffer_unordered(100);
-
-        while let Some(res) = pending_results.next().await {
-            res?;
-        }
-        Ok(())
+        let key = item.key.clone();
+        let response = item.response.borrow_mut();
+        let store_timeout = self.get_store_timeout();
+        timeout(
+            store_timeout,
+            self.store_response_inner(item.key, response, item.surrogate_keys, item.ttl),
+        )
+        .await
+        .map_err(anyhow::Error::new)
+        .and_then(|x| x)
+        .with_context(|| format!("Failed to store Response with key {}", key))
     }
 }
 
@@ -448,10 +407,12 @@ fn unix_timestamp() -> u64 {
 
 #[inline]
 fn make_chunk_key(key: &Key, n: u32) -> RedisKey {
-    let mut key = key.clone();
-    key.push_char('|');
-    key.put_u32(n);
-    RedisKey::new(key)
+    let mut key2 = Key::from("{");
+    key2.extend_from_slice(key);
+    key2.push_char('}');
+    key2.push_char('|');
+    key2.put_u32(n);
+    RedisKey::new(key2)
 }
 
 #[cfg(test)]
@@ -481,7 +442,7 @@ mod tests {
 
         // Cache response
         backend
-            .cache_response(Item::new("key1", resp, Duration::from_secs(3)))
+            .store_response(Item::new("key1", resp, Duration::from_secs(3)))
             .await
             .unwrap();
 
@@ -495,7 +456,10 @@ mod tests {
         assert_eq!(String::from_utf8(body).unwrap(), "hello, world");
 
         // Delete cached response
-        backend.delete_response("key1".into()).await.unwrap();
+        backend
+            .delete_responses(ItemKey::Primary("key1".into()))
+            .await
+            .unwrap();
 
         // Try to fetch it back
         let resp = backend.get_response("key1".into()).await.unwrap();
@@ -511,7 +475,7 @@ mod tests {
         // Cache response
         let resp = make_response("hello, world");
         backend
-            .cache_response(Item::new("key2", resp, Duration::from_secs(3)))
+            .store_response(Item::new("key2", resp, Duration::from_secs(3)))
             .await
             .unwrap();
 
@@ -528,7 +492,7 @@ mod tests {
         // Cache response
         let resp = make_response("hello, world");
         backend
-            .cache_response(Item::new_with_skeys(
+            .store_response(Item::new_with_skeys(
                 "key3",
                 resp,
                 vec!["abc", "def"],
@@ -544,7 +508,7 @@ mod tests {
 
         // Delete by surrogate key
         backend
-            .delete_responses([ItemKey::Surrogate("def".into())])
+            .delete_responses(ItemKey::Surrogate("def".into()))
             .await
             .unwrap();
 

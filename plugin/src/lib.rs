@@ -152,7 +152,7 @@ async fn handler_impl(mut req: Request<Body>) -> Result<Response<Body>, anyhow::
 
         get_backend()
             .await
-            .cache_response(Item::new_with_skeys(key, resp, surrogate_keys, ttl))
+            .store_response(Item::new_with_skeys(key, resp, surrogate_keys, ttl))
             .await?;
 
         return Ok(Response::new(Body::from("Ok")));
@@ -206,7 +206,7 @@ async fn handler_impl(mut req: Request<Body>) -> Result<Response<Body>, anyhow::
 
         get_backend()
             .await
-            .delete_responses([ItemKey::Surrogate(surrogate_key.into())])
+            .delete_responses(ItemKey::Surrogate(surrogate_key.into()))
             .await?;
 
         return Ok(Response::new(Body::from("Ok")));
@@ -220,9 +220,12 @@ async fn handler_impl(mut req: Request<Body>) -> Result<Response<Body>, anyhow::
 async fn handler(req: Request<Body>) -> Result<Response<Body>, hyper::http::Error> {
     match handler_impl(req).await {
         Ok(resp) => Ok(resp),
-        Err(err) => Response::builder()
-            .status(StatusCode::INTERNAL_SERVER_ERROR)
-            .body(Body::from(format!("{:?}", err))),
+        Err(err) => {
+            eprintln!("{}", err);
+            Response::builder()
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .body(Body::from(format!("{:?}", err)))
+        }
     }
 }
 

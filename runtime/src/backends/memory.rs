@@ -3,6 +3,7 @@ use std::collections::{HashMap, HashSet};
 use std::time::SystemTime;
 
 use async_trait::async_trait;
+use bytes::Bytes;
 use http::{HeaderMap, Response, StatusCode};
 use linked_hash_map::LinkedHashMap;
 use serde::Deserialize;
@@ -20,7 +21,7 @@ pub struct Config {
 struct Value {
     status: StatusCode,
     headers: Vec<u8>,
-    body: Vec<u8>,
+    body: Bytes,
     expires: SystemTime,
     surrogate_keys: Vec<Key>,
 }
@@ -140,44 +141,50 @@ impl Storage for MemoryBackend {
     type Body = hyper::Body;
     type Error = anyhow::Error;
 
+    async fn get_response(&self, key: Key) -> Result<Option<Response<Self::Body>>, Self::Error> {
+        self.get_responses([key]).await.remove(0)
+    }
+
     async fn get_responses<KI>(
         &self,
         keys: KI,
-    ) -> Result<Vec<Option<Response<Self::Body>>>, Self::Error>
+    ) -> Vec<Result<Option<Response<Self::Body>>, Self::Error>>
     where
         KI: IntoIterator<Item = Key> + Send,
         <KI as IntoIterator>::IntoIter: Send,
     {
-        let mut result = Vec::new();
-
         let mut memory = self.0.lock().await;
+        let mut responses = Vec::new();
         for key in keys {
             let resp = memory
                 .get_unexpired(&key)
                 .map(|value| {
-                    let headers: hyper_serde::De<HeaderMap> =
-                        flexbuffers::from_slice(&value.headers)?;
+                    let headers = decode_headers(&value.headers)?;
                     let body = hyper::Body::from(value.body.clone());
 
                     let mut resp = Response::new(body);
                     *resp.status_mut() = value.status;
-                    *resp.headers_mut() = headers.into_inner();
+                    *resp.headers_mut() = headers;
 
                     Ok::<_, Self::Error>(resp)
                 })
-                .transpose()?;
-            result.push(resp);
+                .transpose();
+            responses.push(resp);
         }
-
-        Ok(result)
+        responses
     }
 
-    async fn delete_responses<KI>(&self, keys: KI) -> Result<(), Self::Error>
+    async fn delete_responses(&self, key: ItemKey) -> Result<(), Self::Error> {
+        self.delete_responses_multi([key]).await.remove(0)
+    }
+
+    async fn delete_responses_multi<KI>(&self, keys: KI) -> Vec<Result<(), Self::Error>>
     where
         KI: IntoIterator<Item = ItemKey> + Send,
         <KI as IntoIterator>::IntoIter: Send,
     {
         let mut memory = self.0.lock().await;
+        let mut results = Vec::new();
         for key in keys {
             match key {
                 ItemKey::Primary(key) => {
@@ -187,31 +194,52 @@ impl Storage for MemoryBackend {
                     memory.remove_by_skey(&sk);
                 }
             }
+            results.push(Ok(()));
         }
-        Ok(())
+        results
     }
 
-    async fn cache_responses<R, I>(&self, items: I) -> Result<(), Self::Error>
+    async fn store_response<R>(&self, item: Item<R>) -> Result<(), Self::Error>
+    where
+        R: BorrowMut<Response<Self::Body>> + Send,
+    {
+        self.store_responses([item]).await.remove(0)
+    }
+
+    async fn store_responses<R, I>(&self, items: I) -> Vec<Result<(), Self::Error>>
     where
         I: IntoIterator<Item = Item<R>> + Send,
         <I as IntoIterator>::IntoIter: Send,
         R: BorrowMut<Response<Self::Body>> + Send,
     {
         let mut memory = self.0.lock().await;
-        for mut it in items {
-            let resp = it.response.borrow_mut();
-            let value = Value {
-                status: resp.status(),
-                headers: flexbuffers::to_vec(&hyper_serde::Ser::new(resp.headers()))?,
-                // Likely body already has been read concurrently in Lua and now available as a byte array
-                body: hyper::body::to_bytes(resp.body_mut()).await?.to_vec(),
-                expires: SystemTime::now() + it.ttl,
-                surrogate_keys: it.surrogate_keys,
+        let mut results = Vec::new();
+        for mut item in items {
+            let result = async {
+                let resp = item.response.borrow_mut();
+                let value = Value {
+                    status: resp.status(),
+                    headers: encode_headers(resp.headers())?,
+                    // Likely body already has been read concurrently in Lua and now available as a byte array
+                    body: hyper::body::to_bytes(resp.body_mut()).await?,
+                    expires: SystemTime::now() + item.ttl,
+                    surrogate_keys: item.surrogate_keys,
+                };
+                memory.insert(item.key, value);
+                Ok(())
             };
-            memory.insert(it.key, value);
+            results.push(result.await);
         }
-        Ok(())
+        results
     }
+}
+
+fn encode_headers(headers: &HeaderMap) -> Result<Vec<u8>, flexbuffers::SerializationError> {
+    flexbuffers::to_vec(&hyper_serde::Ser::new(headers))
+}
+
+fn decode_headers(data: &[u8]) -> Result<HeaderMap, flexbuffers::DeserializationError> {
+    Ok(flexbuffers::from_slice::<hyper_serde::De<HeaderMap>>(data)?.into_inner())
 }
 
 #[cfg(test)]
@@ -243,7 +271,7 @@ mod tests {
         // Cache response
         let ttl = Duration::from_secs(1);
         memory
-            .cache_response(Item::new("key1", resp, ttl))
+            .store_response(Item::new("key1", resp, ttl))
             .await
             .unwrap();
 
@@ -257,7 +285,10 @@ mod tests {
         assert_eq!(String::from_utf8(body).unwrap(), "hello, world");
 
         // Delete cached response
-        memory.delete_response("key1".into()).await.unwrap();
+        memory
+            .delete_responses(ItemKey::Primary("key1".into()))
+            .await
+            .unwrap();
 
         // Try to fetch it back
         let resp = memory.get_response("key1".into()).await.unwrap();
@@ -275,7 +306,7 @@ mod tests {
         // Cache response with TTL
         let ttl = Duration::from_millis(10);
         memory
-            .cache_response(Item::new("key2", resp, ttl))
+            .store_response(Item::new("key2", resp, ttl))
             .await
             .unwrap();
 
@@ -295,7 +326,7 @@ mod tests {
         let surrogate_keys = vec!["abc"];
         let ttl = Duration::from_secs(1);
         memory
-            .cache_response(Item::new_with_skeys("key1", resp, surrogate_keys, ttl))
+            .store_response(Item::new_with_skeys("key1", resp, surrogate_keys, ttl))
             .await
             .unwrap();
 
@@ -306,7 +337,7 @@ mod tests {
 
         // Delete by surrogate key
         memory
-            .delete_responses([ItemKey::Surrogate("abc".into())])
+            .delete_responses(ItemKey::Surrogate("abc".into()))
             .await
             .unwrap();
 
