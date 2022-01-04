@@ -22,11 +22,11 @@ pub struct Item<R> {
     pub key: Key,
     pub response: R,
     pub surrogate_keys: Vec<Key>,
-    pub ttl: Option<Duration>,
+    pub ttl: Duration,
 }
 
 impl<R> Item<R> {
-    pub fn new(key: impl Into<Key>, response: R, ttl: Option<Duration>) -> Self {
+    pub fn new(key: impl Into<Key>, response: R, ttl: Duration) -> Self {
         Item {
             key: key.into(),
             response,
@@ -39,7 +39,7 @@ impl<R> Item<R> {
         key: impl Into<Key>,
         response: R,
         surrogate_keys: Vec<impl Into<Key>>,
-        ttl: Option<Duration>,
+        ttl: Duration,
     ) -> Self {
         Item {
             key: key.into(),
@@ -208,7 +208,7 @@ where
                         key,
                         response: resp.response_mut(),
                         surrogate_keys: surrogate_keys.unwrap_or_default(),
-                        ttl: ttl.map(Duration::from_secs_f32),
+                        ttl: Duration::from_secs_f32(ttl.unwrap_or(60.0)), // TODO: Configure default TTL
                     })
                     .await
                     .to_lua_err()?;
@@ -257,7 +257,7 @@ where
                                 key,
                                 response: resp.response_mut(),
                                 surrogate_keys: surrogate_keys.unwrap_or_default(),
-                                ttl: ttl.map(Duration::from_secs_f32),
+                                ttl: Duration::from_secs_f32(ttl.unwrap_or(60.0)), // TODO: Configure default TTL
                             })
                             .collect::<Vec<_>>(),
                     )

@@ -21,7 +21,7 @@ struct Value {
     status: StatusCode,
     headers: Vec<u8>,
     body: Vec<u8>,
-    expires: Option<SystemTime>,
+    expires: SystemTime,
     surrogate_keys: Vec<Key>,
 }
 
@@ -100,10 +100,8 @@ impl MemoryBackendImpl {
     /// Returns unexpired value from the cache
     fn get_unexpired(&mut self, key: &Key) -> Option<&Value> {
         match self.cache.get_refresh(key) {
-            Some(value) if value.expires.is_none() || value.expires > Some(SystemTime::now()) => {
-                self.cache.get(key)
-            }
-            Some(value) if value.expires <= Some(SystemTime::now()) => {
+            Some(value) if value.expires > SystemTime::now() => self.cache.get(key),
+            Some(value) if value.expires <= SystemTime::now() => {
                 self.remove(key);
                 None
             }
@@ -207,7 +205,7 @@ impl Storage for MemoryBackend {
                 headers: flexbuffers::to_vec(&hyper_serde::Ser::new(resp.headers()))?,
                 // Likely body already has been read concurrently in Lua and now available as a byte array
                 body: hyper::body::to_bytes(resp.body_mut()).await?.to_vec(),
-                expires: it.ttl.map(|ttl| SystemTime::now() + ttl),
+                expires: SystemTime::now() + it.ttl,
                 surrogate_keys: it.surrogate_keys,
             };
             memory.insert(it.key, value);
@@ -242,9 +240,10 @@ mod tests {
         resp.headers_mut()
             .insert("Hello", "World".try_into().unwrap());
 
-        // Cache response without TTL
+        // Cache response
+        let ttl = Duration::from_secs(1);
         memory
-            .cache_response(Item::new("key1", resp, None))
+            .cache_response(Item::new("key1", resp, ttl))
             .await
             .unwrap();
 
@@ -276,7 +275,7 @@ mod tests {
         // Cache response with TTL
         let ttl = Duration::from_millis(10);
         memory
-            .cache_response(Item::new("key2", resp, Some(ttl)))
+            .cache_response(Item::new("key2", resp, ttl))
             .await
             .unwrap();
 
@@ -294,8 +293,9 @@ mod tests {
         let resp = make_response("hello, world");
 
         let surrogate_keys = vec!["abc"];
+        let ttl = Duration::from_secs(1);
         memory
-            .cache_response(Item::new_with_skeys("key1", resp, surrogate_keys, None))
+            .cache_response(Item::new_with_skeys("key1", resp, surrogate_keys, ttl))
             .await
             .unwrap();
 

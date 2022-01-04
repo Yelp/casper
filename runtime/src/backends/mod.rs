@@ -4,8 +4,11 @@ use std::sync::Arc;
 use anyhow::{anyhow, bail, Context};
 use once_cell::sync::OnceCell;
 
-pub use dynamodb::{Config as DynamodDbBackendConfig, DynamodDbBackend};
-pub use memory::{Config as MemoryBackendConfig, MemoryBackend};
+pub use memory::{Config as MemoryConfig, MemoryBackend};
+pub use redis::{
+    Config as RedisConfig, RedisBackend, ServerConfig as RedisServerConfig,
+    TimeoutConfig as RedisTimeoutConfig,
+};
 
 static REGISTERED_BACKENDS: OnceCell<HashMap<String, Backend>> = OnceCell::new();
 
@@ -48,5 +51,5 @@ pub fn registered_backends() -> &'static HashMap<String, Backend> {
         .expect("register_backends() must be called first")
 }
 
-mod dynamodb;
 mod memory;
+mod redis;

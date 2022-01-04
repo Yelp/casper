@@ -20,10 +20,7 @@ services:
             - WORKER_PROCESSES=1
             - DISABLE_STDOUT_ACCESS_LOG=1
             - WAIT_ON=10.5.0.5:9042
-            - AWS_ACCESS_KEY_ID=TEST
-            - AWS_SECRET_ACCESS_KEY=TEST
-            - AWS_DEFAULT_REGION=local-stack
-            - DYNAMODB_ENDPOINT=http://10.5.0.10:4566
+            - REDIS_ENDPOINT=10.5.0.10
 
         volumes:
             - /var/log/nginx
@@ -53,20 +50,11 @@ services:
             spectre_net:
                 ipv4_address: 10.5.0.5
 
-    localstack:
-        container_name: "itest_localstack"
-        image: localstack/localstack
+    redis:
+        container_name: "itest_redis"
+        image: redis:6.2
         ports:
-            - '4566:4566'
-            - '4571:4571'
-        environment:
-            - SERVICES=dynamodb
-            - DEBUG=1
-            - LS_LOG=trace # This option adds lots of logging, specifically the API calls made to dynamodb
-            - DOCKER_HOST=unix:///var/run/docker.sock
-            - HOST_TMP_FOLDER=/tmp/localstack
-        volumes:
-            - "/var/run/docker.sock:/var/run/docker.sock"
+            - '6379:6379'
         networks:
             spectre_net:
                 ipv4_address: 10.5.0.10
