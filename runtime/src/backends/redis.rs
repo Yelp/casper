@@ -157,7 +157,7 @@ struct ResponseItem {
     surrogate_keys: Vec<Key>,
     body: Bytes,
     num_chunks: u32,
-    // flags: u64,
+    flags: u32,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -305,6 +305,7 @@ impl RedisBackend {
             surrogate_keys: surrogate_keys.clone(),
             body,
             num_chunks,
+            flags: 0,
         };
         let response_item_enc = flexbuffers::to_vec(&response_item)?;
 
