@@ -17,7 +17,7 @@ use http::Uri;
 use hyper::{HeaderMap, Response, StatusCode};
 use serde::Deserialize;
 
-use crate::storage::{Item, ItemKey, Storage};
+use crate::storage::{Item, ItemKey, Key, Storage};
 
 pub struct DynamodDbBackend {
     client: Client,
@@ -462,53 +462,47 @@ impl Storage for DynamodDbBackend {
     type Body = hyper::Body;
     type Error = anyhow::Error;
 
-    async fn get_responses<K, KI>(
+    async fn get_responses<KI>(
         &self,
         keys: KI,
     ) -> Result<Vec<Option<Response<Self::Body>>>, Self::Error>
     where
-        KI: IntoIterator<Item = K> + Send,
+        KI: IntoIterator<Item = Key> + Send,
         <KI as IntoIterator>::IntoIter: Send,
-        K: AsRef<[u8]> + Send,
     {
         let mut result = Vec::new();
         for key in keys {
             // Currently calling the single get cached response method per key, but eventually need to
             // implement bulk get items
-            let key = key.as_ref();
-            let resp = self.get_cached_response(key).await;
+            let resp = self.get_cached_response(&key).await;
             result.push(resp);
         }
         Ok(result)
     }
 
-    async fn delete_responses<K, KI>(&self, keys: KI) -> Result<(), Self::Error>
+    async fn delete_responses<KI>(&self, keys: KI) -> Result<(), Self::Error>
     where
-        KI: IntoIterator<Item = ItemKey<K>> + Send,
+        KI: IntoIterator<Item = ItemKey> + Send,
         <KI as IntoIterator>::IntoIter: Send,
-        K: AsRef<[u8]> + Send + Sync,
     {
         for key in keys {
             match key {
                 ItemKey::Primary(key) => {
-                    self.delete_item(key.as_ref()).await?;
+                    self.delete_item(&key).await?;
                 }
                 ItemKey::Surrogate(sk) => {
-                    let sk = sk.as_ref();
-                    self.update_surrogate_item(sk, true).await?;
+                    self.update_surrogate_item(&sk, true).await?;
                 }
             }
         }
         Ok(())
     }
 
-    async fn cache_responses<K, R, SK, I>(&self, items: I) -> Result<(), Self::Error>
+    async fn cache_responses<R, I>(&self, items: I) -> Result<(), Self::Error>
     where
-        I: IntoIterator<Item = Item<K, R, SK>> + Send,
+        I: IntoIterator<Item = Item<R>> + Send,
         <I as IntoIterator>::IntoIter: Send,
-        K: AsRef<[u8]> + Send,
         R: BorrowMut<Response<Self::Body>> + Send,
-        SK: AsRef<[u8]> + Send + Sync,
     {
         for mut it in items {
             // Extract the item components
@@ -524,7 +518,7 @@ impl Storage for DynamodDbBackend {
                 Ok(_res) => _res,
                 Err(error) => panic!(
                     "Error when trying to cache item with key {:?}: {}",
-                    hex::encode(key.to_vec()).as_str(),
+                    hex::encode(key).as_str(),
                     error
                 ),
             };

@@ -8,7 +8,7 @@ use linked_hash_map::LinkedHashMap;
 use serde::Deserialize;
 use tokio::sync::Mutex;
 
-use crate::storage::{Item, ItemKey, Storage};
+use crate::storage::{Item, ItemKey, Key, Storage};
 
 // Memory backend configuration
 #[derive(Deserialize)]
@@ -16,8 +16,6 @@ pub struct Config {
     /// Store up to `max_size` bytes (soft limit)
     pub max_size: usize,
 }
-
-type Key = Vec<u8>;
 
 struct Value {
     status: StatusCode,
@@ -100,7 +98,7 @@ impl MemoryBackendImpl {
     }
 
     /// Returns unexpired value from the cache
-    fn get_unexpired(&mut self, key: &[u8]) -> Option<&Value> {
+    fn get_unexpired(&mut self, key: &Key) -> Option<&Value> {
         match self.cache.get_refresh(key) {
             Some(value) if value.expires.is_none() || value.expires > Some(SystemTime::now()) => {
                 self.cache.get(key)
@@ -114,7 +112,7 @@ impl MemoryBackendImpl {
     }
 
     /// Removes value from the cache by `key`
-    fn remove(&mut self, key: &[u8]) -> Option<Value> {
+    fn remove(&mut self, key: &Key) -> Option<Value> {
         if let Some(value) = self.cache.remove(key) {
             for sk in &value.surrogate_keys {
                 if let Some(sv) = self.index.get_mut(sk) {
@@ -128,7 +126,7 @@ impl MemoryBackendImpl {
     }
 
     /// Removes all values from the cache that have the same surrogate key
-    fn remove_by_skey(&mut self, sk: &[u8]) {
+    fn remove_by_skey(&mut self, sk: &Key) {
         if let Some(set) = self.index.remove(sk) {
             for key in set {
                 if let Some(val) = self.cache.remove(&key) {
@@ -144,21 +142,20 @@ impl Storage for MemoryBackend {
     type Body = hyper::Body;
     type Error = anyhow::Error;
 
-    async fn get_responses<K, KI>(
+    async fn get_responses<KI>(
         &self,
         keys: KI,
     ) -> Result<Vec<Option<Response<Self::Body>>>, Self::Error>
     where
-        KI: IntoIterator<Item = K> + Send,
+        KI: IntoIterator<Item = Key> + Send,
         <KI as IntoIterator>::IntoIter: Send,
-        K: AsRef<[u8]> + Send,
     {
         let mut result = Vec::new();
 
         let mut memory = self.0.lock().await;
         for key in keys {
             let resp = memory
-                .get_unexpired(key.as_ref())
+                .get_unexpired(&key)
                 .map(|value| {
                     let headers: hyper_serde::De<HeaderMap> =
                         flexbuffers::from_slice(&value.headers)?;
@@ -177,33 +174,30 @@ impl Storage for MemoryBackend {
         Ok(result)
     }
 
-    async fn delete_responses<K, KI>(&self, keys: KI) -> Result<(), Self::Error>
+    async fn delete_responses<KI>(&self, keys: KI) -> Result<(), Self::Error>
     where
-        KI: IntoIterator<Item = ItemKey<K>> + Send,
+        KI: IntoIterator<Item = ItemKey> + Send,
         <KI as IntoIterator>::IntoIter: Send,
-        K: AsRef<[u8]> + Send,
     {
         let mut memory = self.0.lock().await;
         for key in keys {
             match key {
                 ItemKey::Primary(key) => {
-                    memory.remove(key.as_ref());
+                    memory.remove(&key);
                 }
                 ItemKey::Surrogate(sk) => {
-                    memory.remove_by_skey(sk.as_ref());
+                    memory.remove_by_skey(&sk);
                 }
             }
         }
         Ok(())
     }
 
-    async fn cache_responses<K, R, SK, I>(&self, items: I) -> Result<(), Self::Error>
+    async fn cache_responses<R, I>(&self, items: I) -> Result<(), Self::Error>
     where
-        I: IntoIterator<Item = Item<K, R, SK>> + Send,
+        I: IntoIterator<Item = Item<R>> + Send,
         <I as IntoIterator>::IntoIter: Send,
-        K: AsRef<[u8]> + Send,
         R: BorrowMut<Response<Self::Body>> + Send,
-        SK: AsRef<[u8]> + Send,
     {
         let mut memory = self.0.lock().await;
         for mut it in items {
@@ -214,13 +208,9 @@ impl Storage for MemoryBackend {
                 // Likely body already has been read concurrently in Lua and now available as a byte array
                 body: hyper::body::to_bytes(resp.body_mut()).await?.to_vec(),
                 expires: it.ttl.map(|ttl| SystemTime::now() + ttl),
-                surrogate_keys: it
-                    .surrogate_keys
-                    .into_iter()
-                    .map(|x| x.as_ref().to_vec())
-                    .collect(),
+                surrogate_keys: it.surrogate_keys,
             };
-            memory.insert(it.key.as_ref().to_vec(), value);
+            memory.insert(it.key, value);
         }
         Ok(())
     }
@@ -259,7 +249,7 @@ mod tests {
             .unwrap();
 
         // Fetch it back
-        let mut resp = memory.get_response("key1").await.unwrap().unwrap();
+        let mut resp = memory.get_response("key1".into()).await.unwrap().unwrap();
         assert_eq!(
             resp.headers().get("Hello"),
             Some(&HeaderValue::from_static("World"))
@@ -268,10 +258,10 @@ mod tests {
         assert_eq!(String::from_utf8(body).unwrap(), "hello, world");
 
         // Delete cached response
-        memory.delete_response("key1").await.unwrap();
+        memory.delete_response("key1".into()).await.unwrap();
 
         // Try to fetch it back
-        let resp = memory.get_response("key1").await.unwrap();
+        let resp = memory.get_response("key1".into()).await.unwrap();
         assert!(matches!(resp, None));
     }
 
@@ -294,7 +284,7 @@ mod tests {
         tokio::time::sleep(ttl).await;
 
         // Try to fetch it back
-        let resp = memory.get_response("key2").await.unwrap();
+        let resp = memory.get_response("key2".into()).await.unwrap();
         assert!(matches!(resp, None));
     }
 
@@ -310,18 +300,18 @@ mod tests {
             .unwrap();
 
         // Fetch it back
-        let mut resp = memory.get_response("key1").await.unwrap().unwrap();
+        let mut resp = memory.get_response("key1".into()).await.unwrap().unwrap();
         let body = hyper::body::to_bytes(&mut resp).await.unwrap().to_vec();
         assert_eq!(String::from_utf8(body).unwrap(), "hello, world");
 
         // Delete by surrogate key
         memory
-            .delete_responses([ItemKey::Surrogate("abc")])
+            .delete_responses([ItemKey::Surrogate("abc".into())])
             .await
             .unwrap();
 
         // Try to fetch it back
-        let resp = memory.get_response("key1").await.unwrap();
+        let resp = memory.get_response("key1".into()).await.unwrap();
         assert!(matches!(resp, None));
     }
 }
