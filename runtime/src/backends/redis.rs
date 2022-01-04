@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use bstr::ByteVec;
 use bytes::{BufMut, Bytes};
 use fred::pool::StaticRedisPool;
-use fred::prelude::{Expiration, MultipleKeys, RedisKey, RedisValue, SetOptions};
+use fred::prelude::{Expiration, RedisError, RedisKey, RedisValue, SetOptions};
 use futures::{
     future::try_join_all,
     stream::{self, StreamExt},
@@ -16,6 +16,8 @@ use serde::{Deserialize, Serialize};
 use tokio::time::timeout;
 
 use crate::storage::{Item, ItemKey, Key, Storage};
+
+pub const MAX_CONCURRENCY: usize = 100;
 
 pub struct RedisBackend {
     config: Config,
@@ -195,17 +197,16 @@ impl RedisBackend {
 
         // Fetch surrogate keys
         if !response_item.surrogate_keys.is_empty() {
-            let skeys = response_item
-                .surrogate_keys
-                .iter()
-                .map(|sk| RedisKey::new(sk.clone()))
-                .collect::<MultipleKeys>();
+            // We cannot use "mget" operation in sharded mode because keys can be in different shards
+            let skeys_vals = stream::iter(response_item.surrogate_keys.clone())
+                .map(|sk| self.client.get(RedisKey::new(sk)))
+                .buffered(MAX_CONCURRENCY)
+                .collect::<Vec<Result<RedisValue, RedisError>>>()
+                .await;
 
-            let skeys_vals = match self.client.mget(skeys).await? {
-                RedisValue::Array(vals) => vals,
-                val => vec![val],
-            };
-            for (_sk, sk_value) in response_item.surrogate_keys.into_iter().zip(skeys_vals) {
+            for (sk, sk_value) in response_item.surrogate_keys.into_iter().zip(skeys_vals) {
+                let sk_value =
+                    sk_value.with_context(|| format!("Failed to fetch surrogate key `{}`", sk))?;
                 if let Some(sk_data) = sk_value.as_bytes() {
                     let sk_item: SurrogateKeyItem = flexbuffers::from_slice(sk_data)?;
                     // Check that the response item having this key is not expired
@@ -367,7 +368,7 @@ impl Storage for RedisBackend {
             .await
             .map_err(anyhow::Error::new)
             .and_then(|x| x)
-            .with_context(|| format!("Failed to fetch Response for key {}", hex::encode(key)))
+            .with_context(|| format!("Failed to fetch Response for key `{}`", hex::encode(key)))
     }
 
     async fn delete_responses(&self, key: ItemKey) -> Result<(), Self::Error> {
@@ -376,7 +377,7 @@ impl Storage for RedisBackend {
             .await
             .map_err(anyhow::Error::new)
             .and_then(|x| x)
-            .with_context(|| format!("Failed to delete Response(s) for key {}", key))
+            .with_context(|| format!("Failed to delete Response(s) for key `{}`", key))
     }
 
     async fn store_response<R>(&self, mut item: Item<R>) -> Result<(), Self::Error>
@@ -393,7 +394,7 @@ impl Storage for RedisBackend {
         .await
         .map_err(anyhow::Error::new)
         .and_then(|x| x)
-        .with_context(|| format!("Failed to store Response with key {}", key))
+        .with_context(|| format!("Failed to store Response with key `{}`", hex::encode(key)))
     }
 }
 
