@@ -221,7 +221,7 @@ async fn handler(req: Request<Body>) -> Result<Response<Body>, hyper::http::Erro
     match handler_impl(req).await {
         Ok(resp) => Ok(resp),
         Err(err) => {
-            eprintln!("{}", err);
+            eprintln!("{:#}", err);
             Response::builder()
                 .status(StatusCode::INTERNAL_SERVER_ERROR)
                 .body(Body::from(format!("{:?}", err)))
