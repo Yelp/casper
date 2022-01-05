@@ -16,13 +16,27 @@ local function send_response(status, body, headers, callback_fn)
         end
     end
 
-    ngx.status = status
-    ngx.print(body)
-    -- Send the response back to the client
-    ngx.flush()
-    ngx.eof()
+    -- EDGE-569, if the x-casper-sync header is set, we adjust the order of operations
+    -- e.g. we store the response in the backend, then return the response to client
+    -- used for solving itest order of operation issues which cause test failures
+    if ngx.req.get_headers()['x-casper-sync'] ~= nil then
+        if callback_fn then callback_fn() end
 
-    if callback_fn then callback_fn() end
+        ngx.status = status
+        ngx.print(body)
+        -- Send the response back to the client
+        ngx.flush()
+        ngx.eof()
+
+    else
+        ngx.status = status
+        ngx.print(body)
+        -- Send the response back to the client
+        ngx.flush()
+        ngx.eof()
+
+        if callback_fn then callback_fn() end
+    end
 end
 
 -- Called after response is sent; based on status and cacheability_info
