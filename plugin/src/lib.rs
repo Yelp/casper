@@ -54,36 +54,64 @@ struct PurgeMethodArgs {
     id: Option<String>,
 }
 
-async fn get_backend() -> &'static RedisBackend {
-    static BACKEND: OnceCell<RedisBackend> = OnceCell::const_new();
+async fn create_backend(endpoint: String, cluster: bool) -> RedisBackend {
+    let mut config = RedisConfig::default();
+    config.timeouts = RedisTimeoutConfig {
+        connect_timeout_ms: 3000, // 3 sec
+        fetch_timeout_ms: 200,    // 200 ms
+        store_timeout_ms: 5000,   // 5 sec
+    };
 
-    BACKEND
-        .get_or_init(|| async {
-            let mut config = RedisConfig::default();
-            config.timeouts = RedisTimeoutConfig {
-                connect_timeout_ms: 3000, // 3 sec
-                fetch_timeout_ms: 1000,   // 1 sec
-                store_timeout_ms: 5000,   // 5 sec
-            };
-
-            config.enable_tls = var("REDIS_TLS_ENABLED") == Ok("1".to_string());
-
-            if let Ok(endpoint) = var("REDIS_CLUSTER_ENDPOINT") {
-                config.server = RedisServerConfig::Clustered {
-                    hosts: vec![(endpoint, 6379)],
-                }
-            } else if let Ok(endpoint) = var("REDIS_ENDPOINT") {
-                config.server = RedisServerConfig::Centralized {
-                    host: endpoint,
-                    port: 6379,
-                }
-            }
-
-            RedisBackend::new(config)
-                .await
-                .expect("cannot connect to redis")
-        })
+    config.enable_tls = var("REDIS_TLS_ENABLED") == Ok("1".to_string());
+    if cluster {
+        config.server = RedisServerConfig::Clustered {
+            hosts: vec![(endpoint, 6379)],
+        }
+    } else {
+        config.server = RedisServerConfig::Centralized {
+            host: endpoint,
+            port: 6379,
+        }
+    }
+    RedisBackend::new(config)
         .await
+        .expect("Cannot connect to redis backend")
+}
+
+async fn get_backend(backend: u8) -> Option<&'static RedisBackend> {
+    static BACKEND1: OnceCell<RedisBackend> = OnceCell::const_new();
+    static BACKEND2: OnceCell<Option<RedisBackend>> = OnceCell::const_new();
+
+    if backend == 1 {
+        Some(
+            BACKEND1
+                .get_or_init(|| async {
+                    if let Ok(endpoint) = var("REDIS_CLUSTER_ENDPOINT") {
+                        create_backend(endpoint, true).await
+                    } else if let Ok(endpoint) = var("REDIS_ENDPOINT") {
+                        create_backend(endpoint, false).await
+                    } else {
+                        panic!("No configured backend")
+                    }
+                })
+                .await,
+        )
+    } else if backend == 2 {
+        BACKEND2
+            .get_or_init(|| async {
+                if let Ok(endpoint) = var("REDIS_CLUSTER_2_ENDPOINT") {
+                    Some(create_backend(endpoint, true).await)
+                } else if let Ok(endpoint) = var("REDIS_2_ENDPOINT") {
+                    Some(create_backend(endpoint, false).await)
+                } else {
+                    None
+                }
+            })
+            .await
+            .as_ref()
+    } else {
+        None
+    }
 }
 
 fn calculate_primary_key(key: &KeyArgs) -> Key {
@@ -126,7 +154,7 @@ async fn handler_impl(mut req: Request<Body>) -> Result<Response<Body>, anyhow::
         let ttl = Duration::from_secs_f64(args.ttl);
 
         // Build response for caching
-        let mut resp = Response::new(Body::from(body));
+        let mut resp = Response::new(Body::from(body.clone()));
         for (name, val) in args.headers {
             let name = HeaderName::from_str(&name)?;
             if let Some(vals) = val.as_array() {
@@ -150,11 +178,33 @@ async fn handler_impl(mut req: Request<Body>) -> Result<Response<Body>, anyhow::
             }
         }
 
-        get_backend()
+        // Store response to backend 1
+        get_backend(1)
             .await
-            .store_response(Item::new_with_skeys(key, resp, surrogate_keys, ttl))
+            .expect("Redis backend 1 is not defined")
+            .store_response(Item::new_with_skeys(
+                key.clone(),
+                &mut resp,
+                surrogate_keys.clone(),
+                ttl,
+            ))
             .await?;
 
+        // If a 2nd backend is defined also store the response here
+        if get_backend(2).await.is_some() {
+            // The response body is used by the 1st store, so recreate the body here
+            *resp.body_mut() = Body::from(body);
+            get_backend(2)
+                .await
+                .unwrap()
+                .store_response(Item::new_with_skeys(
+                    key.clone(),
+                    &mut resp,
+                    surrogate_keys.clone(),
+                    ttl,
+                ))
+                .await?;
+        }
         return Ok(Response::new(Body::from("Ok")));
     }
 
@@ -165,7 +215,12 @@ async fn handler_impl(mut req: Request<Body>) -> Result<Response<Body>, anyhow::
         let key = calculate_primary_key(&args);
 
         // Fetch response
-        return match get_backend().await.get_response(key).await? {
+        return match get_backend(1)
+            .await
+            .expect("Redis backend 1 does not exist")
+            .get_response(key)
+            .await?
+        {
             Some(mut resp) => {
                 let mut headers_map = serde_json::Map::new();
                 for (name, val) in resp.headers() {
@@ -204,10 +259,21 @@ async fn handler_impl(mut req: Request<Body>) -> Result<Response<Body>, anyhow::
             surrogate_key.push_str(&args.id.unwrap());
         }
 
-        get_backend()
+        // Purge backend 1
+        get_backend(1)
             .await
-            .delete_responses(ItemKey::Surrogate(surrogate_key.into()))
+            .expect("Redis backend 1 does not exist")
+            .delete_responses(ItemKey::Surrogate(surrogate_key.clone().into()))
             .await?;
+
+        // If a 2nd backend is defined also purge
+        if get_backend(2).await.is_some() {
+            get_backend(2)
+                .await
+                .unwrap()
+                .delete_responses(ItemKey::Surrogate(surrogate_key.clone().into()))
+                .await?;
+        }
 
         return Ok(Response::new(Body::from("Ok")));
     }

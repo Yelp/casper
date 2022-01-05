@@ -20,7 +20,8 @@ services:
             - WORKER_PROCESSES=1
             - DISABLE_STDOUT_ACCESS_LOG=1
             - WAIT_ON=10.5.0.5:9042
-            - REDIS_ENDPOINT=10.5.0.10
+            - REDIS_ENDPOINT=10.5.0.11
+            - REDIS_2_ENDPOINT=10.5.0.12
 
         volumes:
             - /var/log/nginx
@@ -50,14 +51,23 @@ services:
             spectre_net:
                 ipv4_address: 10.5.0.5
 
-    redis:
-        container_name: "itest_redis"
+    redis_1:
+        container_name: "itest_redis_1"
         image: redis:6.2
         ports:
             - '6379:6379'
         networks:
             spectre_net:
-                ipv4_address: 10.5.0.10
+                ipv4_address: 10.5.0.11
+
+    redis_2:
+        container_name: "itest_redis_2"
+        image: redis:6.2
+        ports:
+            - '6380:6379'
+        networks:
+            spectre_net:
+                ipv4_address: 10.5.0.12
 
     test:
         build:
