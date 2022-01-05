@@ -3,8 +3,7 @@ use std::time::{Duration, SystemTime};
 
 use anyhow::{bail, Context, Result};
 use async_trait::async_trait;
-use bstr::ByteVec;
-use bytes::{BufMut, Bytes};
+use bytes::Bytes;
 use fred::pool::StaticRedisPool;
 use fred::prelude::{Expiration, RedisError, RedisKey, RedisValue, SetOptions};
 use futures::{
@@ -189,7 +188,7 @@ impl RedisBackend {
 
     async fn get_response_inner(&self, key: Key) -> Result<Option<Response<hyper::Body>>> {
         // Fetch response item
-        let res: Option<Vec<u8>> = self.client.get(RedisKey::new(key.clone())).await?;
+        let res: Option<Vec<u8>> = self.client.get(make_redis_key(&key)).await?;
         let response_item: ResponseItem = match res {
             Some(res) => flexbuffers::from_slice(&res)?,
             None => return Ok(None),
@@ -199,7 +198,7 @@ impl RedisBackend {
         if !response_item.surrogate_keys.is_empty() {
             // We cannot use "mget" operation in sharded mode because keys can be in different shards
             let skeys_vals = stream::iter(response_item.surrogate_keys.clone())
-                .map(|sk| self.client.get(RedisKey::new(sk)))
+                .map(|sk| self.client.get(make_redis_key(&sk)))
                 .buffered(MAX_CONCURRENCY)
                 .collect::<Vec<Result<RedisValue, RedisError>>>()
                 .await;
@@ -247,7 +246,7 @@ impl RedisBackend {
 
     async fn delete_responses_inner(&self, key: ItemKey) -> Result<()> {
         match key {
-            ItemKey::Primary(key) => Ok(self.client.del(RedisKey::new(key)).await?),
+            ItemKey::Primary(key) => Ok(self.client.del(make_redis_key(&key)).await?),
             ItemKey::Surrogate(skey) => {
                 let sk_item = SurrogateKeyItem {
                     timestamp: unix_timestamp(),
@@ -257,7 +256,7 @@ impl RedisBackend {
                 Ok(self
                     .client
                     .set(
-                        RedisKey::new(skey),
+                        make_redis_key(&skey),
                         RedisValue::Bytes(sk_item_enc),
                         Some(Expiration::KEEPTTL), // Retain the TTL associated with the key
                         Some(SetOptions::XX),      // Only set the key if it already exist
@@ -312,7 +311,7 @@ impl RedisBackend {
         // Store response item
         self.client
             .set(
-                RedisKey::new(key),
+                make_redis_key(&key),
                 RedisValue::Bytes(response_item_enc),
                 Some(Expiration::EX(ttl.as_secs() as i64)),
                 None,
@@ -329,7 +328,7 @@ impl RedisBackend {
             let is_exists: RedisValue = self
                 .client
                 .set(
-                    RedisKey::new(skey.clone()),
+                    make_redis_key(&skey),
                     RedisValue::Bytes(sk_item_enc),
                     Some(Expiration::EX(86400)), // 24 hours
                     Some(SetOptions::NX),
@@ -339,7 +338,7 @@ impl RedisBackend {
 
             // In case the key already exist, reset TTL to 24h
             if is_exists.is_null() {
-                self.client.expire(RedisKey::new(skey), 86400).await?;
+                self.client.expire(make_redis_key(&skey), 86400).await?;
             }
 
             anyhow::Ok(())
@@ -408,13 +407,14 @@ fn unix_timestamp() -> u64 {
 }
 
 #[inline]
-fn make_chunk_key(key: &Key, n: u32) -> RedisKey {
-    let mut key2 = Key::from("{");
-    key2.extend_from_slice(key);
-    key2.push_char('}');
-    key2.push_char('|');
-    key2.put_u32(n);
-    RedisKey::new(key2)
+fn make_redis_key(key: &impl AsRef<[u8]>) -> RedisKey {
+    RedisKey::new(base64::encode_config(key, base64::URL_SAFE_NO_PAD))
+}
+
+#[inline]
+fn make_chunk_key(key: &impl AsRef<[u8]>, n: u32) -> RedisKey {
+    let key = base64::encode_config(key, base64::URL_SAFE_NO_PAD);
+    RedisKey::new(format!("{{{}}}|{}", key, n))
 }
 
 #[cfg(test)]
