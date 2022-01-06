@@ -178,10 +178,10 @@ async fn handler_impl(mut req: Request<Body>) -> Result<Response<Body>, anyhow::
             }
         }
 
-        // Store response to backend 1
+        // Store response to backend
         get_backend(1)
             .await
-            .expect("Redis backend 1 is not defined")
+            .expect("Redis backend is not defined")
             .store_response(Item::new_with_skeys(
                 key.clone(),
                 &mut resp,
@@ -190,21 +190,6 @@ async fn handler_impl(mut req: Request<Body>) -> Result<Response<Body>, anyhow::
             ))
             .await?;
 
-        // If a 2nd backend is defined also store the response here
-        if get_backend(2).await.is_some() {
-            // The response body is used by the 1st store, so recreate the body here
-            *resp.body_mut() = Body::from(body);
-            get_backend(2)
-                .await
-                .unwrap()
-                .store_response(Item::new_with_skeys(
-                    key.clone(),
-                    &mut resp,
-                    surrogate_keys.clone(),
-                    ttl,
-                ))
-                .await?;
-        }
         return Ok(Response::new(Body::from("Ok")));
     }
 
@@ -267,14 +252,11 @@ async fn handler_impl(mut req: Request<Body>) -> Result<Response<Body>, anyhow::
             .await?;
 
         // If a 2nd backend is defined also purge
-        if get_backend(2).await.is_some() {
-            get_backend(2)
-                .await
-                .unwrap()
+        if let Some(backend2) = get_backend(2).await {
+            backend2
                 .delete_responses(ItemKey::Surrogate(surrogate_key.clone().into()))
                 .await?;
         }
-
         return Ok(Response::new(Body::from("Ok")));
     }
 
