@@ -154,7 +154,7 @@ async fn handler_impl(mut req: Request<Body>) -> Result<Response<Body>, anyhow::
         let ttl = Duration::from_secs_f64(args.ttl);
 
         // Build response for caching
-        let mut resp = Response::new(Body::from(body.clone()));
+        let mut resp = Response::new(Body::from(body));
         for (name, val) in args.headers {
             let name = HeaderName::from_str(&name)?;
             if let Some(vals) = val.as_array() {
