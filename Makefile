@@ -53,7 +53,7 @@ itest: clean-docker $(DOCKER_COMPOSE) cook-image run-itest
 .PHONY: run-itest
 run-itest: $(DOCKER_COMPOSE)
 	$(DOCKER_COMPOSE) -f $(DOCKER_COMPOSE_YML) build
-	$(DOCKER_COMPOSE) -f $(DOCKER_COMPOSE_YML) up -d spectre backend cassandra syslog redis
+	$(DOCKER_COMPOSE) -f $(DOCKER_COMPOSE_YML) up -d spectre backend cassandra syslog redis_1 redis_2
 	sleep 10
 	$(DOCKER_COMPOSE) -f $(DOCKER_COMPOSE_YML) run test python3 -m pytest -vv spectre
 	$(DOCKER_COMPOSE) -f $(DOCKER_COMPOSE_YML) exec --user=root -T spectre /opt/drop_all.sh
