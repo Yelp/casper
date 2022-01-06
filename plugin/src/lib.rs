@@ -182,12 +182,7 @@ async fn handler_impl(mut req: Request<Body>) -> Result<Response<Body>, anyhow::
         get_backend(1)
             .await
             .expect("Redis backend is not defined")
-            .store_response(Item::new_with_skeys(
-                key,
-                &mut resp,
-                surrogate_keys,
-                ttl,
-            ))
+            .store_response(Item::new_with_skeys(key, &mut resp, surrogate_keys, ttl))
             .await?;
 
         return Ok(Response::new(Body::from("Ok")));
