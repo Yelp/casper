@@ -544,6 +544,9 @@ local function is_dynamodb_enabled(cache_key)
     )
     local dynamodb_percent = spectre_config['dynamodb_enabled_pct'] or 0
 
+    if dynamodb_percent <= 0 then return false end
+    if dynamodb_percent >= 100 then return true end
+
     -- Take first 7 characters of the hash, as we want to get a 32bit number
     local hash = ngx.md5(cache_key):sub(1, 7)
     local hash_mod = math.fmod(tonumber(hash, 16), 100)

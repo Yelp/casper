@@ -55,47 +55,48 @@ struct PurgeMethodArgs {
 }
 
 async fn create_backend(endpoint: String, cluster: bool) -> RedisBackend {
-    let mut config = RedisConfig::default();
-    config.timeouts = RedisTimeoutConfig {
-        connect_timeout_ms: 3000, // 3 sec
-        fetch_timeout_ms: 200,    // 200 ms
-        store_timeout_ms: 5000,   // 5 sec
+    let config = RedisConfig {
+        timeouts: RedisTimeoutConfig {
+            connect_timeout_ms: 3000, // 3 sec
+            fetch_timeout_ms: 200,    // 200 ms
+            store_timeout_ms: 5000,   // 5 sec
+        },
+        enable_tls: var("REDIS_TLS_ENABLED") == Ok("1".to_string()),
+        server: if cluster {
+            RedisServerConfig::Clustered {
+                hosts: vec![(endpoint, 6379)],
+            }
+        } else {
+            RedisServerConfig::Centralized {
+                host: endpoint,
+                port: 6379,
+            }
+        },
+        ..Default::default()
     };
 
-    config.enable_tls = var("REDIS_TLS_ENABLED") == Ok("1".to_string());
-    if cluster {
-        config.server = RedisServerConfig::Clustered {
-            hosts: vec![(endpoint, 6379)],
-        }
-    } else {
-        config.server = RedisServerConfig::Centralized {
-            host: endpoint,
-            port: 6379,
-        }
-    }
     RedisBackend::new(config)
         .await
         .expect("Cannot connect to redis backend")
 }
 
 async fn get_backend(backend: u8) -> Option<&'static RedisBackend> {
-    static BACKEND1: OnceCell<RedisBackend> = OnceCell::const_new();
+    static BACKEND1: OnceCell<Option<RedisBackend>> = OnceCell::const_new();
     static BACKEND2: OnceCell<Option<RedisBackend>> = OnceCell::const_new();
 
     if backend == 1 {
-        Some(
-            BACKEND1
-                .get_or_init(|| async {
-                    if let Ok(endpoint) = var("REDIS_CLUSTER_ENDPOINT") {
-                        create_backend(endpoint, true).await
-                    } else if let Ok(endpoint) = var("REDIS_ENDPOINT") {
-                        create_backend(endpoint, false).await
-                    } else {
-                        panic!("No configured backend")
-                    }
-                })
-                .await,
-        )
+        BACKEND1
+            .get_or_init(|| async {
+                if let Ok(endpoint) = var("REDIS_CLUSTER_ENDPOINT") {
+                    Some(create_backend(endpoint, true).await)
+                } else if let Ok(endpoint) = var("REDIS_ENDPOINT") {
+                    Some(create_backend(endpoint, false).await)
+                } else {
+                    None
+                }
+            })
+            .await
+            .as_ref()
     } else if backend == 2 {
         BACKEND2
             .get_or_init(|| async {
@@ -181,7 +182,7 @@ async fn handler_impl(mut req: Request<Body>) -> Result<Response<Body>, anyhow::
         // Store response to backend
         get_backend(1)
             .await
-            .expect("Redis backend is not defined")
+            .expect("Redis backend 1 does not configured")
             .store_response(Item::new_with_skeys(key, &mut resp, surrogate_keys, ttl))
             .await?;
 
@@ -197,7 +198,7 @@ async fn handler_impl(mut req: Request<Body>) -> Result<Response<Body>, anyhow::
         // Fetch response
         return match get_backend(1)
             .await
-            .expect("Redis backend 1 does not exist")
+            .expect("Redis backend 1 does not configured")
             .get_response(key)
             .await?
         {
@@ -242,14 +243,14 @@ async fn handler_impl(mut req: Request<Body>) -> Result<Response<Body>, anyhow::
         // Purge backend 1
         get_backend(1)
             .await
-            .expect("Redis backend 1 does not exist")
+            .expect("Redis backend 1 does not configured")
             .delete_responses(ItemKey::Surrogate(surrogate_key.clone().into()))
             .await?;
 
         // If a 2nd backend is defined also purge
         if let Some(backend2) = get_backend(2).await {
             backend2
-                .delete_responses(ItemKey::Surrogate(surrogate_key.clone().into()))
+                .delete_responses(ItemKey::Surrogate(surrogate_key.into()))
                 .await?;
         }
         return Ok(Response::new(Body::from("Ok")));
@@ -273,11 +274,18 @@ async fn handler(req: Request<Body>) -> Result<Response<Body>, hyper::http::Erro
 }
 
 fn spawn_server() -> SocketAddr {
-    let rt = tokio::runtime::Runtime::new().expect("cannot create tokio runtime");
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(4)
+        .enable_all()
+        .build()
+        .expect("cannot create tokio runtime");
     let (tx, rx) = mpsc::channel();
     thread::spawn(move || {
         rt.block_on(async {
             let addr = SocketAddr::from(([127, 0, 0, 1], 0));
+
+            // Initialize Redis backend
+            let _ = get_backend(1).await;
 
             let server = Server::bind(&addr).serve(Shared::new(service_fn(handler)));
             tx.send(server.local_addr())
