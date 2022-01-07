@@ -55,24 +55,26 @@ struct PurgeMethodArgs {
 }
 
 async fn create_backend(endpoint: String, cluster: bool) -> RedisBackend {
-    let mut config = RedisConfig::default();
-    config.timeouts = RedisTimeoutConfig {
-        connect_timeout_ms: 3000, // 3 sec
-        fetch_timeout_ms: 200,    // 200 ms
-        store_timeout_ms: 5000,   // 5 sec
+    let config = RedisConfig {
+        timeouts: RedisTimeoutConfig {
+            connect_timeout_ms: 3000, // 3 sec
+            fetch_timeout_ms: 200,    // 200 ms
+            store_timeout_ms: 5000,   // 5 sec
+        },
+        enable_tls: var("REDIS_TLS_ENABLED") == Ok("1".to_string()),
+        server: if cluster {
+            RedisServerConfig::Clustered {
+                hosts: vec![(endpoint, 6379)],
+            }
+        } else {
+            RedisServerConfig::Centralized {
+                host: endpoint,
+                port: 6379,
+            }
+        },
+        ..Default::default()
     };
 
-    config.enable_tls = var("REDIS_TLS_ENABLED") == Ok("1".to_string());
-    if cluster {
-        config.server = RedisServerConfig::Clustered {
-            hosts: vec![(endpoint, 6379)],
-        }
-    } else {
-        config.server = RedisServerConfig::Centralized {
-            host: endpoint,
-            port: 6379,
-        }
-    }
     RedisBackend::new(config)
         .await
         .expect("Cannot connect to redis backend")
