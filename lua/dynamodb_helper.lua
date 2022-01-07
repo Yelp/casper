@@ -1,4 +1,3 @@
-local dynamodb = require("dynamodb")
 local resty_http = require("resty.http")
 local json = require("cjson")
 
@@ -7,6 +6,14 @@ local json = require("cjson")
 --
 
 local TIMEOUT = 1000
+
+local _dynamodb
+local function dynamodb()
+    if _dynamodb == nil then
+        _dynamodb = require("dynamodb")
+    end
+    return _dynamodb
+end
 
 local function fetch_body_and_headers(id, cache_key, namespace, cache_name, vary_headers)
     local args = json.encode({
@@ -19,7 +26,7 @@ local function fetch_body_and_headers(id, cache_key, namespace, cache_name, vary
     })
     local httpc = resty_http.new()
     httpc:set_timeout(TIMEOUT)
-    local res, err = httpc:request_uri(dynamodb.uri, {
+    local res, err = httpc:request_uri(dynamodb().uri, {
         method = "POST",
         body = string.len(args).."|"..args,
     })
@@ -57,7 +64,7 @@ local function store_body_and_headers(ids, cache_key, namespace, cache_name,
     })
     local httpc = resty_http.new()
     httpc:set_timeout(TIMEOUT)
-    local res, err = httpc:request_uri(dynamodb.uri, {
+    local res, err = httpc:request_uri(dynamodb().uri, {
         method = "POST",
         body = string.len(args).."|"..args..body,
     })
@@ -75,7 +82,7 @@ local function purge(namespace, cache_name, id)
     })
     local httpc = resty_http.new()
     httpc:set_timeout(TIMEOUT)
-    local res, err = httpc:request_uri(dynamodb.uri, {
+    local res, err = httpc:request_uri(dynamodb().uri, {
         method = "POST",
         body = string.len(args).."|"..args,
     })
