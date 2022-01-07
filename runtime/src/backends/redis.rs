@@ -6,6 +6,7 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use fred::pool::StaticRedisPool;
 use fred::prelude::{Expiration, RedisError, RedisKey, RedisValue, SetOptions};
+use fred::types::Stats;
 use futures::{
     future::try_join_all,
     stream::{self, StreamExt},
@@ -354,6 +355,16 @@ impl RedisBackend {
 
     fn get_store_timeout(&self) -> Duration {
         Duration::from_millis(self.config.timeouts.store_timeout_ms)
+    }
+
+    #[allow(unused)]
+    pub fn take_latency_metrics(&self) -> Stats {
+        self.client.take_latency_metrics()
+    }
+
+    #[allow(unused)]
+    pub fn take_network_latency_metrics(&self) -> Stats {
+        self.client.take_network_latency_metrics()
     }
 }
 

@@ -6,6 +6,9 @@ local spectre_common = require 'spectre_common'
 local cassandra_helper = datastores.cassandra_helper
 local _swagger_json = nil
 
+local dynamodb = require("dynamodb")
+local resty_http = require("resty.http")
+
 -- Handle PURGE requests
 local function _purge_handler(smartstack_destination)
     local uri_args = ngx.req.get_uri_args()
@@ -110,6 +113,22 @@ local function status_handler(_)
     return status, body, {['Content-Type'] = 'application/json'}
 end
 
+-- Handle requests to /stats, returns Redis stats
+local function stats_handler(_)
+    local args = json:encode({method = "stats"})
+    local httpc = resty_http.new()
+    local res, err = httpc:request_uri(dynamodb.uri, {
+        method = "POST",
+        body = string.len(args).."|"..args,
+    })
+
+    if err ~= nil or res.status ~= 200 then
+        return ngx.HTTP_INTERNAL_SERVER_ERROR, (err or res.body), {}
+    end
+
+    return ngx.HTTP_OK, res.body, {['Content-Type'] = 'application/json'}
+end
+
 -- Handle requests to /configs
 local function configs_handler(_)
     local configs = {}
@@ -165,6 +184,7 @@ end
 local function router(_, namespace)
     local handlers = {
        ['GET /status'] = status_handler,
+       ['GET /stats'] = stats_handler,
        ['GET /configs'] = configs_handler,
        ['GET /internal_error/dogslow'] = itest_urls_handler,
        ['GET /internal_error/crash'] = itest_urls_handler,

@@ -256,6 +256,30 @@ async fn handler_impl(mut req: Request<Body>) -> Result<Response<Body>, anyhow::
         return Ok(Response::new(Body::from("Ok")));
     }
 
+    if method.name == "stats" {
+        let backend = get_backend(1)
+            .await
+            .expect("Redis backend 1 does not configured");
+
+        let latency_metrics = backend.take_latency_metrics();
+        let net_latency_metrics = backend.take_network_latency_metrics();
+
+        let data = json!({
+            "latency": {
+                "min": latency_metrics.min,
+                "max": latency_metrics.max,
+                "avg": latency_metrics.avg,
+            },
+            "network_latency": {
+                "min": net_latency_metrics.min,
+                "max": net_latency_metrics.max,
+                "avg": net_latency_metrics.avg,
+            },
+        });
+
+        return Ok(Response::new(Body::from(data.to_string())));
+    }
+
     Ok(Response::builder()
         .status(400)
         .body(Body::from("Bad request"))?)
