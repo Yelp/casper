@@ -1,13 +1,15 @@
 local dynamodb = require("dynamodb")
 local resty_http = require("resty.http")
-local json = require("vendor.json")
+local json = require("cjson")
 
 --
 -- DynamoDB plugin helper (via Rust)
 --
 
+local TIMEOUT = 1000
+
 local function fetch_body_and_headers(id, cache_key, namespace, cache_name, vary_headers)
-    local args = json:encode({
+    local args = json.encode({
         method = "fetch_body_and_headers",
         id = id,
         cache_key = cache_key,
@@ -16,6 +18,7 @@ local function fetch_body_and_headers(id, cache_key, namespace, cache_name, vary
         vary_headers = vary_headers,
     })
     local httpc = resty_http.new()
+    httpc:set_timeout(TIMEOUT)
     local res, err = httpc:request_uri(dynamodb.uri, {
         method = "POST",
         body = string.len(args).."|"..args,
@@ -31,7 +34,7 @@ local function fetch_body_and_headers(id, cache_key, namespace, cache_name, vary
     -- Decode format: `<len>|<headers><body>`, where `len` is length of `headers`
     local headers_idx = string.find(body, "|", 1, true) + 1
     local headers_len = tonumber(string.sub(body, 1, headers_idx - 2))
-    local headers = json:decode(string.sub(body, headers_idx, headers_idx + headers_len - 1))
+    local headers = json.decode(string.sub(body, headers_idx, headers_idx + headers_len - 1))
     body = string.sub(body, headers_idx + headers_len)
 
     return {
@@ -42,7 +45,7 @@ end
 
 local function store_body_and_headers(ids, cache_key, namespace, cache_name,
                                             body, headers, vary_headers, ttl)
-    local args = json:encode({
+    local args = json.encode({
         method = "store_body_and_headers",
         id = ids[1],
         cache_key = cache_key,
@@ -53,6 +56,7 @@ local function store_body_and_headers(ids, cache_key, namespace, cache_name,
         ttl = ttl,
     })
     local httpc = resty_http.new()
+    httpc:set_timeout(TIMEOUT)
     local res, err = httpc:request_uri(dynamodb.uri, {
         method = "POST",
         body = string.len(args).."|"..args..body,
@@ -63,13 +67,14 @@ local function store_body_and_headers(ids, cache_key, namespace, cache_name,
 end
 
 local function purge(namespace, cache_name, id)
-    local args = json:encode({
+    local args = json.encode({
         method = "purge",
         id = id,
         namespace = namespace,
         cache_name = cache_name,
     })
     local httpc = resty_http.new()
+    httpc:set_timeout(TIMEOUT)
     local res, err = httpc:request_uri(dynamodb.uri, {
         method = "POST",
         body = string.len(args).."|"..args,

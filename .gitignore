@@ -5,6 +5,7 @@ luacov.report.out
 luacov.stats.out
 luarocks/
 resty_modules/
+.vscode/
 
 # Rust patterns
 /target

@@ -4,8 +4,8 @@ SRV_CONFIGS_PATH=${SRV_CONFIGS_PATH:-/nail/srv/configs/spectre}
 SERVICES_YAML_PATH=${SERVICES_YAML_PATH:-/nail/etc/services/services.yaml}
 ENVOY_CONFIGS_PATH=${ENVOY_CONFIGS_PATH:-/nail/srv/configs}
 CASSANDRA_CLUSTER_CONFIG=${CASSANDRA_CLUSTER_CONFIG:-/var/run/synapse/services/cassandra_spectre.main.json}
-# We run 1 worker per container in production
-WORKER_PROCESSES=${WORKER_PROCESSES:-1}
+# We run 2 worker per container in production
+WORKER_PROCESSES=${WORKER_PROCESSES:-2}
 NGINX_CONF=config/nginx.conf
 
 if [ $ACCEPTANCE ]; then
