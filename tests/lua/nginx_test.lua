@@ -36,8 +36,10 @@ describe("nginx", function()
 
         -- Ensure that all whitelisted variables are used.
         for key, v in pairs(env_variables) do
-            assert.is_true(v, string.format(
-                "`%s` is whitelisted in nginx.conf but never used", key))
+            if not string.match(key, "^REDIS_") then
+                assert.is_true(v, string.format(
+                    "`%s` is whitelisted in nginx.conf but never used", key))
+            end
         end
     end)
 end)
