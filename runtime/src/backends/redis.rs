@@ -150,7 +150,7 @@ impl Config {
 
 #[derive(Debug, Serialize, Deserialize)]
 struct ResponseItem {
-    #[serde(with = "hyper_serde")]
+    #[serde(with = "http_serde::header_map")]
     headers: HeaderMap,
     status_code: u16,
     timestamp: u64,

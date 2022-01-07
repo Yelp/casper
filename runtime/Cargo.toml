@@ -19,7 +19,7 @@ serde_yaml = "0.8"
 bytes = { version = "1", features = ["serde"] }
 toml = "0.5"
 serde = { version = "1", features = ["derive"] }
-hyper_serde = { git = "https://github.com/servo/hyper_serde" }
+http-serde = "1"
 flexbuffers = "2"
 bstr = { version = "0.2.17", features = ["serde1"] }
 base64 = "0.13"
