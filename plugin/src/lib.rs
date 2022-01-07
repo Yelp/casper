@@ -7,7 +7,7 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
 
-use anyhow::{anyhow, Context};
+use anyhow::{anyhow, Context, Result};
 use hyper::{
     header::{HeaderName, HeaderValue},
     service::service_fn,
@@ -54,7 +54,7 @@ struct PurgeMethodArgs {
     id: Option<String>,
 }
 
-async fn create_backend(endpoint: String, cluster: bool) -> RedisBackend {
+async fn create_backend(endpoint: String, cluster: bool) -> Result<RedisBackend> {
     let config = RedisConfig {
         timeouts: RedisTimeoutConfig {
             connect_timeout_ms: 3000, // 3 sec
@@ -75,43 +75,39 @@ async fn create_backend(endpoint: String, cluster: bool) -> RedisBackend {
         ..Default::default()
     };
 
-    RedisBackend::new(config)
-        .await
-        .expect("Cannot connect to redis backend")
+    Ok(RedisBackend::new(config).await?)
 }
 
-async fn get_backend(backend: u8) -> Option<&'static RedisBackend> {
-    static BACKEND1: OnceCell<Option<RedisBackend>> = OnceCell::const_new();
-    static BACKEND2: OnceCell<Option<RedisBackend>> = OnceCell::const_new();
+async fn get_backend(backend: u8) -> Result<&'static RedisBackend> {
+    static BACKEND1: OnceCell<RedisBackend> = OnceCell::const_new();
+    static BACKEND2: OnceCell<RedisBackend> = OnceCell::const_new();
 
     if backend == 1 {
         BACKEND1
-            .get_or_init(|| async {
+            .get_or_try_init(|| async {
                 if let Ok(endpoint) = var("REDIS_CLUSTER_ENDPOINT") {
-                    Some(create_backend(endpoint, true).await)
+                    create_backend(endpoint, true).await
                 } else if let Ok(endpoint) = var("REDIS_ENDPOINT") {
-                    Some(create_backend(endpoint, false).await)
+                    create_backend(endpoint, false).await
                 } else {
-                    None
+                    Err(anyhow!("Backend 1 does not configured"))
                 }
             })
             .await
-            .as_ref()
     } else if backend == 2 {
         BACKEND2
-            .get_or_init(|| async {
+            .get_or_try_init(|| async {
                 if let Ok(endpoint) = var("REDIS_CLUSTER_2_ENDPOINT") {
-                    Some(create_backend(endpoint, true).await)
+                    create_backend(endpoint, true).await
                 } else if let Ok(endpoint) = var("REDIS_2_ENDPOINT") {
-                    Some(create_backend(endpoint, false).await)
+                    create_backend(endpoint, false).await
                 } else {
-                    None
+                    Err(anyhow!("Backend 2 does not configured"))
                 }
             })
             .await
-            .as_ref()
     } else {
-        None
+        panic!("wrong backend number")
     }
 }
 
@@ -181,8 +177,7 @@ async fn handler_impl(mut req: Request<Body>) -> Result<Response<Body>, anyhow::
 
         // Store response to backend
         get_backend(1)
-            .await
-            .expect("Redis backend 1 does not configured")
+            .await?
             .store_response(Item::new_with_skeys(key, &mut resp, surrogate_keys, ttl))
             .await?;
 
@@ -196,12 +191,7 @@ async fn handler_impl(mut req: Request<Body>) -> Result<Response<Body>, anyhow::
         let key = calculate_primary_key(&args);
 
         // Fetch response
-        return match get_backend(1)
-            .await
-            .expect("Redis backend 1 does not configured")
-            .get_response(key)
-            .await?
-        {
+        return match get_backend(1).await?.get_response(key).await? {
             Some(mut resp) => {
                 let mut headers_map = serde_json::Map::new();
                 for (name, val) in resp.headers() {
@@ -242,13 +232,12 @@ async fn handler_impl(mut req: Request<Body>) -> Result<Response<Body>, anyhow::
 
         // Purge backend 1
         get_backend(1)
-            .await
-            .expect("Redis backend 1 does not configured")
+            .await?
             .delete_responses(ItemKey::Surrogate(surrogate_key.clone().into()))
             .await?;
 
         // If a 2nd backend is defined also purge
-        if let Some(backend2) = get_backend(2).await {
+        if let Ok(backend2) = get_backend(2).await {
             backend2
                 .delete_responses(ItemKey::Surrogate(surrogate_key.into()))
                 .await?;
@@ -257,9 +246,7 @@ async fn handler_impl(mut req: Request<Body>) -> Result<Response<Body>, anyhow::
     }
 
     if method.name == "stats" {
-        let backend = get_backend(1)
-            .await
-            .expect("Redis backend 1 does not configured");
+        let backend = get_backend(1).await?;
 
         let latency_metrics = backend.take_latency_metrics();
         let net_latency_metrics = backend.take_network_latency_metrics();
@@ -309,7 +296,9 @@ fn spawn_server() -> SocketAddr {
             let addr = SocketAddr::from(([127, 0, 0, 1], 0));
 
             // Initialize Redis backend
-            let _ = get_backend(1).await;
+            if let Err(err) = get_backend(1).await {
+                eprintln!("{:#}", err);
+            }
 
             let server = Server::bind(&addr).serve(Shared::new(service_fn(handler)));
             tx.send(server.local_addr())
