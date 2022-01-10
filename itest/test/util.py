@@ -33,6 +33,10 @@ def get_through_spectre(path, extra_headers=None):
     headers = HAPROXY_ADDED_HEADERS.copy()
     if extra_headers is not None:
         headers.update(extra_headers)
+
+    # Add x-casper-sync header (EDGE-569)
+    headers.update({"x-casper-sync": "true"})
+
     return requests.get(SPECTRE_BASE_URL + path, headers=headers)
 
 
@@ -71,6 +75,10 @@ def head_through_spectre(path, extra_headers=None):
     headers = HAPROXY_ADDED_HEADERS.copy()
     if extra_headers is not None:
         headers.update(extra_headers)
+
+    # Add x-casper-sync header (EDGE-569)
+    headers.update({"x-casper-sync": "true"})
+
     return requests.head(SPECTRE_BASE_URL + path, headers=headers)
 
 
@@ -81,6 +89,10 @@ def post_through_spectre(path, data=None, extra_headers=None):
     headers = HAPROXY_ADDED_HEADERS.copy()
     if extra_headers is not None:
         headers.update(extra_headers)
+
+    # Add x-casper-sync header (EDGE-569)
+    headers.update({"x-casper-sync": "true"})
+
     return requests.post(SPECTRE_BASE_URL + path, data=data, headers=headers)
 
 
