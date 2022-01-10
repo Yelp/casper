@@ -6,6 +6,7 @@ local spectre_common = require 'spectre_common'
 local cassandra_helper = datastores.cassandra_helper
 local _swagger_json = nil
 
+local dynamodb = require("dynamodb")
 local resty_http = require("resty.http")
 
 -- Handle PURGE requests
@@ -114,8 +115,6 @@ end
 
 -- Handle requests to /stats, returns Redis stats
 local function stats_handler(_)
-    local dynamodb = require("dynamodb")
-
     local args = json:encode({method = "stats"})
     local httpc = resty_http.new()
     local res, err = httpc:request_uri(dynamodb.uri, {
