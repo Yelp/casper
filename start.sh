@@ -28,6 +28,27 @@ if [ "$DISABLE_STDOUT_ACCESS_LOG" = "1" ]; then
     echo "done"
 fi
 
+cleanup() {
+    # kill all processes whose parent is this process
+    pkill -P $$
+}
+
+for sig in INT QUIT HUP TERM; do
+  trap "
+    cleanup
+    trap - $sig EXIT
+    kill -s $sig "'"$$"' "$sig"
+done
+trap cleanup EXIT
+
+echo "Starting Redis backend"
+backend() {
+    while true; do
+        ./luarocks/bin/rust_plugin
+    done
+}
+backend &
+
 echo "Starting casper"
 
 SRV_CONFIGS_PATH=$SRV_CONFIGS_PATH \
