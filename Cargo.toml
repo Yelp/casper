@@ -1,2 +1,2 @@
 [workspace]
-members = ["plugin", "runtime"]
+members = ["runtime"]

@@ -1,4 +1,3 @@
-local dynamodb = require("dynamodb")
 local resty_http = require("resty.http")
 local json = require("cjson")
 
@@ -7,6 +6,7 @@ local json = require("cjson")
 --
 
 local TIMEOUT = 1000
+local BACKEND_ADDR = 'http://127.0.0.1:34567'
 
 local function fetch_body_and_headers(id, cache_key, namespace, cache_name, vary_headers)
     local args = json.encode({
@@ -19,7 +19,7 @@ local function fetch_body_and_headers(id, cache_key, namespace, cache_name, vary
     })
     local httpc = resty_http.new()
     httpc:set_timeout(TIMEOUT)
-    local res, err = httpc:request_uri(dynamodb.uri, {
+    local res, err = httpc:request_uri(BACKEND_ADDR, {
         method = "POST",
         body = string.len(args).."|"..args,
     })
@@ -57,7 +57,7 @@ local function store_body_and_headers(ids, cache_key, namespace, cache_name,
     })
     local httpc = resty_http.new()
     httpc:set_timeout(TIMEOUT)
-    local res, err = httpc:request_uri(dynamodb.uri, {
+    local res, err = httpc:request_uri(BACKEND_ADDR, {
         method = "POST",
         body = string.len(args).."|"..args..body,
     })
@@ -75,7 +75,7 @@ local function purge(namespace, cache_name, id)
     })
     local httpc = resty_http.new()
     httpc:set_timeout(TIMEOUT)
-    local res, err = httpc:request_uri(dynamodb.uri, {
+    local res, err = httpc:request_uri(BACKEND_ADDR, {
         method = "POST",
         body = string.len(args).."|"..args,
     })
@@ -93,8 +93,26 @@ local function purge(namespace, cache_name, id)
     return ngx.HTTP_OK, response
 end
 
+-- Handle requests to /stats, returns Redis stats
+local function stats_handler()
+    local args = json.encode({method = "stats"})
+    local httpc = resty_http.new()
+    httpc:set_timeout(TIMEOUT)
+    local res, err = httpc:request_uri(BACKEND_ADDR, {
+        method = "POST",
+        body = string.len(args).."|"..args,
+    })
+
+    if err ~= nil or res.status ~= 200 then
+        return ngx.HTTP_INTERNAL_SERVER_ERROR, (err or res.body), {}
+    end
+
+    return ngx.HTTP_OK, res.body, {['Content-Type'] = 'application/json'}
+end
+
 return {
     store_body_and_headers = store_body_and_headers,
     fetch_body_and_headers = fetch_body_and_headers,
     purge = purge,
+    stats_handler = stats_handler,
 }

@@ -93,8 +93,8 @@ luarocks: luarocks-dependencies.txt lua-cassandra-dev-0.rockspec
 	ln -s /usr/bin/resty $@/bin/resty
 
 rust_plugin:
-	(cd plugin && cargo build --release)
-	cp -f target/release/libdynamodb.so luarocks/lib/lua/5.1/dynamodb.so
+	cargo build --release --bin plugin
+	cp -f target/release/plugin luarocks/bin/rust_plugin
 
 resty_modules: opm-dependencies.txt
 	rm -rf $@

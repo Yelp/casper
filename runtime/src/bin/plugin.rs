@@ -3,8 +3,6 @@ use std::env::var;
 use std::io::Write;
 use std::net::SocketAddr;
 use std::str::FromStr;
-use std::sync::mpsc;
-use std::thread;
 use std::time::Duration;
 
 use anyhow::{anyhow, Context, Result};
@@ -13,8 +11,7 @@ use hyper::{
     service::service_fn,
     Body, Request, Response, Server, StatusCode,
 };
-use mlua::{Lua, Table};
-use ripemd160::{Digest, Ripemd160};
+use ripemd::{Digest, Ripemd160};
 use serde_json::{json, Value as JsonValue};
 use tokio::sync::OnceCell;
 use tower::make::Shared;
@@ -284,39 +281,18 @@ async fn handler(req: Request<Body>) -> Result<Response<Body>, hyper::http::Erro
     }
 }
 
-fn spawn_server() -> SocketAddr {
-    let rt = tokio::runtime::Builder::new_multi_thread()
-        .worker_threads(4)
-        .enable_all()
-        .build()
-        .expect("cannot create tokio runtime");
-    let (tx, rx) = mpsc::channel();
-    thread::spawn(move || {
-        rt.block_on(async {
-            let addr = SocketAddr::from(([127, 0, 0, 1], 0));
+#[tokio::main(flavor = "multi_thread", worker_threads = 4)]
+async fn main() {
+    let addr = SocketAddr::from(([127, 0, 0, 1], 34567));
 
-            // Initialize Redis backend
-            if let Err(err) = get_backend(1).await {
-                eprintln!("{:#}", err);
-            }
+    // Initialize Redis backend
+    if let Err(err) = get_backend(1).await {
+        eprintln!("{:#}", err);
+    }
 
-            let server = Server::bind(&addr).serve(Shared::new(service_fn(handler)));
-            tx.send(server.local_addr())
-                .expect("cannot write to the channel");
+    let server = Server::bind(&addr).serve(Shared::new(service_fn(handler)));
 
-            if let Err(e) = server.await {
-                eprintln!("server error: {}", e);
-            }
-        });
-    });
-    rx.recv().expect("cannot read from the channel")
-}
-
-#[mlua::lua_module]
-fn dynamodb(lua: &Lua) -> mlua::Result<Table> {
-    let addr = spawn_server();
-
-    let exports = lua.create_table()?;
-    exports.set("uri", format!("http://{}/", addr))?;
-    Ok(exports)
+    if let Err(e) = server.await {
+        eprintln!("server error: {}", e);
+    }
 }

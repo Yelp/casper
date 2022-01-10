@@ -3,6 +3,9 @@ name = "casper-runtime"
 version = "0.1.0"
 edition = "2018"
 
+[[bin]]
+name = "plugin"
+
 [dependencies]
 mlua = { version = "0.7", features = ["luajit52", "async", "send", "vendored", "serialize"] }
 hyper = { version = "0.14", features = ["full"] }
@@ -34,3 +37,7 @@ hex = "0.4.3"
 
 # Redis
 fred = { version = "4.3", default-features = false, features = ["metrics", "pool-prefer-active", "enable-tls"] }
+
+# plugin binary
+tower = { version = "0.4", features = ["make"] }
+ripemd = "0.1"
