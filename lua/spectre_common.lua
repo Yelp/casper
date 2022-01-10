@@ -33,6 +33,8 @@ local DEFAULT_REQUEST_METHOD = 'GET'
 local DYNAMODB_BACKEND_NAME = 'dynamodb'
 local CASSANDRA_BACKEND_NAME = 'cassandra'
 
+local REDIS_DISABLED = os.getenv('REDIS_DISABLED') == '1'
+
 -- JSON encode the message table provided and logs it
 local function log(level, err)
     local formatted_err = json:encode(err)
@@ -538,6 +540,7 @@ end
 -- Deterministically calculates whether the dynamodb backend is enabled for a given cache item
 -- Uses the "dynamodb_enabled_pct" value when making the decision
 local function is_dynamodb_enabled(cache_key)
+    if REDIS_DISABLED then return false end
 
     local spectre_config = config_loader.get_spectre_config_for_namespace(
         config_loader.CASPER_INTERNAL_NAMESPACE
