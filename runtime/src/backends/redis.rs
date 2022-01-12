@@ -73,10 +73,6 @@ impl ServerConfig {
 
 #[derive(Clone, Copy, Debug, Deserialize)]
 pub struct TimeoutConfig {
-    /// A limit on the amount of time an application can take to make initial connection to Redis
-    #[serde(default = "TimeoutConfig::default_connect_timeout_ms")]
-    pub connect_timeout_ms: u64,
-
     /// A limit on the amount of time an application can take to fetch response or next chunk from Redis
     #[serde(default = "TimeoutConfig::default_fetch_timeout_ms")]
     pub fetch_timeout_ms: u64,
@@ -89,7 +85,6 @@ pub struct TimeoutConfig {
 impl Default for TimeoutConfig {
     fn default() -> Self {
         TimeoutConfig {
-            connect_timeout_ms: TimeoutConfig::default_connect_timeout_ms(),
             fetch_timeout_ms: TimeoutConfig::default_fetch_timeout_ms(),
             store_timeout_ms: TimeoutConfig::default_store_timeout_ms(),
         }
@@ -97,10 +92,6 @@ impl Default for TimeoutConfig {
 }
 
 impl TimeoutConfig {
-    const fn default_connect_timeout_ms() -> u64 {
-        10000
-    }
-
     const fn default_fetch_timeout_ms() -> u64 {
         10000
     }
@@ -167,24 +158,35 @@ struct SurrogateKeyItem {
 
 impl RedisBackend {
     #[allow(unused)]
-    pub async fn new(config: Config) -> Result<Self> {
+    pub fn new(config: Config) -> Self {
         let policy = fred::types::ReconnectPolicy::default();
         let pool_size = config.pool_size;
 
-        let pool = StaticRedisPool::new(config.clone().into_redis_config(), pool_size)?;
+        let pool = StaticRedisPool::new(config.clone().into_redis_config(), pool_size)
+            .expect("Failed to create Redis pool");
         let _ = pool.connect(Some(policy));
 
-        let connect_timeout = Duration::from_millis(config.timeouts.connect_timeout_ms);
-        timeout(connect_timeout, pool.wait_for_connect())
-            .await
-            .map_err(anyhow::Error::new)
-            .and_then(|r| r.map_err(anyhow::Error::new))
-            .context("Failed to connect to Redis")?;
-
-        Ok(RedisBackend {
+        RedisBackend {
             config,
             client: pool,
-        })
+        }
+    }
+
+    #[allow(unused)]
+    pub async fn wait_for_connect(&self, connect_timeout: Option<Duration>) -> Result<()> {
+        if let Some(connect_timeout) = connect_timeout {
+            Ok(timeout(connect_timeout, self.client.wait_for_connect())
+                .await
+                .map_err(anyhow::Error::new)
+                .and_then(|r| r.map_err(anyhow::Error::new))
+                .context("Failed to connect to Redis")?)
+        } else {
+            Ok(self
+                .client
+                .wait_for_connect()
+                .await
+                .context("Failed to connect to Redis")?)
+        }
     }
 
     async fn get_response_inner(&self, key: Key) -> Result<Option<Response<hyper::Body>>> {
@@ -447,7 +449,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_backend() {
-        let backend = RedisBackend::new(Config::default()).await.unwrap();
+        let backend = RedisBackend::new(Config::default());
 
         let mut resp = make_response("hello, world");
         resp.headers_mut()
@@ -483,7 +485,7 @@ mod tests {
     async fn test_chunked_body() {
         let mut config = Config::default();
         config.max_body_chunk_size = 2; // Set max chunk size to 2 bytes
-        let backend = RedisBackend::new(config).await.unwrap();
+        let backend = RedisBackend::new(config);
 
         // Cache response
         let resp = make_response("hello, world");
@@ -500,7 +502,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_surrogate_keys() {
-        let backend = RedisBackend::new(Config::default()).await.unwrap();
+        let backend = RedisBackend::new(Config::default());
 
         // Cache response
         let resp = make_response("hello, world");

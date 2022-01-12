@@ -6,14 +6,15 @@ use std::str::FromStr;
 use std::time::Duration;
 
 use anyhow::{anyhow, Context, Result};
+use futures::TryFutureExt;
 use hyper::{
     header::{HeaderName, HeaderValue},
     service::service_fn,
     Body, Request, Response, Server, StatusCode,
 };
+use once_cell::sync::OnceCell;
 use ripemd::{Digest, Ripemd160};
 use serde_json::{json, Value as JsonValue};
-use tokio::sync::OnceCell;
 use tower::make::Shared;
 
 use casper_runtime::{
@@ -51,12 +52,11 @@ struct PurgeMethodArgs {
     id: Option<String>,
 }
 
-async fn create_backend(endpoint: String, cluster: bool) -> Result<RedisBackend> {
+fn create_backend(endpoint: String, cluster: bool) -> RedisBackend {
     let config = RedisConfig {
         timeouts: RedisTimeoutConfig {
-            connect_timeout_ms: 3000, // 3 sec
-            fetch_timeout_ms: 200,    // 200 ms
-            store_timeout_ms: 5000,   // 5 sec
+            fetch_timeout_ms: 200,  // 200 ms
+            store_timeout_ms: 5000, // 5 sec
         },
         enable_tls: var("REDIS_TLS_ENABLED") == Ok("1".to_string()),
         server: if cluster {
@@ -72,37 +72,33 @@ async fn create_backend(endpoint: String, cluster: bool) -> Result<RedisBackend>
         ..Default::default()
     };
 
-    Ok(RedisBackend::new(config).await?)
+    RedisBackend::new(config)
 }
 
 async fn get_backend(backend: u8) -> Result<&'static RedisBackend> {
-    static BACKEND1: OnceCell<RedisBackend> = OnceCell::const_new();
-    static BACKEND2: OnceCell<RedisBackend> = OnceCell::const_new();
+    static BACKEND1: OnceCell<RedisBackend> = OnceCell::new();
+    static BACKEND2: OnceCell<RedisBackend> = OnceCell::new();
 
     if backend == 1 {
-        BACKEND1
-            .get_or_try_init(|| async {
-                if let Ok(endpoint) = var("REDIS_CLUSTER_ENDPOINT") {
-                    create_backend(endpoint, true).await
-                } else if let Ok(endpoint) = var("REDIS_ENDPOINT") {
-                    create_backend(endpoint, false).await
-                } else {
-                    Err(anyhow!("Backend 1 does not configured"))
-                }
-            })
-            .await
+        BACKEND1.get_or_try_init(|| {
+            if let Ok(endpoint) = var("REDIS_CLUSTER_ENDPOINT") {
+                Ok(create_backend(endpoint, true))
+            } else if let Ok(endpoint) = var("REDIS_ENDPOINT") {
+                Ok(create_backend(endpoint, false))
+            } else {
+                Err(anyhow!("Backend 1 does not configured"))
+            }
+        })
     } else if backend == 2 {
-        BACKEND2
-            .get_or_try_init(|| async {
-                if let Ok(endpoint) = var("REDIS_CLUSTER_2_ENDPOINT") {
-                    create_backend(endpoint, true).await
-                } else if let Ok(endpoint) = var("REDIS_2_ENDPOINT") {
-                    create_backend(endpoint, false).await
-                } else {
-                    Err(anyhow!("Backend 2 does not configured"))
-                }
-            })
-            .await
+        BACKEND2.get_or_try_init(|| {
+            if let Ok(endpoint) = var("REDIS_CLUSTER_2_ENDPOINT") {
+                Ok(create_backend(endpoint, true))
+            } else if let Ok(endpoint) = var("REDIS_2_ENDPOINT") {
+                Ok(create_backend(endpoint, false))
+            } else {
+                Err(anyhow!("Backend 2 does not configured"))
+            }
+        })
     } else {
         panic!("wrong backend number")
     }
@@ -285,9 +281,12 @@ async fn handler(req: Request<Body>) -> Result<Response<Body>, hyper::http::Erro
 async fn main() {
     let addr = SocketAddr::from(([127, 0, 0, 1], 34567));
 
-    // Initialize Redis backend
-    if let Err(err) = get_backend(1).await {
-        eprintln!("{:#}", err);
+    // Initialize Redis backend and wait for connection
+    if let Err(err) = get_backend(1)
+        .and_then(|be| be.wait_for_connect(Some(Duration::from_secs(5))))
+        .await
+    {
+        eprintln!("{:#}", err)
     }
 
     let server = Server::bind(&addr).serve(Shared::new(service_fn(handler)));
