@@ -48,6 +48,8 @@ pub mod lua {
     }
 }
 
+pub mod zstd;
+
 #[cfg(test)]
 mod tests {
     use super::normalize_uri;
