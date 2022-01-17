@@ -53,11 +53,13 @@ struct PurgeMethodArgs {
 }
 
 fn create_backend(endpoint: String, cluster: bool) -> RedisBackend {
+    let compression_level = var("COMPRESSION_LEVEL").ok().and_then(|x| x.parse().ok());
     let config = RedisConfig {
         timeouts: RedisTimeoutConfig {
             fetch_timeout_ms: 200,  // 200 ms
             store_timeout_ms: 5000, // 5 sec
         },
+        compression_level,
         enable_tls: var("REDIS_TLS_ENABLED") == Ok("1".to_string()),
         server: if cluster {
             RedisServerConfig::Clustered {
