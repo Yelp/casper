@@ -21,6 +21,7 @@ services:
             - WAIT_ON=10.5.0.5:9042
             - REDIS_ENDPOINT=10.5.0.11
             - REDIS_2_ENDPOINT=10.5.0.12
+            - COMPRESSION_LEVEL=0
 
         volumes:
             - /var/log/nginx
