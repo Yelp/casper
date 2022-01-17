@@ -3,6 +3,7 @@ use std::time::{Duration, SystemTime};
 
 use anyhow::{bail, Context, Result};
 use async_trait::async_trait;
+use bitflags::bitflags;
 use bytes::Bytes;
 use fred::pool::StaticRedisPool;
 use fred::prelude::{Expiration, RedisError, RedisKey, RedisValue, SetOptions};
@@ -13,9 +14,10 @@ use futures::{
 };
 use hyper::{HeaderMap, Response, StatusCode};
 use serde::{Deserialize, Serialize};
-use tokio::time::timeout;
+use tokio::{sync::oneshot, time::timeout};
 
 use crate::storage::{Item, ItemKey, Key, Storage};
+use crate::utils::zstd::ZstdDecoder;
 
 pub const MAX_CONCURRENCY: usize = 100;
 
@@ -43,6 +45,8 @@ pub struct Config {
 
     #[serde(default = "Config::default_max_body_chunk_size")]
     pub max_body_chunk_size: usize,
+
+    pub compression_level: Option<i32>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -111,6 +115,7 @@ impl Default for Config {
             timeouts: TimeoutConfig::default(),
             pool_size: Config::default_pool_size(),
             max_body_chunk_size: Config::default_max_body_chunk_size(),
+            compression_level: None,
         }
     }
 }
@@ -148,12 +153,20 @@ struct ResponseItem {
     surrogate_keys: Vec<Key>,
     body: Bytes,
     num_chunks: u32,
-    flags: u32,
+    flags: Flags,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 struct SurrogateKeyItem {
     timestamp: u64,
+}
+
+bitflags! {
+    #[derive(Serialize, Deserialize)]
+    pub struct Flags: u32 {
+        const NONE = 0b0;
+        const COMPRESSED = 0b1;
+    }
 }
 
 impl RedisBackend {
@@ -235,9 +248,12 @@ impl RedisBackend {
                     None => bail!("Cannot find chunk {}/{}", i + 2, num_chunks),
                 }
             });
-        let body = hyper::Body::wrap_stream(
-            stream::iter(vec![anyhow::Ok(response_item.body)]).chain(chunks_stream),
-        );
+        let body_stream = stream::iter(vec![anyhow::Ok(response_item.body)]).chain(chunks_stream);
+        let body = if response_item.flags.contains(Flags::COMPRESSED) {
+            hyper::Body::wrap_stream(ZstdDecoder::new(body_stream))
+        } else {
+            hyper::Body::wrap_stream(body_stream)
+        };
 
         // Construct a response object
         let mut resp = Response::new(body);
@@ -280,6 +296,18 @@ impl RedisBackend {
         // Get the response body
         let mut body = hyper::body::to_bytes(response.body_mut()).await?;
 
+        // If a compression level is set, compress the body with the zstd encoding, if compressed update flags
+        let mut flags = Flags::NONE;
+        if let Some(level) = self.config.compression_level {
+            let (tx, rx) = oneshot::channel();
+            rayon::spawn(move || {
+                tx.send(zstd::stream::encode_all(body.as_ref(), level))
+                    .expect("Compression receiver error")
+            });
+            body = Bytes::from(rx.await??);
+            flags.insert(Flags::COMPRESSED);
+        }
+
         // Split body to chunks and save chunks first
         let max_chunk_size = self.config.max_body_chunk_size;
         let mut num_chunks = 1;
@@ -307,7 +335,7 @@ impl RedisBackend {
             surrogate_keys: surrogate_keys.clone(),
             body,
             num_chunks,
-            flags: 0,
+            flags,
         };
         let response_item_enc = flexbuffers::to_vec(&response_item)?;
 
@@ -485,6 +513,27 @@ mod tests {
     async fn test_chunked_body() {
         let mut config = Config::default();
         config.max_body_chunk_size = 2; // Set max chunk size to 2 bytes
+        let backend = RedisBackend::new(config);
+
+        // Cache response
+        let resp = make_response("hello, world");
+        backend
+            .store_response(Item::new("key2", resp, Duration::from_secs(3)))
+            .await
+            .unwrap();
+
+        // Fetch it back
+        let mut resp = backend.get_response("key2".into()).await.unwrap().unwrap();
+        let body = hyper::body::to_bytes(&mut resp).await.unwrap().to_vec();
+        assert_eq!(String::from_utf8(body).unwrap(), "hello, world");
+    }
+
+    #[tokio::test]
+    async fn test_chunked_compressed_body() {
+        // Same as the above test, but with compression enabled
+        let mut config = Config::default();
+        config.max_body_chunk_size = 2; // Set max chunk size to 2 bytes
+        config.compression_level = Some(0);
         let backend = RedisBackend::new(config);
 
         // Cache response
