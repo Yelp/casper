@@ -172,7 +172,6 @@ where
             },
         );
 
-        // Temporary commented
         methods.add_async_function(
             "delete_responses",
             |lua, (this, keys): (AnyUserData, LuaTable)| async move {

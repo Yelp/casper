@@ -8,7 +8,6 @@ use futures::FutureExt;
 use hyper::service::Service;
 use hyper::{Body, Request, Response};
 use mlua::Lua;
-use tracing::error;
 
 use crate::handler;
 use crate::worker::WorkerData;
@@ -32,14 +31,13 @@ impl Service<Request<Body>> for Svc {
     fn call(&mut self, req: Request<Body>) -> Self::Future {
         // If handler returns an error, then generate 5xx response
         let handler = handler::handler(self.lua.clone(), self.worker_data.clone(), req);
-        Box::pin(handler.map(|result| match result {
-            Ok(res) => Ok(res),
-            Err(err) => {
-                error!("handler error: {:?}", err);
-                Response::builder()
+        Box::pin(handler.map(move |result| {
+            match result {
+                Ok(res) => Ok(res),
+                Err(_) => Response::builder()
                     .status(500)
                     .body(Body::from("Internal Server Error"))
-                    .map_err(Into::into)
+                    .map_err(Into::into),
             }
         }))
     }

@@ -8,7 +8,7 @@ use http::HeaderMap;
 use hyper::{client::HttpConnector, Body, Client, Request, Response, Uri};
 use mlua::{Function as LuaFunction, Lua, Table as LuaTable, Value, Variadic};
 use once_cell::sync::Lazy;
-use tracing::error;
+use tracing::{error, instrument, warn};
 
 use crate::request::LuaRequest;
 use crate::response::LuaResponse;
@@ -35,7 +35,22 @@ fn filter_hop_headers(headers: &mut HeaderMap) {
     }
 }
 
+#[instrument(skip_all, fields(http.uri = %req.uri(), http.method = %req.method()))]
 pub(crate) async fn handler(
+    lua: Rc<Lua>,
+    data: Rc<WorkerData>,
+    req: Request<Body>,
+) -> Result<Response<Body>> {
+    match handler_inner(lua, data, req).await {
+        Ok(res) => Ok(res),
+        Err(err) => {
+            error!("{:?}", err);
+            Err(err)
+        }
+    }
+}
+
+pub(crate) async fn handler_inner(
     lua: Rc<Lua>,
     data: Rc<WorkerData>,
     req: Request<Body>,
@@ -73,7 +88,7 @@ pub(crate) async fn handler(
             Ok(_) => {}
             Err(err) => {
                 // Skip faulty middleware
-                error!("middleware on-request error: {:?}", err);
+                warn!("middleware on-request error: {:?}", err);
                 skip_middleware.insert(i);
             }
         }
@@ -116,7 +131,7 @@ pub(crate) async fn handler(
             .call_async::<_, Value>((lua_resp.clone(), ctx.clone()))
             .await
         {
-            error!("middleware on-response error: {:?}", err);
+            warn!("middleware on-response error: {:?}", err);
             skip_middleware.insert(i);
         }
     }
@@ -162,7 +177,7 @@ pub(crate) async fn handler(
 
             if let Ok(after_response) = lua.registry_value::<LuaFunction>(after_response) {
                 if let Err(err) = after_response.call_async::<_, ()>(args).await {
-                    error!("middleware after-response error: {:?}", err);
+                    warn!("middleware after-response error: {:?}", err);
                 }
             }
         }
