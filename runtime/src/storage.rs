@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use std::borrow::BorrowMut;
 use std::error::Error as StdError;
 use std::fmt;
@@ -10,12 +8,12 @@ use std::time::Duration;
 use async_trait::async_trait;
 use bstr::BString;
 use futures::stream::{self, StreamExt};
-use hyper::body::HttpBody;
-use hyper::{Body, Response};
+use hyper::{body::HttpBody, Body, Response};
 use mlua::{
-    AnyUserData, ExternalResult, /*Result as LuaResult,*/ Table as LuaTable, UserData,
-    UserDataMethods,
+    AnyUserData, ExternalResult, FromLua, Lua, Result as LuaResult, String as LuaString,
+    Table as LuaTable, UserData, UserDataMethods, Value as LuaValue,
 };
+use ripemd::{Digest, Ripemd160};
 
 use crate::response::LuaResponse;
 
@@ -29,6 +27,7 @@ pub struct Item<R> {
 }
 
 impl<R> Item<R> {
+    #[cfg(test)]
     pub fn new(key: impl Into<Key>, response: R, ttl: Duration) -> Self {
         Item {
             key: key.into(),
@@ -38,6 +37,7 @@ impl<R> Item<R> {
         }
     }
 
+    #[cfg(test)]
     pub fn new_with_skeys(
         key: impl Into<Key>,
         response: R,
@@ -145,8 +145,9 @@ where
         //
         methods.add_async_function(
             "get_response",
-            |_, (this, key): (AnyUserData, Key)| async move {
+            |lua, (this, key): (AnyUserData, LuaValue)| async move {
                 let this = this.borrow::<Self>()?;
+                let key = calculate_primary_key(lua, key)?;
                 let resp = this.0.get_response(key).await.to_lua_err()?;
                 Ok(resp.map(|resp| {
                     let mut resp = LuaResponse::new(resp);
@@ -156,32 +157,14 @@ where
             },
         );
 
-        // Temporary commented
-        // methods.add_async_function(
-        //     "get_responses",
-        //     |_, (this, keys): (AnyUserData, Vec<Key>)| async move {
-        //         let this = this.borrow::<Self>()?;
-        //         let responses = this.0.get_responses(keys).await;
-        //         Ok(responses
-        //             .into_iter()
-        //             .map(|resp| {
-        //                 resp.map(|resp| {
-        //                     let mut resp = LuaResponse::new(resp);
-        //                     resp.is_cached = true;
-        //                     resp
-        //                 })
-        //             })
-        //             .collect::<Vec<_>>())
-        //     },
-        // );
-
         //
         // Delete
         //
         methods.add_async_function(
             "delete_response",
-            |_, (this, key): (AnyUserData, Key)| async move {
+            |lua, (this, key): (AnyUserData, LuaValue)| async move {
                 let this = this.borrow::<Self>()?;
+                let key = calculate_primary_key(lua, key)?;
                 this.0
                     .delete_responses(ItemKey::Primary(key))
                     .await
@@ -190,119 +173,89 @@ where
         );
 
         // Temporary commented
-        // methods.add_async_function(
-        //     "delete_responses",
-        //     |_, (this, keys): (AnyUserData, LuaTable)| async move {
-        //         let this = this.borrow::<Self>()?;
-        //         if keys.raw_len() > 0 {
-        //             // Primary cache keys provided
-        //             let keys = keys
-        //                 .raw_sequence_values::<Key>()
-        //                 .collect::<LuaResult<Vec<_>>>()?;
-        //             this.0
-        //                 .delete_responses(keys.into_iter().map(ItemKey::Primary))
-        //                 .await
-        //                 .to_lua_err()?;
-        //         } else {
-        //             let surrogate_keys = keys
-        //                 .raw_get::<_, Option<Vec<Key>>>("surrogate_keys")?
-        //                 .unwrap_or_default()
-        //                 .into_iter()
-        //                 .map(ItemKey::Surrogate);
-        //             this.0.delete_responses(surrogate_keys).await.to_lua_err()?;
-        //         }
-        //         Ok(())
-        //     },
-        // );
+        methods.add_async_function(
+            "delete_responses",
+            |lua, (this, keys): (AnyUserData, LuaTable)| async move {
+                let this = this.borrow::<Self>()?;
+
+                let primary_keys: Option<Vec<LuaValue>> = keys.raw_get("primary_keys")?;
+                let surrogate_keys: Option<Vec<Key>> = keys.raw_get("surrogate_keys")?;
+
+                let mut item_keys = Vec::with_capacity(
+                    primary_keys.as_ref().map(|x| x.len()).unwrap_or(0)
+                        + surrogate_keys.as_ref().map(|x| x.len()).unwrap_or(0),
+                );
+
+                if let Some(keys) = primary_keys {
+                    for key in keys {
+                        item_keys.push(ItemKey::Primary(calculate_primary_key(lua, key)?));
+                    }
+                }
+                if let Some(keys) = surrogate_keys {
+                    item_keys.extend(keys.into_iter().map(ItemKey::Surrogate));
+                }
+
+                let results = this.0.delete_responses_multi(item_keys).await;
+                for r in results {
+                    r.to_lua_err()?;
+                }
+
+                Ok(())
+            },
+        );
 
         //
         // Cache
         //
         methods.add_async_function(
             "store_response",
-            |_, (this, item): (AnyUserData, LuaTable)| async move {
+            |lua, (this, item): (AnyUserData, LuaTable)| async move {
                 let this = this.borrow::<Self>()?;
 
-                let key: Key = item.raw_get("key")?;
+                let key: LuaValue = item.raw_get("key")?;
                 let resp: AnyUserData = item.raw_get("response")?;
                 let surrogate_keys: Option<Vec<Key>> = item.raw_get("surrogate_keys")?;
-                let ttl: Option<f32> = item.raw_get("ttl")?;
+                let ttl: f32 = item.raw_get("ttl")?;
 
                 let mut resp = resp.borrow_mut::<LuaResponse>()?;
 
-                // Read response body and save it to restore after caching
+                // Read Response body and save it to restore after caching
                 let body = hyper::body::to_bytes(resp.body_mut()).await.to_lua_err()?;
                 *resp.body_mut() = Body::from(body.clone());
 
                 this.0
                     .store_response(Item {
-                        key,
+                        key: calculate_primary_key(lua, key)?,
                         response: resp.response_mut(),
                         surrogate_keys: surrogate_keys.unwrap_or_default(),
-                        ttl: Duration::from_secs_f32(ttl.unwrap_or(60.0)), // TODO: Configure default TTL
+                        ttl: Duration::from_secs_f32(ttl),
                     })
                     .await
                     .to_lua_err()?;
 
+                // Restore body
                 *resp.body_mut() = Body::from(body);
 
                 Ok(())
             },
         );
-
-        // Temporary commented
-        // methods.add_async_function(
-        //     "store_responses",
-        //     |_, (this, lua_items): (AnyUserData, Vec<LuaTable>)| async move {
-        //         let this = this.borrow::<Self>()?;
-
-        //         let (mut items, mut responses_any) = (Vec::new(), Vec::new());
-        //         for it in lua_items {
-        //             let key: Key = it.raw_get("key")?;
-        //             let surrogate_keys: Option<Vec<Key>> = it.raw_get("surrogate_keys")?;
-        //             let ttl: Option<f32> = it.raw_get("ttl")?;
-        //             items.push((key, surrogate_keys, ttl));
-
-        //             let resp: AnyUserData = it.raw_get("response")?;
-        //             responses_any.push(resp);
-        //         }
-
-        //         // Convert each response from `AnyUserData` to an instance of `LuaResponse`
-        //         let mut responses = Vec::new();
-        //         for resp in &mut responses_any {
-        //             let mut resp = AnyUserData::borrow_mut::<LuaResponse>(resp)?;
-
-        //             // Read body and save it
-        //             // TODO: Enable concurrency
-        //             let body = hyper::body::to_bytes(resp.body_mut()).await.to_lua_err()?;
-        //             *resp.body_mut() = Body::from(body.clone());
-
-        //             responses.push((resp, body));
-        //         }
-
-        //         this.0
-        //             .store_responses(
-        //                 items
-        //                     .into_iter()
-        //                     .zip(&mut responses)
-        //                     .map(|((key, surrogate_keys, ttl), (resp, _))| Item {
-        //                         key,
-        //                         response: resp.response_mut(),
-        //                         surrogate_keys: surrogate_keys.unwrap_or_default(),
-        //                         ttl: Duration::from_secs_f32(ttl.unwrap_or(60.0)), // TODO: Configure default TTL
-        //                     })
-        //                     .collect::<Vec<_>>(),
-        //             )
-        //             .await
-        //             .to_lua_err()?;
-
-        //         // Restore body
-        //         for (mut resp, body) in responses {
-        //             *resp.body_mut() = Body::from(body);
-        //         }
-
-        //         Ok(())
-        //     },
-        // );
     }
+}
+
+/// Calculates primary key from Lua Value
+/// The Value can be a string or a list of strings
+fn calculate_primary_key(lua: &Lua, key: LuaValue) -> LuaResult<Key> {
+    let mut hasher = Ripemd160::new();
+    match key {
+        LuaValue::Table(t) => {
+            for v in t.raw_sequence_values::<LuaString>() {
+                hasher.update(v?.as_bytes());
+            }
+        }
+        _ => {
+            let s = LuaString::from_lua(key, lua)?;
+            hasher.update(s.as_bytes());
+        }
+    }
+    Ok(hasher.finalize().to_vec().into())
 }

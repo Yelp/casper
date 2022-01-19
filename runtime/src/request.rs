@@ -62,6 +62,8 @@ impl UserData for LuaRequest {
             *this.uri_mut() = Uri::try_from(uri.as_bytes()).to_lua_err()?;
             Ok(())
         });
+
+        fields.add_field_method_get("uri_path", |_, this| Ok(this.uri().path().to_string()));
     }
 
     fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {

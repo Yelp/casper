@@ -1,2 +1,9 @@
 [workspace]
 members = ["runtime"]
+
+[profile.release]
+opt-level = 3
+
+[profile.dev]
+# https://jakedeichert.com/blog/reducing-rust-incremental-compilation-times-on-macos-by-70-percent/
+split-debuginfo = "unpacked"

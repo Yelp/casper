@@ -1,7 +1,7 @@
 use std::borrow::BorrowMut;
 use std::time::{Duration, SystemTime};
 
-use anyhow::{bail, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use async_trait::async_trait;
 use bitflags::bitflags;
 use bytes::Bytes;
@@ -31,6 +31,7 @@ pub struct RedisBackend {
 pub struct Config {
     #[serde(default)]
     pub server: ServerConfig,
+    #[serde(default)]
     pub enable_tls: bool,
 
     pub username: Option<String>,
@@ -45,32 +46,43 @@ pub struct Config {
 
     #[serde(default = "Config::default_max_body_chunk_size")]
     pub max_body_chunk_size: usize,
-
     pub compression_level: Option<i32>,
+    pub wait_for_connect: Option<f32>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
 pub enum ServerConfig {
-    Centralized { host: String, port: u16 },
-    Clustered { hosts: Vec<(String, u16)> },
+    #[serde(rename = "centralized")]
+    Centralized { endpoint: String },
+    #[serde(rename = "clustered")]
+    Clustered { endpoints: Vec<String> },
 }
 
 impl Default for ServerConfig {
     fn default() -> Self {
         ServerConfig::Centralized {
-            host: "127.0.0.1".into(),
-            port: 6379,
+            endpoint: "127.0.0.1".into(),
         }
     }
 }
 
 impl ServerConfig {
-    fn into_redis_server_config(self) -> fred::types::ServerConfig {
+    fn into_redis_server_config(self) -> Result<fred::types::ServerConfig> {
         match self {
-            ServerConfig::Centralized { host, port } => {
-                fred::types::ServerConfig::Centralized { host, port }
+            ServerConfig::Centralized { endpoint } => {
+                let (host, port) = parse_host_port(&endpoint)
+                    .with_context(|| format!("invalid redis endpoint `{endpoint}`"))?;
+                Ok(fred::types::ServerConfig::Centralized { host, port })
             }
-            ServerConfig::Clustered { hosts } => fred::types::ServerConfig::Clustered { hosts },
+            ServerConfig::Clustered { endpoints } => {
+                let mut hosts = Vec::new();
+                for endpoint in endpoints {
+                    let (host, port) = parse_host_port(&endpoint)
+                        .with_context(|| format!("invalid redis endpoint `{endpoint}`"))?;
+                    hosts.push((host, port));
+                }
+                Ok(fred::types::ServerConfig::Clustered { hosts })
+            }
         }
     }
 }
@@ -116,6 +128,7 @@ impl Default for Config {
             pool_size: Config::default_pool_size(),
             max_body_chunk_size: Config::default_max_body_chunk_size(),
             compression_level: None,
+            wait_for_connect: None,
         }
     }
 }
@@ -129,18 +142,18 @@ impl Config {
         1024 * 1024 // 1 MB
     }
 
-    fn into_redis_config(self) -> fred::types::RedisConfig {
-        fred::types::RedisConfig {
+    fn into_redis_config(self) -> Result<fred::types::RedisConfig> {
+        Ok(fred::types::RedisConfig {
             username: self.username,
             password: self.password,
-            server: self.server.into_redis_server_config(),
+            server: self.server.into_redis_server_config()?,
             tls: if self.enable_tls {
                 Some(fred::types::TlsConfig::default())
             } else {
                 None
             },
             ..Default::default()
-        }
+        })
     }
 }
 
@@ -170,36 +183,39 @@ bitflags! {
 }
 
 impl RedisBackend {
-    #[allow(unused)]
-    pub fn new(config: Config) -> Self {
+    pub fn new(config: Config) -> Result<Self> {
         let policy = fred::types::ReconnectPolicy::default();
         let pool_size = config.pool_size;
 
-        let pool = StaticRedisPool::new(config.clone().into_redis_config(), pool_size)
+        let pool = StaticRedisPool::new(config.clone().into_redis_config()?, pool_size)
             .expect("Failed to create Redis pool");
         let _ = pool.connect(Some(policy));
 
-        RedisBackend {
+        Ok(RedisBackend {
             config,
             client: pool,
-        }
+        })
     }
 
-    #[allow(unused)]
-    pub async fn wait_for_connect(&self, connect_timeout: Option<Duration>) -> Result<()> {
-        if let Some(connect_timeout) = connect_timeout {
-            Ok(timeout(connect_timeout, self.client.wait_for_connect())
-                .await
-                .map_err(anyhow::Error::new)
-                .and_then(|r| r.map_err(anyhow::Error::new))
-                .context("Failed to connect to Redis")?)
-        } else {
-            Ok(self
-                .client
-                .wait_for_connect()
-                .await
-                .context("Failed to connect to Redis")?)
+    pub async fn wait_for_connect(&self) -> Result<()> {
+        match self.config.wait_for_connect {
+            Some(secs) if secs > 0.0 => {
+                let dur = Duration::from_secs_f32(secs);
+                timeout(dur, self.client.wait_for_connect())
+                    .await
+                    .map_err(anyhow::Error::new)
+                    .and_then(|r| r.map_err(anyhow::Error::new))
+                    .context("Failed to connect to Redis")?;
+            }
+            Some(_) => {
+                self.client
+                    .wait_for_connect()
+                    .await
+                    .context("Failed to connect to Redis")?;
+            }
+            None => {}
         }
+        Ok(())
     }
 
     async fn get_response_inner(&self, key: Key) -> Result<Option<Response<hyper::Body>>> {
@@ -461,13 +477,14 @@ fn make_chunk_key(key: &impl AsRef<[u8]>, n: u32) -> RedisKey {
 #[cfg(test)]
 mod tests {
     use std::convert::TryInto;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::Duration;
 
     use http::HeaderValue;
     use hyper::{Body, Response};
 
     use crate::backends::redis::{Config, RedisBackend};
-    use crate::storage::{Item, ItemKey, Storage};
+    use crate::storage::{Item, ItemKey, Key, Storage};
 
     fn make_response<B: ToString + ?Sized>(body: &B) -> Response<Body> {
         Response::builder()
@@ -475,22 +492,29 @@ mod tests {
             .unwrap()
     }
 
+    fn make_uniq_key() -> Key {
+        static N: AtomicUsize = AtomicUsize::new(0);
+        format!("key{}", N.fetch_add(1, Ordering::Relaxed)).into()
+    }
+
     #[tokio::test]
     async fn test_backend() {
-        let backend = RedisBackend::new(Config::default());
+        let backend = RedisBackend::new(Config::default()).unwrap();
 
         let mut resp = make_response("hello, world");
         resp.headers_mut()
             .insert("Hello", "World".try_into().unwrap());
 
+        let key = make_uniq_key();
+
         // Cache response
         backend
-            .store_response(Item::new("key1", resp, Duration::from_secs(3)))
+            .store_response(Item::new(key.clone(), resp, Duration::from_secs(3)))
             .await
             .unwrap();
 
         // Fetch it back
-        let mut resp = backend.get_response("key1".into()).await.unwrap().unwrap();
+        let mut resp = backend.get_response(key.clone()).await.unwrap().unwrap();
         assert_eq!(
             resp.headers().get("Hello"),
             Some(&HeaderValue::from_static("World"))
@@ -500,12 +524,12 @@ mod tests {
 
         // Delete cached response
         backend
-            .delete_responses(ItemKey::Primary("key1".into()))
+            .delete_responses(ItemKey::Primary(key.clone()))
             .await
             .unwrap();
 
         // Try to fetch it back
-        let resp = backend.get_response("key1".into()).await.unwrap();
+        let resp = backend.get_response(key.clone()).await.unwrap();
         assert!(matches!(resp, None));
     }
 
@@ -513,17 +537,19 @@ mod tests {
     async fn test_chunked_body() {
         let mut config = Config::default();
         config.max_body_chunk_size = 2; // Set max chunk size to 2 bytes
-        let backend = RedisBackend::new(config);
+        let backend = RedisBackend::new(config).unwrap();
+
+        let key = make_uniq_key();
 
         // Cache response
         let resp = make_response("hello, world");
         backend
-            .store_response(Item::new("key2", resp, Duration::from_secs(3)))
+            .store_response(Item::new(key.clone(), resp, Duration::from_secs(3)))
             .await
             .unwrap();
 
         // Fetch it back
-        let mut resp = backend.get_response("key2".into()).await.unwrap().unwrap();
+        let mut resp = backend.get_response(key.clone()).await.unwrap().unwrap();
         let body = hyper::body::to_bytes(&mut resp).await.unwrap().to_vec();
         assert_eq!(String::from_utf8(body).unwrap(), "hello, world");
     }
@@ -534,30 +560,34 @@ mod tests {
         let mut config = Config::default();
         config.max_body_chunk_size = 2; // Set max chunk size to 2 bytes
         config.compression_level = Some(0);
-        let backend = RedisBackend::new(config);
+        let backend = RedisBackend::new(config).unwrap();
+
+        let key = make_uniq_key();
 
         // Cache response
         let resp = make_response("hello, world");
         backend
-            .store_response(Item::new("key2", resp, Duration::from_secs(3)))
+            .store_response(Item::new(key.clone(), resp, Duration::from_secs(3)))
             .await
             .unwrap();
 
         // Fetch it back
-        let mut resp = backend.get_response("key2".into()).await.unwrap().unwrap();
+        let mut resp = backend.get_response(key.clone()).await.unwrap().unwrap();
         let body = hyper::body::to_bytes(&mut resp).await.unwrap().to_vec();
         assert_eq!(String::from_utf8(body).unwrap(), "hello, world");
     }
 
     #[tokio::test]
     async fn test_surrogate_keys() {
-        let backend = RedisBackend::new(Config::default());
+        let backend = RedisBackend::new(Config::default()).unwrap();
+
+        let key = make_uniq_key();
 
         // Cache response
         let resp = make_response("hello, world");
         backend
             .store_response(Item::new_with_skeys(
-                "key3",
+                key.clone(),
                 resp,
                 vec!["abc", "def"],
                 Duration::from_secs(3),
@@ -566,7 +596,7 @@ mod tests {
             .unwrap();
 
         // Fetch it back
-        let mut resp = backend.get_response("key3".into()).await.unwrap().unwrap();
+        let mut resp = backend.get_response(key.clone()).await.unwrap().unwrap();
         let body = hyper::body::to_bytes(&mut resp).await.unwrap().to_vec();
         assert_eq!(String::from_utf8(body).unwrap(), "hello, world");
 
@@ -577,7 +607,16 @@ mod tests {
             .unwrap();
 
         // Try to fetch it back
-        let resp = backend.get_response("key3".into()).await.unwrap();
+        let resp = backend.get_response(key.clone()).await.unwrap();
         assert!(matches!(resp, None));
     }
+}
+
+fn parse_host_port(address: &str) -> Result<(String, u16)> {
+    let (host, port) = address.split_once(':').unwrap_or((address, "6379"));
+    if host.is_empty() {
+        bail!("host is empty");
+    }
+    let port = port.parse().map_err(|_| anyhow!("invalid port"))?;
+    Ok((host.to_string(), port))
 }

@@ -92,9 +92,9 @@ luarocks: luarocks-dependencies.txt lua-cassandra-dev-0.rockspec
 	ln -s $(CURDIR)/busted $@/bin/busted-resty
 	ln -s /usr/bin/resty $@/bin/resty
 
-rust_plugin:
-	cargo build --release --bin plugin
-	cp -f target/release/plugin luarocks/bin/rust_plugin
+casper_v2:
+	cargo build --release
+	cp -f target/release/casper-runtime luarocks/bin/casper-runtime
 
 resty_modules: opm-dependencies.txt
 	rm -rf $@
@@ -105,4 +105,4 @@ resty_modules: opm-dependencies.txt
 minimal: deps
 
 .PHONY: deps
-deps: luarocks resty_modules rust_plugin
+deps: luarocks resty_modules casper_v2
