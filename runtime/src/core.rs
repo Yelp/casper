@@ -1,7 +1,6 @@
-#![allow(dead_code)]
+use std::sync::Arc;
 
 use mlua::{Function, Lua, Result as LuaResult, Table};
-use std::sync::Arc;
 
 use crate::backends::{self, Backend};
 use crate::config_loader;
@@ -18,12 +17,14 @@ pub fn init_core(lua: &Lua) -> LuaResult<Table> {
     // Create storage backends in Lua
     let storage = lua.create_table()?;
     for (name, backend) in backends::registered_backends() {
-        storage.set(
-            name.as_str(),
-            LuaStorage::new(match backend {
-                Backend::Memory(m) => Arc::clone(m),
-            }),
-        )?;
+        match backend {
+            Backend::Memory(b) => {
+                storage.set(name.as_str(), LuaStorage::new(Arc::clone(b)))?;
+            }
+            Backend::Redis(b) => {
+                storage.set(name.as_str(), LuaStorage::new(Arc::clone(b)))?;
+            }
+        }
     }
     core.set("storage", storage)?;
 

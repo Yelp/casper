@@ -1,0 +1,25 @@
+---
+main:
+  worker_threads: 4
+  listen: 127.0.0.1:34567
+
+middleware:
+  - code: "require('lua.v2.redis')"
+
+storage:
+  primary:
+    backend: redis
+    server:
+      centralized:
+        endpoint: 10.5.0.11
+    pool_size: 4
+    compression_level: 3
+    wait_for_connect: 3
+
+  crossdc:
+    backend: redis
+    server:
+      centralized:
+        endpoint: 10.5.0.12
+    pool_size: 4
+    compression_level: 3

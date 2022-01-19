@@ -6,7 +6,7 @@ local spectre_common = require 'spectre_common'
 local cassandra_helper = datastores.cassandra_helper
 local _swagger_json = nil
 
-local dynamodb = require 'dynamodb_helper'
+local casper_v2 = require 'v2_helper'
 
 -- Handle PURGE requests
 local function _purge_handler(smartstack_destination)
@@ -167,7 +167,7 @@ end
 local function router(_, namespace)
     local handlers = {
        ['GET /status'] = status_handler,
-       ['GET /stats'] = dynamodb.stats_handler,
+       ['GET /metrics'] = casper_v2.metrics_handler,
        ['GET /configs'] = configs_handler,
        ['GET /internal_error/dogslow'] = itest_urls_handler,
        ['GET /internal_error/crash'] = itest_urls_handler,

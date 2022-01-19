@@ -19,9 +19,7 @@ services:
             - SERVICES_YAML_PATH=/code/itest/data/services.yaml
             - DISABLE_STDOUT_ACCESS_LOG=1
             - WAIT_ON=10.5.0.5:9042
-            - REDIS_ENDPOINT=10.5.0.11
-            - REDIS_2_ENDPOINT=10.5.0.12
-            - COMPRESSION_LEVEL=0
+            - CASPER_CONFIG=/code/itest/data/casper.yaml
 
         volumes:
             - /var/log/nginx

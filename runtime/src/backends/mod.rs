@@ -14,27 +14,41 @@ static REGISTERED_BACKENDS: OnceCell<HashMap<String, Backend>> = OnceCell::new()
 
 pub enum Backend {
     Memory(Arc<MemoryBackend>),
+    Redis(Arc<RedisBackend>),
 }
 
-pub fn register_backends(backends_config: HashMap<String, toml::Value>) -> anyhow::Result<()> {
+pub async fn register_backends(
+    backends_config: HashMap<String, serde_yaml::Value>,
+) -> anyhow::Result<()> {
     let mut registered_backends = HashMap::new();
 
     for (name, config) in backends_config {
-        let backend = config
+        let backend_type = config
             .get("backend")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow!("backend is not set for storage `{}`", name))?;
+            .ok_or_else(|| anyhow!("backend is not set for storage `{name}`"))?;
 
-        match backend {
+        match backend_type {
             "memory" => {
-                let config = config.try_into::<memory::Config>().with_context(|| {
-                    format!("invalid backend configuration for storage `{}`", name)
+                let config = serde_yaml::from_value::<MemoryConfig>(config).with_context(|| {
+                    format!("invalid backend configuration for storage `{name}`")
                 })?;
-
                 registered_backends
                     .insert(name, Backend::Memory(Arc::new(MemoryBackend::new(&config))));
             }
-            _ => bail!("unknown backend `{}` for storage `{}`", backend, name),
+            "redis" => {
+                let config = serde_yaml::from_value::<RedisConfig>(config).with_context(|| {
+                    format!("invalid backend configuration for storage `{name}`")
+                })?;
+                let backend = RedisBackend::new(config).with_context(|| {
+                    format!("unable to initialize backend for storage `{name}`")
+                })?;
+                if let Err(err) = backend.wait_for_connect().await {
+                    eprintln!("{:#}", err);
+                }
+                registered_backends.insert(name, Backend::Redis(Arc::new(backend)));
+            }
+            _ => bail!("unknown backend `{}` for storage `{}`", backend_type, name),
         }
     }
 

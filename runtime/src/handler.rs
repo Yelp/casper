@@ -1,12 +1,14 @@
-use std::error::Error as StdError;
+use std::collections::HashSet;
 use std::rc::Rc;
 
+use anyhow::Result;
 use http::header::{self, HeaderName};
 use http::uri::Scheme;
 use http::HeaderMap;
 use hyper::{client::HttpConnector, Body, Client, Request, Response, Uri};
 use mlua::{Function as LuaFunction, Lua, Table as LuaTable, Value, Variadic};
 use once_cell::sync::Lazy;
+use tracing::error;
 
 use crate::request::LuaRequest;
 use crate::response::LuaResponse;
@@ -37,7 +39,7 @@ pub(crate) async fn handler(
     lua: Rc<Lua>,
     data: Rc<WorkerData>,
     req: Request<Body>,
-) -> Result<Response<Body>, anyhow::Error> {
+) -> Result<Response<Body>> {
     let middleware_list = &data.middleware;
 
     // Create Lua context table
@@ -49,6 +51,7 @@ pub(crate) async fn handler(
 
     // Process a chain of Lua's `on_request` actions
     let mut process_level = middleware_list.len();
+    let mut skip_middleware = HashSet::new();
     for (i, on_request) in middleware_list
         .iter()
         .enumerate()
@@ -59,6 +62,7 @@ pub(crate) async fn handler(
             .call_async::<_, Value>((lua_req.clone(), ctx.clone()))
             .await
         {
+            // Early Response?
             Ok(Value::UserData(resp)) => {
                 if resp.is::<LuaResponse>() {
                     early_resp = Some(resp);
@@ -67,7 +71,11 @@ pub(crate) async fn handler(
                 }
             }
             Ok(_) => {}
-            Err(err) => println!("middleware error: {}", err),
+            Err(err) => {
+                // Skip faulty middleware
+                error!("middleware on-request error: {:?}", err);
+                skip_middleware.insert(i);
+            }
         }
     }
 
@@ -93,21 +101,23 @@ pub(crate) async fn handler(
 
     // Process a chain of Lua's `on_response` actions up to the `process_level`
     // We need to do this in reverse order
-    for on_response in middleware_list
+    for (i, on_response) in middleware_list
         .iter()
+        .enumerate()
         .take(process_level)
         .rev()
-        .filter_map(|it| it.on_response.as_ref())
+        .filter_map(|(i, it)| it.on_response.as_ref().map(|r| (i, r)))
     {
+        if skip_middleware.contains(&i) {
+            continue;
+        }
         let on_response: LuaFunction = lua.registry_value(on_response)?;
         if let Err(err) = on_response
             .call_async::<_, Value>((lua_resp.clone(), ctx.clone()))
             .await
         {
-            eprintln!("{}", err);
-            if let Some(source) = err.source() {
-                eprintln!("cause: {}", source);
-            }
+            error!("middleware on-response error: {:?}", err);
+            skip_middleware.insert(i);
         }
     }
 
@@ -129,13 +139,18 @@ pub(crate) async fn handler(
     tokio::task::spawn_local(async move {
         let ctx: LuaTable = lua.registry_value(&ctx_key).unwrap();
 
-        for after_response in data
+        for (i, after_response) in data
             .middleware
             .iter()
+            .enumerate()
             .take(process_level)
             .rev()
-            .filter_map(|it| it.after_response.as_ref())
+            .filter_map(|(i, it)| it.after_response.as_ref().map(|r| (i, r)))
         {
+            if skip_middleware.contains(&i) {
+                continue;
+            }
+
             let mut args = Variadic::new();
             args.push(Value::Table(ctx.clone()));
             if let Some(resp_key) = resp_key.as_ref() {
@@ -147,10 +162,7 @@ pub(crate) async fn handler(
 
             if let Ok(after_response) = lua.registry_value::<LuaFunction>(after_response) {
                 if let Err(err) = after_response.call_async::<_, ()>(args).await {
-                    eprintln!("{}", err);
-                    if let Some(source) = err.source() {
-                        eprintln!("cause: {}", source);
-                    }
+                    error!("middleware after-response error: {:?}", err);
                 }
             }
         }
@@ -161,10 +173,7 @@ pub(crate) async fn handler(
     Ok(resp)
 }
 
-async fn proxy_to_downstream(
-    mut req: Request<Body>,
-    dst: Option<Uri>,
-) -> anyhow::Result<Response<Body>> {
+async fn proxy_to_downstream(mut req: Request<Body>, dst: Option<Uri>) -> Result<Response<Body>> {
     // Set destination to forward request
     let mut parts = req.uri().clone().into_parts();
     if let Some(dst_parts) = dst.map(|dst| dst.into_parts()) {

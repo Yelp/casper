@@ -1,17 +1,14 @@
-#![allow(dead_code)]
-
 use std::ops::Deref;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::thread;
 use std::time::{Instant, SystemTime};
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use hyper::server::conn::{AddrStream, Http};
 use mlua::{Function, Lua, RegistryKey as LuaRegistryKey, Table};
-use tokio::runtime;
-use tokio::sync::mpsc;
-use tokio::task::LocalSet;
+use tokio::{runtime, sync::mpsc, task::LocalSet};
+use tracing::error;
 
 use crate::config::Config;
 use crate::core;
@@ -49,7 +46,7 @@ pub struct LocalWorker {
 }
 
 impl LocalWorker {
-    pub fn new(id: usize, config: Arc<Config>) -> Self {
+    pub fn new(id: usize, config: Arc<Config>) -> Result<Self> {
         let (sender, mut recv) = mpsc::unbounded_channel::<IncomingStream>();
 
         let rt = runtime::Builder::new_current_thread()
@@ -63,7 +60,7 @@ impl LocalWorker {
             config,
             middleware: Vec::new(),
         };
-        Self::init_lua(&lua, &mut worker_data).unwrap();
+        Self::init_lua(&lua, &mut worker_data).with_context(|| "Failed to initialize Lua")?;
 
         thread::spawn(move || {
             let local = LocalSet::new();
@@ -75,6 +72,10 @@ impl LocalWorker {
                     let lua = lua.clone();
                     let worker_data = worker_data.clone();
                     let remote_addr = stream.remote_addr();
+
+                    // To hide warnings
+                    let _ = stream.accept_time;
+                    let _ = stream.system_time;
 
                     tokio::task::spawn_local(async move {
                         let service = Svc {
@@ -91,7 +92,7 @@ impl LocalWorker {
                             .await;
 
                         if let Err(err) = result {
-                            println!("error: {}", err);
+                            error!("{:?}", err);
                         }
                     });
                 }
@@ -99,7 +100,7 @@ impl LocalWorker {
             rt.block_on(local);
         });
 
-        Self { sender }
+        Ok(Self { sender })
     }
 
     /// Initializes Lua instance for Worker updating WorkerData

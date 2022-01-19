@@ -3,6 +3,7 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 
 use anyhow::Context as _;
+use clap::Parser;
 use futures::{Stream, TryStreamExt};
 use hyper::{
     client::HttpConnector,
@@ -12,6 +13,7 @@ use hyper::{
 };
 use once_cell::sync::Lazy;
 use tokio::net::TcpListener;
+use tracing::{error, info};
 
 use crate::worker::LocalWorker;
 
@@ -27,43 +29,57 @@ impl Stream for AddrIncomingStream {
     }
 }
 
-async fn main_inner() -> anyhow::Result<()> {
-    pretty_env_logger::init();
+#[derive(Parser, Debug)]
+#[clap(version, about, long_about = None)]
+struct Args {
+    #[clap(short, long, default_value = "casper.yaml", env = "CASPER_CONFIG")]
+    config: String,
+}
 
-    let config = Arc::new(config::read_config("./casper.toml")?);
+async fn main_inner() -> anyhow::Result<()> {
+    // Parse command line arguments
+    let args = Args::parse();
+
+    // Read application configuration
+    let config = Arc::new(config::read_config(&args.config)?);
 
     // Register storage backends defined in the config
-    backends::register_backends(config.storage.clone())
-        .context("cannot register storage backends")?;
+    backends::register_backends(config.storage.clone()).await?;
 
     let main_config = &config.main;
 
     let mut workers = Vec::new();
-    let num_threads = main_config.num_threads;
-    for id in 0..num_threads {
-        workers.push(LocalWorker::new(id, config.clone()));
+    let num_worker_threads = main_config.worker_threads;
+    for id in 0..num_worker_threads {
+        let worker =
+            LocalWorker::new(id, config.clone()).with_context(|| "Failed to initialize worker")?;
+        workers.push(worker);
+        info!("Worker {id} created");
     }
 
     let addr = &main_config.listen;
     let listener = TcpListener::bind(addr).await?;
 
-    println!("Listening on http://{}", addr);
+    info!("Listening on http://{}", addr);
 
     let mut incoming = AddrIncomingStream(AddrIncoming::from_listener(listener)?);
     let mut accept_count = 0;
     while let Some(stream) = incoming.try_next().await? {
         accept_count += 1;
-        workers[accept_count % num_threads].spawn(stream);
+        workers[accept_count % num_worker_threads].spawn(stream);
         accept_count += 1;
     }
 
     Ok(())
 }
 
-#[tokio::main(flavor = "current_thread")]
+#[tokio::main]
 async fn main() {
+    // install global collector configured based on RUST_LOG env var.
+    tracing_subscriber::fmt::init();
+
     if let Err(err) = main_inner().await {
-        eprintln!("{:?}", err);
+        error!("{:?}", err);
     }
 }
 
