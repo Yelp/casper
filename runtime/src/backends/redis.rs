@@ -12,10 +12,11 @@ use futures::{
     future::try_join_all,
     stream::{self, StreamExt},
 };
-use hyper::{HeaderMap, Response, StatusCode};
+use hyper::{Response, StatusCode};
 use serde::{Deserialize, Serialize};
-use tokio::{sync::oneshot, time::timeout};
+use tokio::time::timeout;
 
+use super::common::{compress_with_zstd, decode_headers, encode_headers};
 use crate::storage::{Item, ItemKey, Key, Storage};
 use crate::utils::zstd::ZstdDecoder;
 
@@ -159,8 +160,8 @@ impl Config {
 
 #[derive(Debug, Serialize, Deserialize)]
 struct ResponseItem {
-    #[serde(with = "http_serde::header_map")]
-    headers: HeaderMap,
+    #[serde(with = "serde_bytes")]
+    headers: Vec<u8>,
     status_code: u16,
     timestamp: u64,
     surrogate_keys: Vec<Key>,
@@ -265,16 +266,23 @@ impl RedisBackend {
                 }
             });
         let body_stream = stream::iter(vec![anyhow::Ok(response_item.body)]).chain(chunks_stream);
-        let body = if response_item.flags.contains(Flags::COMPRESSED) {
-            hyper::Body::wrap_stream(ZstdDecoder::new(body_stream))
+
+        // Decompress the body and headers if required
+        let body;
+        let headers;
+        if response_item.flags.contains(Flags::COMPRESSED) {
+            body = hyper::Body::wrap_stream(ZstdDecoder::new(body_stream));
+            headers = zstd::stream::decode_all(response_item.headers.as_slice())?;
         } else {
-            hyper::Body::wrap_stream(body_stream)
-        };
+            body = hyper::Body::wrap_stream(body_stream);
+            headers = response_item.headers;
+        }
+        let header_map = decode_headers(headers.as_ref())?;
 
         // Construct a response object
         let mut resp = Response::new(body);
         *resp.status_mut() = StatusCode::from_u16(response_item.status_code)?;
-        *resp.headers_mut() = response_item.headers;
+        *resp.headers_mut() = header_map;
 
         Ok(Some(resp))
     }
@@ -309,18 +317,15 @@ impl RedisBackend {
         surrogate_keys: Vec<Key>,
         ttl: Duration,
     ) -> Result<()> {
-        // Get the response body
+        // Get the response body and headers
         let mut body = hyper::body::to_bytes(response.body_mut()).await?;
+        let mut headers = encode_headers(response.headers())?;
 
-        // If a compression level is set, compress the body with the zstd encoding, if compressed update flags
+        // If a compression level is set, compress the body and headers with the zstd encoding, if compressed update flags
         let mut flags = Flags::NONE;
         if let Some(level) = self.config.compression_level {
-            let (tx, rx) = oneshot::channel();
-            rayon::spawn(move || {
-                tx.send(zstd::stream::encode_all(body.as_ref(), level))
-                    .expect("Compression receiver error")
-            });
-            body = Bytes::from(rx.await??);
+            body = Bytes::from(compress_with_zstd(body, level).await?);
+            headers = compress_with_zstd(Bytes::from(headers), level).await?;
             flags.insert(Flags::COMPRESSED);
         }
 
@@ -345,10 +350,10 @@ impl RedisBackend {
         }
 
         let response_item = ResponseItem {
-            headers: response.headers().clone(),
             status_code: response.status().as_u16(),
             timestamp: unix_timestamp(),
             surrogate_keys: surrogate_keys.clone(),
+            headers,
             body,
             num_chunks,
             flags,
@@ -566,6 +571,7 @@ mod tests {
 
         // Cache response
         let resp = make_response("hello, world");
+
         backend
             .store_response(Item::new(key.clone(), resp, Duration::from_secs(3)))
             .await
@@ -575,6 +581,34 @@ mod tests {
         let mut resp = backend.get_response(key.clone()).await.unwrap().unwrap();
         let body = hyper::body::to_bytes(&mut resp).await.unwrap().to_vec();
         assert_eq!(String::from_utf8(body).unwrap(), "hello, world");
+    }
+
+    #[tokio::test]
+    async fn test_compressed_headers() {
+        let mut config = Config::default();
+        config.compression_level = Some(22);
+        let backend = RedisBackend::new(config).unwrap();
+
+        let key = make_uniq_key();
+
+        // Cache response
+        let mut resp = make_response("hello, world");
+        resp.headers_mut().insert(
+            "Hello-World-Header",
+            "Hello world header data".try_into().unwrap(),
+        );
+
+        backend
+            .store_response(Item::new(key.clone(), resp, Duration::from_secs(3)))
+            .await
+            .unwrap();
+
+        // Fetch it back
+        let resp = backend.get_response(key.clone()).await.unwrap().unwrap();
+        assert_eq!(
+            resp.headers().get("Hello-World-Header").unwrap(),
+            "Hello world header data"
+        );
     }
 
     #[tokio::test]

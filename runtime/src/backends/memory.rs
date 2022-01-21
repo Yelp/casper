@@ -4,11 +4,12 @@ use std::time::SystemTime;
 
 use async_trait::async_trait;
 use bytes::Bytes;
-use http::{HeaderMap, Response, StatusCode};
+use http::{Response, StatusCode};
 use linked_hash_map::LinkedHashMap;
 use serde::Deserialize;
 use tokio::sync::Mutex;
 
+use super::common::{decode_headers, encode_headers};
 use crate::storage::{Item, ItemKey, Key, Storage};
 
 // Memory backend configuration
@@ -232,17 +233,6 @@ impl Storage for MemoryBackend {
         }
         results
     }
-}
-
-fn encode_headers(headers: &HeaderMap) -> Result<Vec<u8>, flexbuffers::SerializationError> {
-    let mut serializer = flexbuffers::FlexbufferSerializer::new();
-    http_serde::header_map::serialize(headers, &mut serializer)?;
-    Ok(serializer.take_buffer())
-}
-
-fn decode_headers(data: &[u8]) -> Result<HeaderMap, flexbuffers::DeserializationError> {
-    let deserializer = flexbuffers::Reader::get_root(data)?;
-    http_serde::header_map::deserialize(deserializer)
 }
 
 #[cfg(test)]
