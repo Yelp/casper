@@ -1,4 +1,5 @@
 use std::borrow::BorrowMut;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, SystemTime};
 
 use anyhow::{anyhow, bail, Context, Result};
@@ -15,6 +16,7 @@ use futures::{
 use hyper::{Response, StatusCode};
 use serde::{Deserialize, Serialize};
 use tokio::time::timeout;
+use tracing::error;
 
 use super::common::{compress_with_zstd, decode_headers, encode_headers};
 use crate::storage::{Item, ItemKey, Key, Storage};
@@ -25,6 +27,7 @@ pub const MAX_CONCURRENCY: usize = 100;
 pub struct RedisBackend {
     config: Config,
     client: StaticRedisPool,
+    connected: AtomicBool,
 }
 
 // Redis backend configuration
@@ -49,6 +52,8 @@ pub struct Config {
     pub max_body_chunk_size: usize,
     pub compression_level: Option<i32>,
     pub wait_for_connect: Option<f32>,
+    #[serde(default)]
+    pub lazy: bool,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -130,6 +135,7 @@ impl Default for Config {
             max_body_chunk_size: Config::default_max_body_chunk_size(),
             compression_level: None,
             wait_for_connect: None,
+            lazy: false,
         }
     }
 }
@@ -184,18 +190,35 @@ bitflags! {
 }
 
 impl RedisBackend {
-    pub fn new(config: Config) -> Result<Self> {
-        let policy = fred::types::ReconnectPolicy::default();
+    pub async fn new(config: Config) -> Result<Self> {
         let pool_size = config.pool_size;
 
-        let pool = StaticRedisPool::new(config.clone().into_redis_config()?, pool_size)
-            .expect("Failed to create Redis pool");
-        let _ = pool.connect(Some(policy));
+        let redis_config = config.clone().into_redis_config()?;
+        let pool =
+            StaticRedisPool::new(redis_config, pool_size).expect("Failed to create Redis pool");
 
-        Ok(RedisBackend {
-            config,
+        let backend = RedisBackend {
+            config: config.clone(),
             client: pool,
-        })
+            connected: AtomicBool::new(false),
+        };
+
+        if !config.lazy {
+            backend.ensure_connected();
+            if let Err(err) = backend.wait_for_connect().await {
+                error!("{:#}", err.context("Failed to connect to Redis"));
+            }
+        }
+
+        Ok(backend)
+    }
+
+    #[inline]
+    pub fn ensure_connected(&self) {
+        if !self.connected.swap(true, Ordering::Relaxed) {
+            let policy = fred::types::ReconnectPolicy::default();
+            let _ = self.client.connect(Some(policy));
+        }
     }
 
     pub async fn wait_for_connect(&self) -> Result<()> {
@@ -206,17 +229,10 @@ impl RedisBackend {
                     .await
                     .map_err(anyhow::Error::new)
                     .and_then(|r| r.map_err(anyhow::Error::new))
-                    .context("Failed to connect to Redis")?;
             }
-            Some(_) => {
-                self.client
-                    .wait_for_connect()
-                    .await
-                    .context("Failed to connect to Redis")?;
-            }
-            None => {}
+            Some(_) => Ok(self.client.wait_for_connect().await?),
+            None => Ok(()),
         }
-        Ok(())
     }
 
     async fn get_response_inner(&self, key: Key) -> Result<Option<Response<hyper::Body>>> {
@@ -268,8 +284,7 @@ impl RedisBackend {
         let body_stream = stream::iter(vec![anyhow::Ok(response_item.body)]).chain(chunks_stream);
 
         // Decompress the body and headers if required
-        let body;
-        let headers;
+        let (body, headers);
         if response_item.flags.contains(Flags::COMPRESSED) {
             body = hyper::Body::wrap_stream(ZstdDecoder::new(body_stream));
             headers = zstd::stream::decode_all(response_item.headers.as_slice())?;
@@ -277,12 +292,11 @@ impl RedisBackend {
             body = hyper::Body::wrap_stream(body_stream);
             headers = response_item.headers;
         }
-        let header_map = decode_headers(headers.as_ref())?;
 
         // Construct a response object
         let mut resp = Response::new(body);
         *resp.status_mut() = StatusCode::from_u16(response_item.status_code)?;
-        *resp.headers_mut() = header_map;
+        *resp.headers_mut() = decode_headers(&headers)?;
 
         Ok(Some(resp))
     }
@@ -425,6 +439,7 @@ impl Storage for RedisBackend {
     type Error = anyhow::Error;
 
     async fn get_response(&self, key: Key) -> Result<Option<Response<Self::Body>>, Self::Error> {
+        self.ensure_connected();
         let fetch_timeout = self.get_fetch_timeout();
         timeout(fetch_timeout, self.get_response_inner(key.clone()))
             .await
@@ -434,6 +449,7 @@ impl Storage for RedisBackend {
     }
 
     async fn delete_responses(&self, key: ItemKey) -> Result<(), Self::Error> {
+        self.ensure_connected();
         let store_timeout = self.get_store_timeout();
         timeout(store_timeout, self.delete_responses_inner(key.clone()))
             .await
@@ -446,6 +462,7 @@ impl Storage for RedisBackend {
     where
         R: BorrowMut<Response<Self::Body>> + Send,
     {
+        self.ensure_connected();
         let key = item.key.clone();
         let response = item.response.borrow_mut();
         let store_timeout = self.get_store_timeout();
@@ -504,7 +521,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_backend() {
-        let backend = RedisBackend::new(Config::default()).unwrap();
+        let backend = RedisBackend::new(Config::default()).await.unwrap();
 
         let mut resp = make_response("hello, world");
         resp.headers_mut()
@@ -542,7 +559,7 @@ mod tests {
     async fn test_chunked_body() {
         let mut config = Config::default();
         config.max_body_chunk_size = 2; // Set max chunk size to 2 bytes
-        let backend = RedisBackend::new(config).unwrap();
+        let backend = RedisBackend::new(config).await.unwrap();
 
         let key = make_uniq_key();
 
@@ -565,7 +582,7 @@ mod tests {
         let mut config = Config::default();
         config.max_body_chunk_size = 2; // Set max chunk size to 2 bytes
         config.compression_level = Some(0);
-        let backend = RedisBackend::new(config).unwrap();
+        let backend = RedisBackend::new(config).await.unwrap();
 
         let key = make_uniq_key();
 
@@ -587,7 +604,7 @@ mod tests {
     async fn test_compressed_headers() {
         let mut config = Config::default();
         config.compression_level = Some(22);
-        let backend = RedisBackend::new(config).unwrap();
+        let backend = RedisBackend::new(config).await.unwrap();
 
         let key = make_uniq_key();
 
@@ -613,7 +630,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_surrogate_keys() {
-        let backend = RedisBackend::new(Config::default()).unwrap();
+        let backend = RedisBackend::new(Config::default()).await.unwrap();
 
         let key = make_uniq_key();
 

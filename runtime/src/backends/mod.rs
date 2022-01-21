@@ -3,7 +3,6 @@ use std::sync::Arc;
 
 use anyhow::{anyhow, bail, Context};
 use once_cell::sync::OnceCell;
-use tracing::error;
 
 pub use memory::{Config as MemoryConfig, MemoryBackend};
 pub use redis::{
@@ -41,12 +40,9 @@ pub async fn register_backends(
                 let config = serde_yaml::from_value::<RedisConfig>(config).with_context(|| {
                     format!("invalid backend configuration for storage `{name}`")
                 })?;
-                let backend = RedisBackend::new(config).with_context(|| {
+                let backend = RedisBackend::new(config).await.with_context(|| {
                     format!("unable to initialize backend for storage `{name}`")
                 })?;
-                if let Err(err) = backend.wait_for_connect().await {
-                    error!("{:#}", err);
-                }
                 registered_backends.insert(name, Backend::Redis(Arc::new(backend)));
             }
             _ => bail!("unknown backend `{}` for storage `{}`", backend_type, name),
