@@ -65,5 +65,6 @@ pub fn registered_backends() -> &'static HashMap<String, Backend> {
         .expect("register_backends() must be called first")
 }
 
+mod common;
 mod memory;
 mod redis;
