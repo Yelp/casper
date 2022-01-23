@@ -32,7 +32,7 @@ impl Stream for AddrIncomingStream {
 #[derive(Parser, Debug)]
 #[clap(version, about, long_about = None)]
 struct Args {
-    #[clap(short, long, default_value = "casper.yaml", env = "CASPER_CONFIG")]
+    #[clap(short, long, default_value = "casper.lua", env = "CASPER_CONFIG")]
     config: String,
 }
 

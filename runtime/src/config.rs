@@ -1,8 +1,10 @@
 use std::collections::HashMap;
 use std::fs;
+use std::os::unix::prelude::OsStrExt;
 use std::path::Path;
 
 use anyhow::Result;
+use mlua::{Lua, LuaSerdeExt, Value as LuaValue};
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
@@ -29,7 +31,18 @@ pub struct Middleware {
 
 pub(crate) fn read_config<P: AsRef<Path> + ?Sized>(path: &P) -> Result<Config> {
     let data = fs::read(path.as_ref())?;
-    Ok(serde_yaml::from_slice(&data)?)
+    match path.as_ref().file_name() {
+        Some(name) if name.as_bytes().ends_with(b".lua") => {
+            let lua = Lua::new();
+            let mut chunk = lua.load(&data);
+            if let Some(name) = path.as_ref().to_str() {
+                chunk = chunk.set_name(name)?;
+            }
+            let config = lua.from_value::<Config>(chunk.eval::<LuaValue>()?)?;
+            Ok(config)
+        }
+        _ => Ok(serde_yaml::from_slice(&data)?),
+    }
 }
 
 impl Default for MainConfig {
