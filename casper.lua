@@ -10,6 +10,12 @@ return {
     },
   },
 
+  access_log = {
+    code = [[{
+      access_log = function() end
+    }]],
+  },
+
   storage = {
     primary = {
       backend = "redis",

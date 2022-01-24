@@ -6,7 +6,7 @@ use http::header::{self, HeaderName};
 use http::uri::Scheme;
 use http::HeaderMap;
 use hyper::{client::HttpConnector, Body, Client, Request, Response, Uri};
-use mlua::{Function as LuaFunction, Lua, Table as LuaTable, Value, Variadic};
+use mlua::{Function as LuaFunction, Lua, RegistryKey, Table as LuaTable, Value, Variadic};
 use once_cell::sync::Lazy;
 use tracing::{error, instrument, warn};
 
@@ -40,8 +40,9 @@ pub(crate) async fn handler(
     lua: Rc<Lua>,
     data: Rc<WorkerData>,
     req: Request<Body>,
+    ctx_key: Rc<RegistryKey>,
 ) -> Result<Response<Body>> {
-    match handler_inner(lua, data, req).await {
+    match handler_inner(lua, data, req, ctx_key).await {
         Ok(res) => Ok(res),
         Err(err) => {
             error!("{:?}", err);
@@ -54,12 +55,12 @@ pub(crate) async fn handler_inner(
     lua: Rc<Lua>,
     data: Rc<WorkerData>,
     req: Request<Body>,
+    ctx_key: Rc<RegistryKey>,
 ) -> Result<Response<Body>> {
     let middleware_list = &data.middleware;
 
-    // Create Lua context table
-    let ctx = lua.create_table()?;
-    let ctx_key = lua.create_registry_value(ctx.clone())?;
+    // Get Lua context table
+    let ctx = lua.registry_value::<LuaTable>(&ctx_key)?;
 
     let lua_req = lua.create_userdata(LuaRequest::new(req))?;
     let mut early_resp = None;

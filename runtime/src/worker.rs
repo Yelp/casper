@@ -6,7 +6,7 @@ use std::time::{Instant, SystemTime};
 
 use anyhow::{Context, Result};
 use hyper::server::conn::{AddrStream, Http};
-use mlua::{Function, Lua, RegistryKey as LuaRegistryKey, Table};
+use mlua::{Function, Lua, RegistryKey as LuaRegistryKey, Table, Value as LuaValue};
 use tokio::{runtime, sync::mpsc, task::LocalSet};
 use tracing::error;
 
@@ -18,6 +18,7 @@ pub struct WorkerData {
     pub id: usize,
     pub config: Arc<Config>,
     pub middleware: Vec<Middleware>,
+    pub logger: AccessLogger,
 }
 
 pub struct Middleware {
@@ -26,10 +27,16 @@ pub struct Middleware {
     pub after_response: Option<LuaRegistryKey>,
 }
 
+#[derive(Default)]
+pub struct AccessLogger {
+    pub on_access_log: Option<LuaRegistryKey>,
+}
+
 #[derive(Debug)]
 struct IncomingStream {
     stream: AddrStream,
     accept_time: Instant,
+    #[allow(dead_code)] // TODO: remove
     system_time: SystemTime,
 }
 
@@ -49,55 +56,27 @@ impl LocalWorker {
     pub fn new(id: usize, config: Arc<Config>) -> Result<Self> {
         let (sender, mut recv) = mpsc::unbounded_channel::<IncomingStream>();
 
-        let rt = runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap();
-
         let lua = Lua::new();
         let mut worker_data = WorkerData {
             id,
             config,
             middleware: Vec::new(),
+            logger: AccessLogger::default(),
         };
         Self::init_lua(&lua, &mut worker_data).with_context(|| "Failed to initialize Lua")?;
 
+        let handler = runtime::Handle::current();
         thread::spawn(move || {
-            let local = LocalSet::new();
             let lua = Rc::new(lua);
             let worker_data = Rc::new(worker_data);
 
+            let local = LocalSet::new();
             local.spawn_local(async move {
                 while let Some(stream) = recv.recv().await {
-                    let lua = lua.clone();
-                    let worker_data = worker_data.clone();
-                    let remote_addr = stream.remote_addr();
-
-                    // To hide warnings
-                    let _ = stream.accept_time;
-                    let _ = stream.system_time;
-
-                    tokio::task::spawn_local(async move {
-                        let service = Svc {
-                            lua,
-                            worker_data,
-                            remote_addr,
-                        };
-
-                        let result = Http::new()
-                            .with_executor(LocalExecutor)
-                            .http1_only(true)
-                            .http1_keep_alive(true)
-                            .serve_connection(stream.stream, service)
-                            .await;
-
-                        if let Err(err) = result {
-                            error!("{:?}", err);
-                        }
-                    });
+                    Self::process_connection(stream, lua.clone(), worker_data.clone()).await;
                 }
             });
-            rt.block_on(local);
+            handler.block_on(local);
         });
 
         Ok(Self { sender })
@@ -130,6 +109,17 @@ impl LocalWorker {
                     .transpose()?,
             });
         }
+
+        // Access logger
+        if let Some(logger) = &worker_data.config.access_log {
+            let handlers: Table = lua.load(&logger.code).eval()?;
+            let access_log: Option<Function> = handlers.get("access_log")?;
+
+            worker_data.logger.on_access_log = access_log
+                .map(|x| lua.create_registry_value(x))
+                .transpose()?;
+        }
+
         Ok(())
     }
 
@@ -143,6 +133,52 @@ impl LocalWorker {
         self.sender
             .send(in_stream)
             .expect("Thread with LocalSet has shut down.");
+    }
+
+    async fn process_connection(stream: IncomingStream, lua: Rc<Lua>, worker_data: Rc<WorkerData>) {
+        // Time spent in a queue before processing
+        let _queue_dur = stream.accept_time.elapsed();
+
+        tokio::task::spawn_local(async move {
+            let remote_addr = stream.remote_addr();
+
+            // Create Lua context table
+            let ctx = lua
+                .create_table()
+                .expect("Failed to create Lua context table");
+            let ctx_key = lua
+                .create_registry_value(ctx.clone())
+                .expect("Failed to store Lua context table in the registry");
+
+            let service = Svc {
+                lua: lua.clone(),
+                worker_data: worker_data.clone(),
+                ctx_key: Rc::new(ctx_key),
+                remote_addr,
+            };
+
+            let result = Http::new()
+                .with_executor(LocalExecutor)
+                .http1_only(true)
+                .http1_keep_alive(true)
+                .serve_connection(stream.stream, service)
+                .await;
+
+            // Total time to send response
+            let _total_time = stream.accept_time.elapsed();
+
+            if let Err(err) = result {
+                error!("{:?}", err);
+                return;
+            }
+
+            // Access logging
+            if let Some(on_access_log) = &worker_data.logger.on_access_log {
+                if let Ok(on_access_log) = lua.registry_value::<Function>(on_access_log) {
+                    let _ = on_access_log.call_async::<_, LuaValue>(ctx.clone()).await;
+                }
+            }
+        });
     }
 }
 

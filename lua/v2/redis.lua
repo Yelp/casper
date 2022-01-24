@@ -31,8 +31,6 @@ end
 local function on_request(req)
     local method, uri_path = req.method, req.uri_path
 
-    error("bla")
-
     if method == "GET" and uri_path == "/fetch_body_and_headers" then
         local primary_key = make_primary_key(req:uri_args())
         -- Fetch Response from Redis

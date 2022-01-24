@@ -7,7 +7,7 @@ use std::task::{Context, Poll};
 use futures::FutureExt;
 use hyper::service::Service;
 use hyper::{Body, Request, Response};
-use mlua::Lua;
+use mlua::{Lua, RegistryKey};
 
 use crate::handler;
 use crate::worker::WorkerData;
@@ -15,6 +15,7 @@ use crate::worker::WorkerData;
 pub struct Svc {
     pub lua: Rc<Lua>,
     pub worker_data: Rc<WorkerData>,
+    pub ctx_key: Rc<RegistryKey>,
     pub remote_addr: SocketAddr,
 }
 
@@ -29,8 +30,12 @@ impl Service<Request<Body>> for Svc {
     }
 
     fn call(&mut self, req: Request<Body>) -> Self::Future {
+        let lua = self.lua.clone();
+        let worker_data = self.worker_data.clone();
+        let ctx_key = self.ctx_key.clone();
+
         // If handler returns an error, then generate 5xx response
-        let handler = handler::handler(self.lua.clone(), self.worker_data.clone(), req);
+        let handler = handler::handler(lua, worker_data, req, ctx_key);
         Box::pin(handler.map(move |result| {
             match result {
                 Ok(res) => Ok(res),

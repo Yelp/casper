@@ -13,6 +13,7 @@ pub struct Config {
     pub main: MainConfig,
     pub middleware: Vec<Middleware>,
     pub storage: HashMap<String, serde_yaml::Value>,
+    pub access_log: Option<AccessLog>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -26,6 +27,12 @@ pub struct MainConfig {
 
 #[derive(Debug, Deserialize)]
 pub struct Middleware {
+    pub name: Option<String>,
+    pub code: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AccessLog {
     pub code: String,
 }
 
