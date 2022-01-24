@@ -1,14 +1,11 @@
 use std::collections::HashMap;
 use std::ops::{Deref, DerefMut};
 
-use http::HeaderMap;
-use hyper::{
-    header::{HeaderName, HeaderValue},
-    Body, Response, StatusCode,
-};
+use hyper::header::{HeaderMap, HeaderName, HeaderValue};
+use hyper::{Body, Response, StatusCode};
 use mlua::{
-    ExternalError, ExternalResult, Lua, Result as LuaResult, String as LuaString,
-    Table as LuaTable, ToLua, UserData, UserDataFields, UserDataMethods, Value as LuaValue,
+    ExternalError, ExternalResult, Lua, Result as LuaResult, String as LuaString, Table, ToLua,
+    UserData, UserDataFields, UserDataMethods, Value,
 };
 
 pub struct LuaResponse {
@@ -66,9 +63,9 @@ impl UserData for LuaResponse {
     fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
         methods.add_method("header", |lua, this, name: String| {
             if let Some(val) = this.headers().get(name) {
-                return lua.create_string(val.as_bytes()).map(LuaValue::String);
+                return lua.create_string(val.as_bytes()).map(Value::String);
             }
-            Ok(LuaValue::Nil)
+            Ok(Value::Nil)
         });
 
         methods.add_method("header_all", |lua, this, name: String| {
@@ -78,7 +75,7 @@ impl UserData for LuaResponse {
                 .map(|val| lua.create_string(val.as_bytes()))
                 .collect::<LuaResult<Vec<_>>>()?;
             if vals.is_empty() {
-                return Ok(LuaValue::Nil);
+                return Ok(Value::Nil);
             }
             vals.to_lua(lua)
         });
@@ -123,14 +120,14 @@ impl UserData for LuaResponse {
             Ok(headers)
         });
 
-        methods.add_method_mut("set_headers", |lua, this, headers: LuaTable| {
+        methods.add_method_mut("set_headers", |lua, this, headers: Table| {
             let mut new_headers = HeaderMap::new();
-            for kv in headers.pairs::<String, LuaValue>() {
+            for kv in headers.pairs::<String, Value>() {
                 let (name, value) = kv?;
                 let name = HeaderName::from_bytes(name.as_bytes()).to_lua_err()?;
 
                 // Maybe `value` is a list of header values
-                if let LuaValue::Table(values) = value {
+                if let Value::Table(values) = value {
                     for value in values.raw_sequence_values::<LuaString>() {
                         let value = HeaderValue::from_bytes(value?.as_bytes()).to_lua_err()?;
                         new_headers.append(name.clone(), value);
@@ -154,21 +151,21 @@ impl UserData for LuaResponse {
 
 impl LuaResponse {
     // Constructor
-    pub fn constructor(lua: &Lua, (arg, body): (LuaValue, LuaValue)) -> LuaResult<Self> {
+    pub fn constructor(lua: &Lua, (arg, body): (Value, Value)) -> LuaResult<Self> {
         let res = match arg {
-            LuaValue::Integer(_) => {
+            Value::Integer(_) => {
                 let status: u16 = lua.unpack(arg)?;
                 let res = Response::builder().status(status);
                 match body {
-                    LuaValue::Nil => res.body(Body::empty()),
-                    LuaValue::String(b) => res.body(Body::from(b.as_bytes().to_vec())),
+                    Value::Nil => res.body(Body::empty()),
+                    Value::String(b) => res.body(Body::from(b.as_bytes().to_vec())),
                     _ => {
                         let err = format!("invalid body type: {}", body.type_name());
                         return Err(err.to_lua_err());
                     }
                 }
             }
-            LuaValue::Table(params) => {
+            Value::Table(params) => {
                 let mut res = Response::builder();
 
                 // Set status
@@ -177,11 +174,11 @@ impl LuaResponse {
                 }
 
                 // Append headers
-                if let Some(headers) = params.raw_get::<_, Option<LuaTable>>("headers")? {
-                    for kv in headers.pairs::<String, LuaValue>() {
+                if let Some(headers) = params.raw_get::<_, Option<Table>>("headers")? {
+                    for kv in headers.pairs::<String, Value>() {
                         let (name, value) = kv?;
                         // Maybe `value` is a list of header values
-                        if let LuaValue::Table(values) = value {
+                        if let Value::Table(values) = value {
                             for value in values.raw_sequence_values::<LuaString>() {
                                 res = res.header(name.clone(), value?.as_bytes());
                             }

@@ -4,8 +4,7 @@ use std::time::{Duration, Instant, SystemTime};
 
 use once_cell::sync::Lazy;
 use serde_yaml::Value as YamlValue;
-use tokio::fs;
-use tokio::sync::RwLock;
+use tokio::{fs, sync::RwLock};
 
 static CONFIGS: Lazy<RwLock<HashMap<PathBuf, Value>>> = Lazy::new(Default::default);
 

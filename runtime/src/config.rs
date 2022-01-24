@@ -4,7 +4,7 @@ use std::os::unix::prelude::OsStrExt;
 use std::path::Path;
 
 use anyhow::Result;
-use mlua::{Lua, LuaSerdeExt, Value as LuaValue};
+use mlua::{Lua, LuaSerdeExt, Value};
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
@@ -45,7 +45,7 @@ pub(crate) fn read_config<P: AsRef<Path> + ?Sized>(path: &P) -> Result<Config> {
             if let Some(name) = path.as_ref().to_str() {
                 chunk = chunk.set_name(name)?;
             }
-            let config = lua.from_value::<Config>(chunk.eval::<LuaValue>()?)?;
+            let config = lua.from_value::<Config>(chunk.eval::<Value>()?)?;
             Ok(config)
         }
         _ => Ok(serde_yaml::from_slice(&data)?),

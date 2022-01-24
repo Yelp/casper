@@ -5,8 +5,7 @@ use std::rc::Rc;
 use std::task::{Context, Poll};
 
 use futures::FutureExt;
-use hyper::service::Service;
-use hyper::{Body, Request, Response};
+use hyper::{service::Service, Body, Request, Response};
 use mlua::{Lua, RegistryKey};
 
 use crate::handler;

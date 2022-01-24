@@ -2,11 +2,10 @@ use std::collections::HashSet;
 use std::rc::Rc;
 
 use anyhow::Result;
-use http::header::{self, HeaderName};
 use http::uri::Scheme;
-use http::HeaderMap;
+use hyper::header::{self, HeaderMap, HeaderName};
 use hyper::{client::HttpConnector, Body, Client, Request, Response, Uri};
-use mlua::{Function as LuaFunction, Lua, RegistryKey, Table as LuaTable, Value, Variadic};
+use mlua::{Function, Lua, RegistryKey, Table, Value, Variadic};
 use once_cell::sync::Lazy;
 use tracing::{error, instrument, warn};
 
@@ -60,7 +59,7 @@ pub(crate) async fn handler_inner(
     let middleware_list = &data.middleware;
 
     // Get Lua context table
-    let ctx = lua.registry_value::<LuaTable>(&ctx_key)?;
+    let ctx = lua.registry_value::<Table>(&ctx_key)?;
 
     let lua_req = lua.create_userdata(LuaRequest::new(req))?;
     let mut early_resp = None;
@@ -73,7 +72,7 @@ pub(crate) async fn handler_inner(
         .enumerate()
         .filter_map(|(i, it)| it.on_request.as_ref().map(|r| (i, r)))
     {
-        let on_request: LuaFunction = lua.registry_value(on_request)?;
+        let on_request: Function = lua.registry_value(on_request)?;
         match on_request
             .call_async::<_, Value>((lua_req.clone(), ctx.clone()))
             .await
@@ -127,7 +126,7 @@ pub(crate) async fn handler_inner(
         if skip_middleware.contains(&i) {
             continue;
         }
-        let on_response: LuaFunction = lua.registry_value(on_response)?;
+        let on_response: Function = lua.registry_value(on_response)?;
         if let Err(err) = on_response
             .call_async::<_, Value>((lua_resp.clone(), ctx.clone()))
             .await
@@ -153,7 +152,7 @@ pub(crate) async fn handler_inner(
     // Spawn Lua's `after_response` actions
     let lua = lua.clone();
     tokio::task::spawn_local(async move {
-        let ctx: LuaTable = lua.registry_value(&ctx_key).unwrap();
+        let ctx: Table = lua.registry_value(&ctx_key).unwrap();
 
         for (i, after_response) in data
             .middleware
@@ -176,7 +175,7 @@ pub(crate) async fn handler_inner(
                 );
             }
 
-            if let Ok(after_response) = lua.registry_value::<LuaFunction>(after_response) {
+            if let Ok(after_response) = lua.registry_value::<Function>(after_response) {
                 if let Err(err) = after_response.call_async::<_, ()>(args).await {
                     warn!("middleware after-response error: {:?}", err);
                 }

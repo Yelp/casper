@@ -4,12 +4,8 @@ use std::mem;
 use std::ops::{Deref, DerefMut};
 
 use bytes::BufMut;
-use http::Request;
-use hyper::{
-    body::{Body, HttpBody},
-    header::{HeaderName, HeaderValue},
-    Method, Uri,
-};
+use hyper::header::{HeaderName, HeaderValue};
+use hyper::{body::HttpBody, Body, Method, Request, Uri};
 use mlua::{
     AnyUserData, ExternalResult, Result as LuaResult, String as LuaString, Table, ToLua, UserData,
     UserDataFields, UserDataMethods, Value,

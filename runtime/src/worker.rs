@@ -6,7 +6,7 @@ use std::time::{Instant, SystemTime};
 
 use anyhow::{Context, Result};
 use hyper::server::conn::{AddrStream, Http};
-use mlua::{Function, Lua, RegistryKey as LuaRegistryKey, Table, Value as LuaValue};
+use mlua::{Function, Lua, RegistryKey, Table, Value};
 use tokio::{runtime, sync::mpsc, task::LocalSet};
 use tracing::error;
 
@@ -22,14 +22,14 @@ pub struct WorkerData {
 }
 
 pub struct Middleware {
-    pub on_request: Option<LuaRegistryKey>,
-    pub on_response: Option<LuaRegistryKey>,
-    pub after_response: Option<LuaRegistryKey>,
+    pub on_request: Option<RegistryKey>,
+    pub on_response: Option<RegistryKey>,
+    pub after_response: Option<RegistryKey>,
 }
 
 #[derive(Default)]
 pub struct AccessLogger {
-    pub on_access_log: Option<LuaRegistryKey>,
+    pub on_access_log: Option<RegistryKey>,
 }
 
 #[derive(Debug)]
@@ -175,7 +175,7 @@ impl LocalWorker {
             // Access logging
             if let Some(on_access_log) = &worker_data.logger.on_access_log {
                 if let Ok(on_access_log) = lua.registry_value::<Function>(on_access_log) {
-                    let _ = on_access_log.call_async::<_, LuaValue>(ctx.clone()).await;
+                    let _ = on_access_log.call_async::<_, Value>(ctx.clone()).await;
                 }
             }
         });

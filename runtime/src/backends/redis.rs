@@ -7,12 +7,9 @@ use async_trait::async_trait;
 use bitflags::bitflags;
 use bytes::Bytes;
 use fred::pool::StaticRedisPool;
-use fred::prelude::{Expiration, RedisError, RedisKey, RedisValue, SetOptions};
-use fred::types::Stats;
-use futures::{
-    future::try_join_all,
-    stream::{self, StreamExt},
-};
+use fred::prelude::{Expiration, RedisError, RedisKey, RedisValue, SetOptions, Stats};
+use futures::future::try_join_all;
+use futures::stream::{self, StreamExt};
 use hyper::{Response, StatusCode};
 use serde::{Deserialize, Serialize};
 use tokio::time::timeout;

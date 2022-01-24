@@ -10,8 +10,8 @@ use bstr::BString;
 use futures::stream::{self, StreamExt};
 use hyper::{body::HttpBody, Body, Response};
 use mlua::{
-    AnyUserData, ExternalResult, FromLua, Lua, Result as LuaResult, String as LuaString,
-    Table as LuaTable, UserData, UserDataMethods, Value as LuaValue,
+    AnyUserData, ExternalResult, FromLua, Lua, Result as LuaResult, String as LuaString, Table,
+    UserData, UserDataMethods, Value,
 };
 use ripemd::{Digest, Ripemd160};
 
@@ -145,7 +145,7 @@ where
         //
         methods.add_async_function(
             "get_response",
-            |lua, (this, key): (AnyUserData, LuaValue)| async move {
+            |lua, (this, key): (AnyUserData, Value)| async move {
                 let this = this.borrow::<Self>()?;
                 let key = calculate_primary_key(lua, key)?;
                 let resp = this.0.get_response(key).await.to_lua_err()?;
@@ -162,7 +162,7 @@ where
         //
         methods.add_async_function(
             "delete_response",
-            |lua, (this, key): (AnyUserData, LuaValue)| async move {
+            |lua, (this, key): (AnyUserData, Value)| async move {
                 let this = this.borrow::<Self>()?;
                 let key = calculate_primary_key(lua, key)?;
                 this.0
@@ -174,10 +174,10 @@ where
 
         methods.add_async_function(
             "delete_responses",
-            |lua, (this, keys): (AnyUserData, LuaTable)| async move {
+            |lua, (this, keys): (AnyUserData, Table)| async move {
                 let this = this.borrow::<Self>()?;
 
-                let primary_keys: Option<Vec<LuaValue>> = keys.raw_get("primary_keys")?;
+                let primary_keys: Option<Vec<Value>> = keys.raw_get("primary_keys")?;
                 let surrogate_keys: Option<Vec<Key>> = keys.raw_get("surrogate_keys")?;
 
                 let mut item_keys = Vec::with_capacity(
@@ -208,10 +208,10 @@ where
         //
         methods.add_async_function(
             "store_response",
-            |lua, (this, item): (AnyUserData, LuaTable)| async move {
+            |lua, (this, item): (AnyUserData, Table)| async move {
                 let this = this.borrow::<Self>()?;
 
-                let key: LuaValue = item.raw_get("key")?;
+                let key: Value = item.raw_get("key")?;
                 let resp: AnyUserData = item.raw_get("response")?;
                 let surrogate_keys: Option<Vec<Key>> = item.raw_get("surrogate_keys")?;
                 let ttl: f32 = item.raw_get("ttl")?;
@@ -243,10 +243,10 @@ where
 
 /// Calculates primary key from Lua Value
 /// The Value can be a string or a list of strings
-fn calculate_primary_key(lua: &Lua, key: LuaValue) -> LuaResult<Key> {
+fn calculate_primary_key(lua: &Lua, key: Value) -> LuaResult<Key> {
     let mut hasher = Ripemd160::new();
     match key {
-        LuaValue::Table(t) => {
+        Value::Table(t) => {
             for v in t.raw_sequence_values::<LuaString>() {
                 hasher.update(v?.as_bytes());
             }

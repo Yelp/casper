@@ -5,12 +5,9 @@ use std::task::{Context, Poll};
 use anyhow::Context as _;
 use clap::Parser;
 use futures::{Stream, TryStreamExt};
-use hyper::{
-    client::HttpConnector,
-    server::conn::AddrIncoming,
-    server::{accept::Accept, conn::AddrStream},
-    Client,
-};
+use hyper::client::{Client, HttpConnector};
+use hyper::server::accept::Accept;
+use hyper::server::conn::{AddrIncoming, AddrStream};
 use once_cell::sync::Lazy;
 use tokio::net::TcpListener;
 use tracing::{error, info};
