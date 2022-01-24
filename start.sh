@@ -7,7 +7,6 @@ CASSANDRA_CLUSTER_CONFIG=${CASSANDRA_CLUSTER_CONFIG:-/var/run/synapse/services/c
 # We run 2 worker per container in production
 WORKER_PROCESSES=${WORKER_PROCESSES:-2}
 NGINX_CONF=config/nginx.conf
-CASPER_CONFIG=${CASPER_CONFIG:-/nail/srv/configs/casper.yaml}
 
 if [ $ACCEPTANCE ]; then
     # Cassandra ip is automatically generated
