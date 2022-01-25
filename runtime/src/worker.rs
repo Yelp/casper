@@ -6,13 +6,15 @@ use std::time::{Instant, SystemTime};
 
 use anyhow::{Context, Result};
 use hyper::server::conn::{AddrStream, Http};
-use mlua::{Function, Lua, RegistryKey, Table, Value};
+use mlua::{Function, Lua, LuaOptions, RegistryKey, StdLib as LuaStdLib, Table, Value};
 use tokio::{runtime, sync::mpsc, task::LocalSet};
 use tracing::error;
 
 use crate::config::Config;
 use crate::core;
 use crate::service::Svc;
+
+const LUA_THREAD_CACHE_SIZE: usize = 128;
 
 pub struct WorkerData {
     pub id: usize,
@@ -56,14 +58,17 @@ impl LocalWorker {
     pub fn new(id: usize, config: Arc<Config>) -> Result<Self> {
         let (sender, mut recv) = mpsc::unbounded_channel::<IncomingStream>();
 
-        let lua = Lua::new();
+        let options = LuaOptions::new().thread_cache_size(LUA_THREAD_CACHE_SIZE);
+        let lua = Lua::new_with(LuaStdLib::ALL_SAFE, options)
+            .with_context(|| "Failed to create worker Lua")?;
         let mut worker_data = WorkerData {
             id,
             config,
             middleware: Vec::new(),
             logger: AccessLogger::default(),
         };
-        Self::init_lua(&lua, &mut worker_data).with_context(|| "Failed to initialize Lua")?;
+        Self::init_lua(&lua, &mut worker_data)
+            .with_context(|| "Failed to initialize worker Lua")?;
 
         let handler = runtime::Handle::current();
         thread::spawn(move || {
