@@ -7,6 +7,7 @@ use crate::config_loader;
 use crate::regex;
 use crate::response::LuaResponse;
 use crate::storage::LuaStorage;
+use crate::udp;
 use crate::utils;
 
 pub fn init_core(lua: &Lua) -> LuaResult<Table> {
@@ -40,6 +41,9 @@ pub fn init_core(lua: &Lua) -> LuaResult<Table> {
     let regex = lua.create_table()?;
     regex.set("new", lua.create_function(regex::regex_new)?)?;
     core.set("regex", regex)?;
+
+    // Create `udp` module
+    core.set("udp", udp::create_udp_table(lua)?)?;
 
     // Create `utils` module
     let utils = lua.create_table()?;
