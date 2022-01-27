@@ -3,8 +3,9 @@ main:
   worker_threads: 4
   listen: 127.0.0.1:34567
 
-middleware:
-  - code: "require('lua.v2.redis')"
+http:
+  middleware:
+    - code: "require('lua.v2.redis')"
 
 storage:
   primary:
