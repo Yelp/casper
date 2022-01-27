@@ -139,7 +139,7 @@ impl Default for Config {
 
 impl Config {
     fn default_pool_size() -> usize {
-        10 * num_cpus::get()
+        4 * num_cpus::get()
     }
 
     const fn default_max_body_chunk_size() -> usize {
