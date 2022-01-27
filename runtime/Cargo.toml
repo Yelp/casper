@@ -33,7 +33,7 @@ serde_yaml = "0.8"
 tokio = { version = "1", features = ["full"] }
 tracing = "0.1"
 tracing-subscriber = "0.3"
-zstd = "0.9.2"
+zstd = "0.10"
 
 [dependencies.mlua]
 features = ["luajit52", "async", "send", "vendored", "serialize"]
