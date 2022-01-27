@@ -4,16 +4,18 @@ return {
     listen = "0.0.0.0:8888",
   },
 
-  middleware = {
-    {
-      code = "require('lua.v2.redis')"
+  http = {
+    middleware = {
+      {
+        code = "require('lua.v2.redis')"
+      },
     },
-  },
 
-  access_log = {
-    code = [[{
-      access_log = function() end
-    }]],
+    access_log = {
+      code = [[
+        function() end
+      ]],
+    },
   },
 
   storage = {

@@ -5,9 +5,9 @@ use anyhow::Result;
 use http::uri::Scheme;
 use hyper::header::{self, HeaderMap, HeaderName};
 use hyper::{client::HttpConnector, Body, Client, Request, Response, Uri};
-use mlua::{Function, Lua, RegistryKey, Table, Value, Variadic};
+use mlua::{FromLua, Function, Lua, RegistryKey, Table, Value, Variadic};
 use once_cell::sync::Lazy;
-use tracing::{error, instrument, warn};
+use tracing::warn;
 
 use crate::request::LuaRequest;
 use crate::response::LuaResponse;
@@ -34,23 +34,7 @@ fn filter_hop_headers(headers: &mut HeaderMap) {
     }
 }
 
-#[instrument(skip_all, fields(http.uri = %req.uri(), http.method = %req.method()))]
 pub(crate) async fn handler(
-    lua: Rc<Lua>,
-    data: Rc<WorkerData>,
-    req: Request<Body>,
-    ctx_key: Rc<RegistryKey>,
-) -> Result<Response<Body>> {
-    match handler_inner(lua, data, req, ctx_key).await {
-        Ok(res) => Ok(res),
-        Err(err) => {
-            error!("{:?}", err);
-            Err(err)
-        }
-    }
-}
-
-pub(crate) async fn handler_inner(
     lua: Rc<Lua>,
     data: Rc<WorkerData>,
     req: Request<Body>,
@@ -149,11 +133,12 @@ pub(crate) async fn handler_inner(
         }
     };
 
-    // Spawn Lua's `after_response` actions
+    // Spawn Lua's post actions
     let lua = lua.clone();
     tokio::task::spawn_local(async move {
-        let ctx: Table = lua.registry_value(&ctx_key).unwrap();
+        let ctx = get_registry::<Table>(&lua, &ctx_key);
 
+        // Execute `after_response` actions
         for (i, after_response) in data
             .middleware
             .iter()
@@ -169,10 +154,7 @@ pub(crate) async fn handler_inner(
             let mut args = Variadic::new();
             args.push(Value::Table(ctx.clone()));
             if let Some(resp_key) = resp_key.as_ref() {
-                args.push(
-                    lua.registry_value(resp_key)
-                        .expect("cannot fetch response from the Lua registry"),
-                );
+                args.push(get_registry(&lua, resp_key));
             }
 
             if let Ok(after_response) = lua.registry_value::<Function>(after_response) {
@@ -213,4 +195,9 @@ async fn proxy_to_downstream(mut req: Request<Body>, dst: Option<Uri>) -> Result
     let resp = CLIENT.request(req).await?;
 
     Ok(resp)
+}
+
+fn get_registry<'lua, T: FromLua<'lua>>(lua: &'lua Lua, key: &RegistryKey) -> T {
+    lua.registry_value(key)
+        .expect("Unable to get Lua registry value")
 }

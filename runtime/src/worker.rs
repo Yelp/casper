@@ -6,13 +6,14 @@ use std::time::{Instant, SystemTime};
 
 use anyhow::{Context, Result};
 use hyper::server::conn::{AddrStream, Http};
-use mlua::{Function, Lua, LuaOptions, RegistryKey, StdLib as LuaStdLib, Table, Value};
+use mlua::{Function, Lua, LuaOptions, RegistryKey, StdLib as LuaStdLib, Table};
 use tokio::{runtime, sync::mpsc, task::LocalSet};
 use tracing::error;
 
 use crate::config::Config;
 use crate::core;
 use crate::service::Svc;
+use crate::stats::{ActiveCounter, ActiveCounterHandler, GLOBAL_STATS};
 
 const LUA_THREAD_CACHE_SIZE: usize = 128;
 
@@ -20,7 +21,11 @@ pub struct WorkerData {
     pub id: usize,
     pub config: Arc<Config>,
     pub middleware: Vec<Middleware>,
-    pub logger: AccessLogger,
+    pub access_log: Option<RegistryKey>,
+    pub error_log: Option<RegistryKey>,
+
+    // Worker stat numbers
+    pub active_requests: ActiveCounter,
 }
 
 pub struct Middleware {
@@ -29,17 +34,13 @@ pub struct Middleware {
     pub after_response: Option<RegistryKey>,
 }
 
-#[derive(Default)]
-pub struct AccessLogger {
-    pub on_access_log: Option<RegistryKey>,
-}
-
 #[derive(Debug)]
 struct IncomingStream {
     stream: AddrStream,
     accept_time: Instant,
     #[allow(dead_code)] // TODO: remove
     system_time: SystemTime,
+    _counter_handler: ActiveCounterHandler,
 }
 
 impl Deref for IncomingStream {
@@ -65,7 +66,9 @@ impl LocalWorker {
             id,
             config,
             middleware: Vec::new(),
-            logger: AccessLogger::default(),
+            access_log: None,
+            error_log: None,
+            active_requests: ActiveCounter::new(0),
         };
         Self::init_lua(&lua, &mut worker_data)
             .with_context(|| "Failed to initialize worker Lua")?;
@@ -96,7 +99,7 @@ impl LocalWorker {
         core.set("worker_id", worker_data.id)?;
 
         // Load middleware code
-        for middleware in &worker_data.config.middleware {
+        for middleware in &worker_data.config.http.middleware {
             let handlers: Table = lua.load(&middleware.code).eval()?;
             let on_request: Option<Function> = handlers.get("on_request")?;
             let on_response: Option<Function> = handlers.get("on_response")?;
@@ -115,12 +118,18 @@ impl LocalWorker {
             });
         }
 
-        // Access logger
-        if let Some(logger) = &worker_data.config.access_log {
-            let handlers: Table = lua.load(&logger.code).eval()?;
-            let access_log: Option<Function> = handlers.get("access_log")?;
+        // Load access logger
+        if let Some(logger) = &worker_data.config.http.access_log {
+            let access_log: Option<Function> = lua.load(&logger.code).eval()?;
+            worker_data.access_log = access_log
+                .map(|x| lua.create_registry_value(x))
+                .transpose()?;
+        }
 
-            worker_data.logger.on_access_log = access_log
+        // Load error logger
+        if let Some(logger) = &worker_data.config.http.error_log {
+            let error_log: Option<Function> = lua.load(&logger.code).eval()?;
+            worker_data.error_log = error_log
                 .map(|x| lua.create_registry_value(x))
                 .transpose()?;
         }
@@ -129,10 +138,12 @@ impl LocalWorker {
     }
 
     pub fn spawn(&self, stream: AddrStream) {
+        GLOBAL_STATS.inc_total_conns(1);
         let in_stream = IncomingStream {
             stream,
             accept_time: Instant::now(),
             system_time: SystemTime::now(),
+            _counter_handler: GLOBAL_STATS.inc_active_conns(1),
         };
 
         self.sender
@@ -145,23 +156,13 @@ impl LocalWorker {
         let _queue_dur = stream.accept_time.elapsed();
 
         tokio::task::spawn_local(async move {
-            let remote_addr = stream.remote_addr();
-
-            // Create Lua context table
-            let ctx = lua
-                .create_table()
-                .expect("Failed to create Lua context table");
-            let ctx_key = lua
-                .create_registry_value(ctx.clone())
-                .expect("Failed to store Lua context table in the registry");
-
             let service = Svc {
                 lua: lua.clone(),
                 worker_data: worker_data.clone(),
-                ctx_key: Rc::new(ctx_key),
-                remote_addr,
+                remote_addr: stream.remote_addr(),
             };
 
+            // One stream can send multiple http requests
             let result = Http::new()
                 .with_executor(LocalExecutor)
                 .http1_only(true)
@@ -169,19 +170,8 @@ impl LocalWorker {
                 .serve_connection(stream.stream, service)
                 .await;
 
-            // Total time to send response
-            let _total_time = stream.accept_time.elapsed();
-
             if let Err(err) = result {
                 error!("{:?}", err);
-                return;
-            }
-
-            // Access logging
-            if let Some(on_access_log) = &worker_data.logger.on_access_log {
-                if let Ok(on_access_log) = lua.registry_value::<Function>(on_access_log) {
-                    let _ = on_access_log.call_async::<_, Value>(ctx.clone()).await;
-                }
             }
         });
     }

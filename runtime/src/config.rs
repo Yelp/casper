@@ -11,9 +11,8 @@ use serde::Deserialize;
 pub struct Config {
     #[serde(default)]
     pub main: MainConfig,
-    pub middleware: Vec<Middleware>,
+    pub http: HttpConfig,
     pub storage: HashMap<String, serde_yaml::Value>,
-    pub access_log: Option<AccessLog>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -26,6 +25,13 @@ pub struct MainConfig {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct HttpConfig {
+    pub middleware: Vec<Middleware>,
+    pub access_log: Option<AccessLog>,
+    pub error_log: Option<ErrorLog>,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct Middleware {
     pub name: Option<String>,
     pub code: String,
@@ -33,6 +39,11 @@ pub struct Middleware {
 
 #[derive(Debug, Deserialize)]
 pub struct AccessLog {
+    pub code: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ErrorLog {
     pub code: String,
 }
 

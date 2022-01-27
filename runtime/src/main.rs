@@ -5,16 +5,12 @@ use std::task::{Context, Poll};
 use anyhow::Context as _;
 use clap::Parser;
 use futures::{Stream, TryStreamExt};
-use hyper::client::{Client, HttpConnector};
 use hyper::server::accept::Accept;
 use hyper::server::conn::{AddrIncoming, AddrStream};
-use once_cell::sync::Lazy;
 use tokio::net::TcpListener;
 use tracing::{error, info};
 
 use crate::worker::LocalWorker;
-
-pub static CLIENT: Lazy<Client<HttpConnector>> = Lazy::new(Client::new);
 
 struct AddrIncomingStream(AddrIncoming);
 
@@ -62,7 +58,6 @@ async fn main_inner() -> anyhow::Result<()> {
     let mut incoming = AddrIncomingStream(AddrIncoming::from_listener(listener)?);
     let mut accept_count = 0;
     while let Some(stream) = incoming.try_next().await? {
-        accept_count += 1;
         workers[accept_count % num_worker_threads].spawn(stream);
         accept_count += 1;
     }
@@ -89,6 +84,7 @@ mod regex;
 mod request;
 mod response;
 mod service;
+mod stats;
 mod storage;
 mod udp;
 mod utils;
