@@ -1,6 +1,6 @@
 use std::borrow::BorrowMut;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, Instant, SystemTime};
 
 use anyhow::{anyhow, bail, Context, Result};
 use async_trait::async_trait;
@@ -11,7 +11,9 @@ use fred::prelude::{Expiration, RedisError, RedisKey, RedisValue, SetOptions, St
 use futures::future::try_join_all;
 use futures::stream::{self, StreamExt};
 use hyper::{Response, StatusCode};
+use linked_hash_map::LinkedHashMap;
 use serde::{Deserialize, Serialize};
+use tokio::sync::Mutex;
 use tokio::time::timeout;
 use tracing::error;
 
@@ -25,6 +27,15 @@ pub struct RedisBackend {
     config: Config,
     client: StaticRedisPool,
     connected: AtomicBool,
+    internal_cache: Mutex<InternalCache>,
+}
+
+#[derive(Default)]
+struct InternalCache {
+    // Surrogate keys cache
+    map: LinkedHashMap<Key, (SurrogateKeyItem, Instant)>,
+    // Map (approx.) size in bytes
+    size: usize,
 }
 
 // Redis backend configuration
@@ -51,6 +62,11 @@ pub struct Config {
     pub wait_for_connect: Option<f32>,
     #[serde(default)]
     pub lazy: bool,
+
+    #[serde(default = "Config::default_internal_cache_size")]
+    pub internal_cache_size: usize,
+    #[serde(default = "Config::default_internal_cache_ttl")]
+    pub internal_cache_ttl: f64,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -133,17 +149,27 @@ impl Default for Config {
             compression_level: None,
             wait_for_connect: None,
             lazy: false,
+            internal_cache_size: Config::default_internal_cache_size(),
+            internal_cache_ttl: Config::default_internal_cache_ttl(),
         }
     }
 }
 
 impl Config {
     fn default_pool_size() -> usize {
-        4 * num_cpus::get()
+        8 * num_cpus::get()
     }
 
     const fn default_max_body_chunk_size() -> usize {
         1024 * 1024 // 1 MB
+    }
+
+    const fn default_internal_cache_size() -> usize {
+        32 * 1024 * 1024 // 32 MB
+    }
+
+    const fn default_internal_cache_ttl() -> f64 {
+        1.0
     }
 
     fn into_redis_config(self) -> Result<fred::types::RedisConfig> {
@@ -173,7 +199,7 @@ struct ResponseItem {
     flags: Flags,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 struct SurrogateKeyItem {
     timestamp: u64,
 }
@@ -198,6 +224,7 @@ impl RedisBackend {
             config: config.clone(),
             client: pool,
             connected: AtomicBool::new(false),
+            internal_cache: Mutex::default(),
         };
 
         if !config.lazy {
@@ -240,20 +267,50 @@ impl RedisBackend {
             None => return Ok(None),
         };
 
+        // Check surrogate keys in the internal cache first
+        let mut surrogate_keys = response_item.surrogate_keys;
+        if self.config.internal_cache_size > 0 {
+            let mut int_cache = self.internal_cache.lock().await;
+            let int_cache_ttl = self.config.internal_cache_ttl;
+
+            let mut surrogate_keys_new = Vec::with_capacity(surrogate_keys.len());
+            for sk in surrogate_keys {
+                match int_cache.map.get_refresh(&sk) {
+                    // If we have a cached key that indicates expired record then don't go to Redis
+                    Some((sk_item, _)) if response_item.timestamp <= sk_item.timestamp => {
+                        return Ok(None);
+                    }
+                    // Filter surrogate keys that fetched earlier and not expired
+                    Some((_, t)) if t.elapsed().as_secs_f64() <= int_cache_ttl => {}
+                    _ => {
+                        surrogate_keys_new.push(sk);
+                    }
+                }
+            }
+            surrogate_keys = surrogate_keys_new;
+        }
+
         // Fetch surrogate keys
-        if !response_item.surrogate_keys.is_empty() {
+        if !surrogate_keys.is_empty() {
             // We cannot use "mget" operation in sharded mode because keys can be in different shards
-            let skeys_vals = stream::iter(response_item.surrogate_keys.clone())
+            let skeys_vals = stream::iter(surrogate_keys.clone())
                 .map(|sk| self.client.get(make_redis_key(&sk)))
                 .buffered(MAX_CONCURRENCY)
                 .collect::<Vec<Result<RedisValue, RedisError>>>()
                 .await;
 
-            for (sk, sk_value) in response_item.surrogate_keys.into_iter().zip(skeys_vals) {
+            for (sk, sk_value) in surrogate_keys.into_iter().zip(skeys_vals) {
                 let sk_value =
                     sk_value.with_context(|| format!("Failed to fetch surrogate key `{}`", sk))?;
                 if let Some(sk_data) = sk_value.as_bytes() {
                     let sk_item: SurrogateKeyItem = flexbuffers::from_slice(sk_data)?;
+
+                    // Cache this surrogate key
+                    if self.config.internal_cache_size > 0 {
+                        let mut int_cache = self.internal_cache.lock().await;
+                        self.insert_to_internal_cache(&mut int_cache, sk, sk_item);
+                    }
+
                     // Check that the response item having this key is not expired
                     if response_item.timestamp <= sk_item.timestamp {
                         return Ok(None);
@@ -306,6 +363,12 @@ impl RedisBackend {
                     timestamp: unix_timestamp(),
                 };
                 let sk_item_enc = flexbuffers::to_vec(&sk_item)?;
+
+                // Update internal cache
+                if self.config.internal_cache_size > 0 {
+                    let mut int_cache = self.internal_cache.lock().await;
+                    self.insert_to_internal_cache(&mut int_cache, skey.clone(), sk_item);
+                }
 
                 Ok(self
                     .client
@@ -427,6 +490,18 @@ impl RedisBackend {
     #[allow(unused)]
     pub fn take_network_latency_metrics(&self) -> Stats {
         self.client.take_network_latency_metrics()
+    }
+
+    fn insert_to_internal_cache(&self, cache: &mut InternalCache, key: Key, val: SurrogateKeyItem) {
+        let max_size = self.config.internal_cache_size;
+        while !cache.map.is_empty() && cache.size + key.len() > max_size {
+            let (removed_key, _) = cache.map.pop_front().unwrap(); // never fails
+            cache.size -= removed_key.len();
+        }
+        if cache.size + key.len() <= max_size {
+            cache.size += key.len();
+            cache.map.insert(key, (val, Instant::now()));
+        }
     }
 }
 
