@@ -8,7 +8,7 @@ use bitflags::bitflags;
 use bytes::Bytes;
 use fred::pool::StaticRedisPool;
 use fred::prelude::{Expiration, RedisError, RedisKey, RedisValue, SetOptions, Stats};
-use futures::future::try_join_all;
+use futures::future::{try_join, try_join_all, TryFutureExt};
 use futures::stream::{self, StreamExt};
 use hyper::{Response, StatusCode};
 use linked_hash_map::LinkedHashMap;
@@ -398,8 +398,15 @@ impl RedisBackend {
         // If a compression level is set, compress the body and headers with the zstd encoding, if compressed update flags
         let mut flags = Flags::NONE;
         if let Some(level) = self.config.compression_level {
-            body = Bytes::from(compress_with_zstd(body, level).await?);
-            headers = compress_with_zstd(Bytes::from(headers), level).await?;
+            // TODO: Change this after Rust 1.59 release
+            // See https://github.com/rust-lang/rust/issues/71126
+            let body_and_headers = try_join(
+                compress_with_zstd(body, level).map_ok(Bytes::from),
+                compress_with_zstd(Bytes::from(headers), level),
+            )
+            .await?;
+            body = body_and_headers.0;
+            headers = body_and_headers.1;
             flags.insert(Flags::COMPRESSED);
         }
 
