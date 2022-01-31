@@ -56,6 +56,7 @@ async fn main_inner() -> anyhow::Result<()> {
     info!("Listening on http://{}", addr);
 
     let mut incoming = AddrIncomingStream(AddrIncoming::from_listener(listener)?);
+    incoming.0.set_nodelay(true);
     let mut accept_count = 0;
     while let Some(stream) = incoming.try_next().await? {
         workers[accept_count % num_worker_threads].spawn(stream);
