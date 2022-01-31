@@ -28,6 +28,7 @@ struct LogData {
     method: String,
     remote_addr: String,
     elapsed: Duration,
+    status: u16,
     active_conns: usize,
     active_requests: usize,
     worker_active_requests: usize,
@@ -88,6 +89,8 @@ impl Svc {
 
         match response {
             Ok(res) => {
+                log_data.status = res.status().as_u16();
+
                 self.spawn_access_log(log_data, ctx_key);
                 Ok(res)
             }
