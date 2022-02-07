@@ -1,8 +1,8 @@
 use std::ops::Deref;
-use std::pin::Pin;
 
 use linked_hash_map::LinkedHashMap;
 use mlua::{ExternalResult, Lua, MetaMethod, UserData, UserDataMethods, Value};
+use ouroboros::self_referencing;
 
 const REGEX_CACHE_SIZE: usize = 256;
 
@@ -17,9 +17,12 @@ impl Deref for Regex {
     }
 }
 
+#[self_referencing]
 struct RegexCaptures {
-    _text: Pin<Box<str>>,
-    caps: regex::Captures<'static>,
+    text: Box<str>,
+    #[borrows(text)]
+    #[covariant]
+    caps: regex::Captures<'this>,
 }
 
 impl UserData for Regex {
@@ -29,12 +32,15 @@ impl UserData for Regex {
         });
 
         methods.add_method("match", |lua, this, text: Box<str>| {
-            let text = Pin::new(text);
-            if let Some(caps) = this.0.captures(unsafe { &*(&*text as *const _) }) {
-                let caps = RegexCaptures { _text: text, caps };
-                return Ok(Value::UserData(lua.create_userdata(caps)?));
+            let caps = RegexCapturesTryBuilder {
+                text,
+                caps_builder: |text| this.0.captures(text).ok_or(()),
             }
-            Ok(Value::Nil)
+            .try_build();
+            match caps {
+                Ok(caps) => Ok(Value::UserData(lua.create_userdata(caps)?)),
+                Err(_) => Ok(Value::Nil),
+            }
         });
 
         methods.add_method("split", |_, this, text: String| {
@@ -55,9 +61,12 @@ impl UserData for RegexCaptures {
         methods.add_meta_method(MetaMethod::Index, |_, this, key: Value| match key {
             Value::String(s) => {
                 let name = std::str::from_utf8(s.as_bytes())?;
-                Ok(this.caps.name(name).map(|v| v.as_str()))
+                let res = this.with_caps(|caps| caps.name(name).map(|v| v.as_str().to_string()));
+                Ok(res)
             }
-            Value::Integer(i) => Ok(this.caps.get(i as usize).map(|v| v.as_str())),
+            Value::Integer(i) => {
+                Ok(this.with_caps(|caps| caps.get(i as usize).map(|v| v.as_str().to_string())))
+            }
             _ => unreachable!(),
         })
     }
