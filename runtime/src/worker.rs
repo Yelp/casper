@@ -79,6 +79,14 @@ impl LocalWorker {
             let lua = Rc::new(lua);
             let worker_data = Rc::new(worker_data);
 
+            #[cfg(target_os = "linux")]
+            if worker_data.config.main.pin_worker_threads {
+                let cores = affinity::get_core_num();
+                if let Err(err) = affinity::set_thread_affinity([id % cores]) {
+                    error!("Failed to set worker thread affinity: {}", err);
+                }
+            }
+
             let local = LocalSet::new();
             local.spawn_local(async move {
                 while let Some(stream) = recv.recv().await {
@@ -158,8 +166,8 @@ impl LocalWorker {
 
         tokio::task::spawn_local(async move {
             let svc = Svc {
-                lua: lua.clone(),
-                worker_data: worker_data.clone(),
+                lua,
+                worker_data,
                 remote_addr: stream.remote_addr(),
             };
 

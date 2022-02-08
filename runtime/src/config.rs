@@ -20,6 +20,9 @@ pub struct MainConfig {
     #[serde(default = "MainConfig::default_worker_threads")]
     pub worker_threads: usize,
 
+    #[serde(default)]
+    pub pin_worker_threads: bool,
+
     #[serde(default = "MainConfig::default_listen")]
     pub listen: String,
 }
@@ -67,6 +70,7 @@ impl Default for MainConfig {
     fn default() -> Self {
         MainConfig {
             worker_threads: Self::default_worker_threads(),
+            pin_worker_threads: false,
             listen: Self::default_listen(),
         }
     }

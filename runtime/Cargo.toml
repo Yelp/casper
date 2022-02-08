@@ -48,3 +48,6 @@ git = "https://github.com/khvzak/mlua"
 default-features = false
 features = ["metrics", "pool-prefer-active", "enable-tls"]
 version = "4.3.2"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+affinity = "0.1.2"

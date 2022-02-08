@@ -1,6 +1,7 @@
 return {
   main = {
-    worker_threads = 4,
+    -- worker_threads = 4,
+    pin_worker_threads = true,
     listen = "0.0.0.0:8888",
   },
 
