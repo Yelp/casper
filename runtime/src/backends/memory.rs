@@ -142,6 +142,10 @@ impl Storage for MemoryBackend {
     type Body = hyper::Body;
     type Error = anyhow::Error;
 
+    fn name(&self) -> String {
+        String::from("memory")
+    }
+
     async fn get_response(&self, key: Key) -> Result<Option<Response<Self::Body>>, Self::Error> {
         self.get_responses([key]).await.remove(0)
     }

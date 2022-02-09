@@ -24,6 +24,7 @@ use crate::utils::zstd::ZstdDecoder;
 pub const MAX_CONCURRENCY: usize = 100;
 
 pub struct RedisBackend {
+    name: String,
     config: Config,
     client: StaticRedisPool,
     connected: AtomicBool,
@@ -213,7 +214,7 @@ bitflags! {
 }
 
 impl RedisBackend {
-    pub async fn new(config: Config) -> Result<Self> {
+    pub async fn new(config: Config, name: impl Into<Option<String>>) -> Result<Self> {
         let pool_size = config.pool_size;
 
         let redis_config = config.clone().into_redis_config()?;
@@ -221,6 +222,7 @@ impl RedisBackend {
             StaticRedisPool::new(redis_config, pool_size).expect("Failed to create Redis pool");
 
         let backend = RedisBackend {
+            name: name.into().unwrap_or_else(|| "redis".to_string()),
             config: config.clone(),
             client: pool,
             connected: AtomicBool::new(false),
@@ -517,6 +519,10 @@ impl Storage for RedisBackend {
     type Body = hyper::Body;
     type Error = anyhow::Error;
 
+    fn name(&self) -> String {
+        self.name.clone()
+    }
+
     async fn get_response(&self, key: Key) -> Result<Option<Response<Self::Body>>, Self::Error> {
         self.ensure_connected();
         let fetch_timeout = self.get_fetch_timeout();
@@ -600,7 +606,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_backend() {
-        let backend = RedisBackend::new(Config::default()).await.unwrap();
+        let backend = RedisBackend::new(Config::default(), None).await.unwrap();
 
         let mut resp = make_response("hello, world");
         resp.headers_mut()
@@ -638,7 +644,7 @@ mod tests {
     async fn test_chunked_body() {
         let mut config = Config::default();
         config.max_body_chunk_size = 2; // Set max chunk size to 2 bytes
-        let backend = RedisBackend::new(config).await.unwrap();
+        let backend = RedisBackend::new(config, None).await.unwrap();
 
         let key = make_uniq_key();
 
@@ -661,7 +667,7 @@ mod tests {
         let mut config = Config::default();
         config.max_body_chunk_size = 2; // Set max chunk size to 2 bytes
         config.compression_level = Some(0);
-        let backend = RedisBackend::new(config).await.unwrap();
+        let backend = RedisBackend::new(config, None).await.unwrap();
 
         let key = make_uniq_key();
 
@@ -683,7 +689,7 @@ mod tests {
     async fn test_compressed_headers() {
         let mut config = Config::default();
         config.compression_level = Some(22);
-        let backend = RedisBackend::new(config).await.unwrap();
+        let backend = RedisBackend::new(config, None).await.unwrap();
 
         let key = make_uniq_key();
 
@@ -709,7 +715,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_surrogate_keys() {
-        let backend = RedisBackend::new(Config::default()).await.unwrap();
+        let backend = RedisBackend::new(Config::default(), None).await.unwrap();
 
         let key = make_uniq_key();
 

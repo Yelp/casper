@@ -3,7 +3,7 @@ use std::error::Error as StdError;
 use std::fmt;
 use std::iter::IntoIterator;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use bstr::BString;
@@ -16,6 +16,8 @@ use mlua::{
 use ripemd::{Digest, Ripemd160};
 
 use crate::response::LuaResponse;
+use crate::stats::OT_STATS;
+use crate::{storage_counter, storage_histogram};
 
 pub type Key = BString;
 
@@ -73,6 +75,7 @@ pub trait Storage {
     type Body: HttpBody + Send;
     type Error: Send;
 
+    fn name(&self) -> String;
     async fn get_response(&self, key: Key) -> Result<Option<Response<Self::Body>>, Self::Error>;
 
     async fn delete_responses(&self, key: ItemKey) -> Result<(), Self::Error>;
@@ -146,9 +149,16 @@ where
         methods.add_async_function(
             "get_response",
             |lua, (this, key): (AnyUserData, Value)| async move {
+                let start = Instant::now();
+
                 let this = this.borrow::<Self>()?;
+
                 let key = calculate_primary_key(lua, key)?;
                 let resp = this.0.get_response(key).await.to_lua_err()?;
+
+                storage_counter!(1, "name" => this.0.name(), "operation" => "get");
+                storage_histogram!(start.elapsed().as_secs_f64(), "name" => this.0.name(), "operation" => "get");
+
                 Ok(resp.map(|resp| {
                     let mut resp = LuaResponse::new(resp);
                     resp.is_cached = true;
@@ -165,6 +175,9 @@ where
             |lua, (this, key): (AnyUserData, Value)| async move {
                 let this = this.borrow::<Self>()?;
                 let key = calculate_primary_key(lua, key)?;
+
+                storage_counter!(1, "name" => this.0.name(), "operation" => "delete");
+
                 this.0
                     .delete_responses(ItemKey::Primary(key))
                     .await
@@ -175,6 +188,8 @@ where
         methods.add_async_function(
             "delete_responses",
             |lua, (this, keys): (AnyUserData, Table)| async move {
+                let start = Instant::now();
+
                 let this = this.borrow::<Self>()?;
 
                 let primary_keys: Option<Vec<Value>> = keys.raw_get("primary_keys")?;
@@ -184,6 +199,7 @@ where
                     primary_keys.as_ref().map(|x| x.len()).unwrap_or(0)
                         + surrogate_keys.as_ref().map(|x| x.len()).unwrap_or(0),
                 );
+                let item_count: u64 = item_keys.len() as u64;
 
                 if let Some(keys) = primary_keys {
                     for key in keys {
@@ -199,6 +215,9 @@ where
                     r.to_lua_err()?;
                 }
 
+                storage_counter!(item_count, "name" => this.0.name(), "operation" => "delete");
+                storage_histogram!(start.elapsed().as_secs_f64(), "name" => this.0.name(), "operation" => "delete");
+
                 Ok(())
             },
         );
@@ -209,6 +228,8 @@ where
         methods.add_async_function(
             "store_response",
             |lua, (this, item): (AnyUserData, Table)| async move {
+                let start = Instant::now();
+
                 let this = this.borrow::<Self>()?;
 
                 let key: Value = item.raw_get("key")?;
@@ -234,6 +255,9 @@ where
 
                 // Restore body
                 *resp.body_mut() = Body::from(body);
+
+                storage_counter!(1, "name" => this.0.name(), "operation" => "store");
+                storage_histogram!(start.elapsed().as_secs_f64(), "name" => this.0.name(), "operation" => "store");
 
                 Ok(())
             },
