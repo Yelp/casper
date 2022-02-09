@@ -113,8 +113,18 @@ end
 
 -- Handle requests to /metrics, returns Prometheus metrics
 local function metrics_handler()
-    -- Dummy
-    return ngx.HTTP_NOT_FOUND, "Not Found", {}
+    local httpc = resty_http.new()
+    httpc:set_timeout(TIMEOUT)
+    local res, err = httpc:request_uri(BACKEND_ADDR, {
+        method = "GET",
+        path = "/metrics",
+    })
+
+    if err ~= nil or res.status ~= 200 then
+        return ngx.HTTP_INTERNAL_SERVER_ERROR, 'Failed to get metrics'
+    end
+
+    return ngx.HTTP_OK, res.body, res.headers
 end
 
 return {

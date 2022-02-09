@@ -40,9 +40,11 @@ pub async fn register_backends(
                 let config = serde_yaml::from_value::<RedisConfig>(config).with_context(|| {
                     format!("invalid backend configuration for storage `{name}`")
                 })?;
-                let backend = RedisBackend::new(config).await.with_context(|| {
-                    format!("unable to initialize backend for storage `{name}`")
-                })?;
+                let backend = RedisBackend::new(config, name.clone())
+                    .await
+                    .with_context(|| {
+                        format!("unable to initialize backend for storage `{name}`")
+                    })?;
                 registered_backends.insert(name, Backend::Redis(Arc::new(backend)));
             }
             _ => bail!("unknown backend `{}` for storage `{}`", backend_type, name),

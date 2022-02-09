@@ -113,7 +113,7 @@ impl Svc {
                 Ok(Response::builder()
                     .status(500)
                     .body(Body::from("Internal Server Error"))
-                    .expect("cannot build Response"))
+                    .expect("Cannot build Response"))
             }
         }
     }

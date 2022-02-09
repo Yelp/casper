@@ -5,6 +5,7 @@ from collections import namedtuple
 import pytest
 
 from util import get_through_spectre
+from util import get_from_spectre
 
 METRICS_FILE = '/var/log/metrics/metrics.log'
 
@@ -231,3 +232,12 @@ def test_no_cache_header_metrics(log_file):
     # what's missing. You'd need to comment out this check and then verify which of the
     # other asserts is failing.
     assert len(metrics) == 2
+
+def test_prometheus_metrics_endpoint():
+    # Send an initial request to generate metrics
+    response = get_through_spectre('/timestamp/cached')
+
+    # Test the metrics endpoint
+    response = get_from_spectre('/metrics')
+    assert response.status_code == 200
+    assert "storage_requests_total" in response.text

@@ -8,12 +8,13 @@ use anyhow::{Context, Result};
 use hyper::server::conn::{AddrStream, Http};
 use mlua::{Function, Lua, LuaOptions, RegistryKey, StdLib as LuaStdLib, Table};
 use tokio::{runtime, sync::mpsc, task::LocalSet};
+use tower::ServiceBuilder;
 use tracing::error;
 
 use crate::config::Config;
 use crate::core;
 use crate::service::Svc;
-use crate::stats::{ActiveCounter, ActiveCounterHandler, GLOBAL_STATS};
+use crate::stats::{ActiveCounter, ActiveCounterHandler, InstrumentationLayer, GLOBAL_STATS};
 
 const LUA_THREAD_CACHE_SIZE: usize = 128;
 
@@ -156,11 +157,15 @@ impl LocalWorker {
         let _queue_dur = stream.accept_time.elapsed();
 
         tokio::task::spawn_local(async move {
-            let service = Svc {
+            let svc = Svc {
                 lua: lua.clone(),
                 worker_data: worker_data.clone(),
                 remote_addr: stream.remote_addr(),
             };
+
+            let service = ServiceBuilder::new()
+                .layer(InstrumentationLayer::new("/metrics".to_string()))
+                .service(svc);
 
             // One stream can send multiple http requests
             let result = Http::new()
