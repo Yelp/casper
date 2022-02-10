@@ -32,7 +32,14 @@ pub struct OpenTelemetryState {
 
 impl OpenTelemetryState {
     pub fn new() -> Self {
-        let exporter = opentelemetry_prometheus::exporter().init();
+        let boundaries = vec![
+            0.001, 0.002, 0.003, 0.005, 0.01, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.75, 1.0, 1.5, 2.0,
+            3.0, 4.0, 5.0, 10.0,
+        ];
+        let exporter = opentelemetry_prometheus::exporter()
+            .with_default_histogram_boundaries(boundaries)
+            .init();
+
         let meter = global::meter("casper");
 
         let active_connections_counter = ActiveCounter::new(0);
