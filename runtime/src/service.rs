@@ -12,7 +12,7 @@ use serde::Serialize;
 use tracing::{error, instrument};
 
 use crate::handler;
-use crate::stats::GLOBAL_STATS;
+use crate::stats::OT_STATS;
 use crate::worker::WorkerData;
 
 #[derive(Clone)]
@@ -29,9 +29,9 @@ struct LogData {
     remote_addr: String,
     elapsed: Duration,
     status: u16,
-    active_conns: usize,
-    active_requests: usize,
-    worker_active_requests: usize,
+    active_conns: u64,
+    active_requests: u64,
+    worker_active_requests: u64,
     // TODO: accept date
 }
 
@@ -55,8 +55,6 @@ impl Svc {
     async fn handler(self, req: Request<Body>) -> Result<Response<Body>, Infallible> {
         let start = Instant::now();
 
-        GLOBAL_STATS.inc_total_requests(1);
-        let _req_cnt_global = GLOBAL_STATS.inc_active_requests(1);
         let _req_cnt_worker = self.worker_data.active_requests.inc(1);
 
         // Create Lua context table
@@ -83,8 +81,8 @@ impl Svc {
         let response = handler::handler(lua, worker_data, req, ctx_key.clone()).await;
 
         log_data.elapsed = start.elapsed();
-        log_data.active_conns = GLOBAL_STATS.active_conns();
-        log_data.active_requests = GLOBAL_STATS.active_requests();
+        log_data.active_conns = OT_STATS.active_connections_counter.get();
+        log_data.active_requests = OT_STATS.active_requests_counter.get();
         log_data.worker_active_requests = self.worker_data.active_requests.get();
 
         match response {

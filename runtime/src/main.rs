@@ -76,6 +76,9 @@ async fn main() {
     }
 }
 
+#[macro_use]
+mod stats;
+
 mod backends;
 mod config;
 mod config_loader;
@@ -85,7 +88,6 @@ mod regex;
 mod request;
 mod response;
 mod service;
-mod stats;
 mod storage;
 mod udp;
 mod utils;

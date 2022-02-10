@@ -14,7 +14,7 @@ use tracing::error;
 use crate::config::Config;
 use crate::core;
 use crate::service::Svc;
-use crate::stats::{ActiveCounter, ActiveCounterHandler, InstrumentationLayer, GLOBAL_STATS};
+use crate::stats::{ActiveCounter, ActiveCounterHandler, InstrumentationLayer};
 
 const LUA_THREAD_CACHE_SIZE: usize = 128;
 
@@ -147,12 +147,11 @@ impl LocalWorker {
     }
 
     pub fn spawn(&self, stream: AddrStream) {
-        GLOBAL_STATS.inc_total_conns(1);
         let in_stream = IncomingStream {
             stream,
             accept_time: Instant::now(),
             system_time: SystemTime::now(),
-            _counter_handler: GLOBAL_STATS.inc_active_conns(1),
+            _counter_handler: connections_counter_add!(1),
         };
 
         self.sender
