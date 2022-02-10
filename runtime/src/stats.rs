@@ -1,6 +1,6 @@
 use std::mem;
 use std::rc::Rc;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::task::{Context, Poll};
 
@@ -8,90 +8,24 @@ use futures::future::LocalBoxFuture;
 use hyper::{header::CONTENT_TYPE, service::Service, Body, Request, Response};
 use once_cell::sync::Lazy;
 use opentelemetry::global;
-use opentelemetry::metrics::{Counter, ValueRecorder};
+use opentelemetry::metrics::{Counter, ValueObserver, ValueRecorder};
 use opentelemetry_prometheus::PrometheusExporter;
 use prometheus::{Encoder, TextEncoder};
 use tower::Layer;
 
-#[derive(Debug, Default)]
-pub struct Stats {
-    pub total_conns: AtomicUsize,
-    pub total_requests: AtomicUsize,
-    pub active_conns: ActiveCounter,
-    pub active_requests: ActiveCounter,
-}
-
-pub static GLOBAL_STATS: Lazy<Stats> = Lazy::new(|| Stats::new());
-
-impl Stats {
-    pub fn new() -> Self {
-        Stats::default()
-    }
-
-    // pub fn total_conns(&self) -> usize {
-    //     self.total_conns.load(Ordering::Relaxed)
-    // }
-
-    pub fn inc_total_conns(&self, n: usize) {
-        self.total_conns.fetch_add(n, Ordering::Relaxed);
-    }
-
-    // pub fn total_requests(&self) -> usize {
-    //     self.total_requests.load(Ordering::Relaxed)
-    // }
-
-    pub fn inc_total_requests(&self, n: usize) {
-        self.total_requests.fetch_add(n, Ordering::Relaxed);
-    }
-
-    pub fn active_conns(&self) -> usize {
-        self.active_conns.get()
-    }
-
-    pub fn inc_active_conns(&self, n: usize) -> ActiveCounterHandler {
-        self.active_conns.inc(n)
-    }
-
-    pub fn active_requests(&self) -> usize {
-        self.active_requests.get()
-    }
-
-    pub fn inc_active_requests(&self, n: usize) -> ActiveCounterHandler {
-        self.active_requests.inc(n)
-    }
-}
-
-#[derive(Debug, Default, Clone)]
-pub struct ActiveCounter(Arc<AtomicUsize>);
-
-#[derive(Debug)]
-pub struct ActiveCounterHandler(Arc<AtomicUsize>, usize);
-
-impl ActiveCounter {
-    pub fn new(v: usize) -> Self {
-        ActiveCounter(Arc::new(AtomicUsize::new(v)))
-    }
-
-    pub fn get(&self) -> usize {
-        self.0.load(Ordering::Relaxed)
-    }
-
-    pub fn inc(&self, n: usize) -> ActiveCounterHandler {
-        self.0.fetch_add(n, Ordering::Relaxed);
-        ActiveCounterHandler(Arc::clone(&self.0), n)
-    }
-}
-
-impl Drop for ActiveCounterHandler {
-    fn drop(&mut self) {
-        self.0.fetch_sub(self.1, Ordering::Relaxed);
-    }
-}
-
-pub static OT_STATS: Lazy<OpenTelemetryState> = Lazy::new(|| OpenTelemetryState::new());
+pub static OT_STATS: Lazy<OpenTelemetryState> = Lazy::new(OpenTelemetryState::new);
 
 pub struct OpenTelemetryState {
     pub exporter: PrometheusExporter,
+
+    pub connections_counter: Counter<u64>,
+    pub active_connections_counter: ActiveCounter,
+    pub active_connections_observer: ValueObserver<u64>,
+
+    pub requests_counter: Counter<u64>,
+    pub active_requests_counter: ActiveCounter,
+    pub active_requests_observer: ValueObserver<u64>,
+
     pub storage_counter: Counter<u64>,
     pub storage_histogram: ValueRecorder<f64>,
 }
@@ -100,8 +34,43 @@ impl OpenTelemetryState {
     pub fn new() -> Self {
         let exporter = opentelemetry_prometheus::exporter().init();
         let meter = global::meter("casper");
+
+        let active_connections_counter = ActiveCounter::new(0);
+        let active_connections_counter2 = active_connections_counter.clone();
+        let active_requests_counter = ActiveCounter::new(0);
+        let active_requests_counter2 = active_requests_counter.clone();
+
         OpenTelemetryState {
             exporter,
+
+            connections_counter: meter
+                .u64_counter("http_connections_total")
+                .with_description("Total number of HTTP connections processed by the application.")
+                .init(),
+            active_connections_counter,
+            active_connections_observer: meter
+                .u64_value_observer("http_connections_current", move |observer| {
+                    observer.observe(active_connections_counter2.get(), &[]);
+                })
+                .with_description(
+                    "Current number of HTTP connections being processed by the application.",
+                )
+                .init(),
+
+            requests_counter: meter
+                .u64_counter("http_requests_total")
+                .with_description("Total number of HTTP requests processed by the application.")
+                .init(),
+            active_requests_counter,
+            active_requests_observer: meter
+                .u64_value_observer("http_requests_current", move |observer| {
+                    observer.observe(active_requests_counter2.get(), &[]);
+                })
+                .with_description(
+                    "Current number of HTTP requests being processed by the application.",
+                )
+                .init(),
+
             storage_counter: meter
                 .u64_counter("storage_requests_total")
                 .with_description(
@@ -116,10 +85,31 @@ impl OpenTelemetryState {
     }
 }
 
-#[macro_export]
+macro_rules! connections_counter_add {
+    ($increment:expr) => {{
+        crate::stats::OT_STATS
+            .connections_counter
+            .add($increment, &[]);
+
+        crate::stats::OT_STATS
+            .active_connections_counter
+            .inc($increment)
+    }};
+}
+
+macro_rules! requests_counter_add {
+    ($increment:expr) => {{
+        crate::stats::OT_STATS.requests_counter.add($increment, &[]);
+
+        crate::stats::OT_STATS
+            .active_requests_counter
+            .inc($increment)
+    }};
+}
+
 macro_rules! storage_counter {
     ($increment:expr, $($key:expr => $val:expr),*) => {
-        OT_STATS.storage_counter.add(
+        crate::stats::OT_STATS.storage_counter.add(
             $increment,
             &[
                 $(::opentelemetry::KeyValue::new($key, $val),)*
@@ -128,10 +118,9 @@ macro_rules! storage_counter {
     };
 }
 
-#[macro_export]
 macro_rules! storage_histogram {
     ($value:expr, $($key:expr => $val:expr),*) => {
-        OT_STATS.storage_histogram.record(
+        crate::stats::OT_STATS.storage_histogram.record(
             $value,
             &[
                 $(::opentelemetry::KeyValue::new($key, $val),)*
@@ -167,6 +156,8 @@ where
 
         let endpoint = self.endpoint.clone();
         Box::pin(async move {
+            let _req_counter_handler = requests_counter_add!(1);
+
             if req.uri().path() == *endpoint {
                 return Ok(Self::metrics_handler(req).await.unwrap_or_else(|_| {
                     Response::builder()
@@ -213,5 +204,32 @@ impl<S> Layer<S> for InstrumentationLayer {
             endpoint: self.endpoint.clone(),
             inner,
         }
+    }
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct ActiveCounter(Arc<AtomicU64>);
+
+#[derive(Debug)]
+pub struct ActiveCounterHandler(Arc<AtomicU64>, u64);
+
+impl ActiveCounter {
+    pub fn new(v: u64) -> Self {
+        ActiveCounter(Arc::new(AtomicU64::new(v)))
+    }
+
+    pub fn get(&self) -> u64 {
+        self.0.load(Ordering::Relaxed)
+    }
+
+    pub fn inc(&self, n: u64) -> ActiveCounterHandler {
+        self.0.fetch_add(n, Ordering::Relaxed);
+        ActiveCounterHandler(Arc::clone(&self.0), n)
+    }
+}
+
+impl Drop for ActiveCounterHandler {
+    fn drop(&mut self) {
+        self.0.fetch_sub(self.1, Ordering::Relaxed);
     }
 }

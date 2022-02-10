@@ -16,8 +16,6 @@ use mlua::{
 use ripemd::{Digest, Ripemd160};
 
 use crate::response::LuaResponse;
-use crate::stats::OT_STATS;
-use crate::{storage_counter, storage_histogram};
 
 pub type Key = BString;
 
