@@ -22,6 +22,10 @@ pub async fn register_backends(
 ) -> anyhow::Result<()> {
     let mut registered_backends = HashMap::new();
 
+    // Update Redis global settings that affects all backends
+    fred::globals::set_max_command_attempts(1); // Disable retries
+    fred::globals::set_min_backpressure_time_ms(20); // Default was 100
+
     for (name, config) in backends_config {
         let backend_type = config
             .get("backend")
