@@ -24,6 +24,7 @@ pub async fn register_backends(
 
     // Update Redis global settings that affects all backends
     fred::globals::set_max_command_attempts(1); // Disable retries
+    fred::globals::set_backpressure_count(2000); // Default was 5000
     fred::globals::set_min_backpressure_time_ms(20); // Default was 100
 
     for (name, config) in backends_config {

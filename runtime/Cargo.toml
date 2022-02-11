@@ -37,6 +37,7 @@ serde_yaml = "0.8"
 tokio = { version = "1", features = ["full"] }
 tower = "0.4"
 tracing = "0.1"
+tracing-log = "0.1"
 tracing-subscriber = "0.3"
 zstd = "0.10"
 

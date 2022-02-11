@@ -9,6 +9,7 @@ use hyper::server::accept::Accept;
 use hyper::server::conn::{AddrIncoming, AddrStream};
 use tokio::net::TcpListener;
 use tracing::{error, info};
+use tracing_log::LogTracer;
 
 use crate::worker::LocalWorker;
 
@@ -68,8 +69,11 @@ async fn main_inner() -> anyhow::Result<()> {
 
 #[tokio::main]
 async fn main() {
-    // install global collector configured based on RUST_LOG env var.
+    // Install global collector configured based on RUST_LOG env var.
     tracing_subscriber::fmt::init();
+
+    // Convert log records to tracing Events
+    let _ = LogTracer::init();
 
     if let Err(err) = main_inner().await {
         error!("{:?}", err);

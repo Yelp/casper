@@ -170,7 +170,7 @@ impl Config {
     }
 
     const fn default_internal_cache_ttl() -> f64 {
-        1.0
+        0.0
     }
 
     fn into_redis_config(self) -> Result<fred::types::RedisConfig> {
