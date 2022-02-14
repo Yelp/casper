@@ -182,8 +182,6 @@ pub(crate) async fn handler(
                 }
             }
         }
-
-        lua.expire_registry_values();
     });
 
     Ok(resp)

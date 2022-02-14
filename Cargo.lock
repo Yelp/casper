@@ -1085,7 +1085,7 @@ dependencies = [
 [[package]]
 name = "mlua"
 version = "0.7.3"
-source = "git+https://github.com/khvzak/mlua#9a5a341e44eb28f6f78d013b1ff9162f79eff163"
+source = "git+https://github.com/khvzak/mlua#18c3255c9033c1df4d9dd94b84a904ea2732a998"
 dependencies = [
  "bstr",
  "cc",
