@@ -12,7 +12,7 @@ use serde::Serialize;
 use tracing::{error, instrument};
 
 use crate::handler;
-use crate::stats::OT_STATS;
+use crate::metrics::METRICS;
 use crate::worker::WorkerData;
 
 #[derive(Clone)]
@@ -81,8 +81,8 @@ impl Svc {
         let response = handler::handler(lua, worker_data, req, ctx_key.clone()).await;
 
         log_data.elapsed = start.elapsed();
-        log_data.active_conns = OT_STATS.active_connections_counter.get();
-        log_data.active_requests = OT_STATS.active_requests_counter.get();
+        log_data.active_conns = METRICS.active_connections_counter.get();
+        log_data.active_requests = METRICS.active_requests_counter.get();
         log_data.worker_active_requests = self.worker_data.active_requests.get();
 
         match response {

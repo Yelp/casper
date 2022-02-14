@@ -3,6 +3,7 @@ use std::rc::Rc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::task::{Context, Poll};
+use std::time::Instant;
 
 use futures::future::LocalBoxFuture;
 use hyper::{header::CONTENT_TYPE, service::Service, Body, Request, Response};
@@ -13,33 +14,40 @@ use opentelemetry_prometheus::PrometheusExporter;
 use prometheus::{Encoder, TextEncoder};
 use tower::Layer;
 
-pub static OT_STATS: Lazy<OpenTelemetryState> = Lazy::new(OpenTelemetryState::new);
+static PROMETHEUS_EXPORTER: Lazy<PrometheusExporter> = Lazy::new(|| {
+    let boundaries = vec![
+        0.001, 0.002, 0.003, 0.005, 0.01, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.75, 1.0, 1.5, 2.0, 3.0,
+        4.0, 5.0, 10.0,
+    ];
+    opentelemetry_prometheus::exporter()
+        .with_default_histogram_boundaries(boundaries)
+        .init()
+});
 
-pub struct OpenTelemetryState {
-    pub exporter: PrometheusExporter,
+pub fn init() {
+    let _ = PROMETHEUS_EXPORTER;
+}
 
+pub static METRICS: Lazy<OpenTelemetryMetrics> = Lazy::new(OpenTelemetryMetrics::new);
+
+pub struct OpenTelemetryMetrics {
     pub connections_counter: Counter<u64>,
     pub active_connections_counter: ActiveCounter,
     pub active_connections_observer: ValueObserver<u64>,
 
     pub requests_counter: Counter<u64>,
+    pub requests_histogram: ValueRecorder<f64>,
     pub active_requests_counter: ActiveCounter,
     pub active_requests_observer: ValueObserver<u64>,
 
     pub storage_counter: Counter<u64>,
     pub storage_histogram: ValueRecorder<f64>,
+
+    pub middleware_histogram: ValueRecorder<f64>,
 }
 
-impl OpenTelemetryState {
+impl OpenTelemetryMetrics {
     pub fn new() -> Self {
-        let boundaries = vec![
-            0.001, 0.002, 0.003, 0.005, 0.01, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.75, 1.0, 1.5, 2.0,
-            3.0, 4.0, 5.0, 10.0,
-        ];
-        let exporter = opentelemetry_prometheus::exporter()
-            .with_default_histogram_boundaries(boundaries)
-            .init();
-
         let meter = global::meter("casper");
 
         let active_connections_counter = ActiveCounter::new(0);
@@ -47,9 +55,7 @@ impl OpenTelemetryState {
         let active_requests_counter = ActiveCounter::new(0);
         let active_requests_counter2 = active_requests_counter.clone();
 
-        OpenTelemetryState {
-            exporter,
-
+        OpenTelemetryMetrics {
             connections_counter: meter
                 .u64_counter("http_connections_total")
                 .with_description("Total number of HTTP connections processed by the application.")
@@ -67,6 +73,10 @@ impl OpenTelemetryState {
             requests_counter: meter
                 .u64_counter("http_requests_total")
                 .with_description("Total number of HTTP requests processed by the application.")
+                .init(),
+            requests_histogram: meter
+                .f64_value_recorder("http_request_duration_seconds")
+                .with_description("HTTP request latency in seconds.")
                 .init(),
             active_requests_counter,
             active_requests_observer: meter
@@ -88,17 +98,22 @@ impl OpenTelemetryState {
                 .f64_value_recorder("storage_request_duration_seconds")
                 .with_description("The storage backend request latency in seconds.")
                 .init(),
+
+            middleware_histogram: meter
+                .f64_value_recorder("middleware_request_duration_seconds")
+                .with_description("Middleware only request latency in seconds.")
+                .init(),
         }
     }
 }
 
 macro_rules! connections_counter_add {
     ($increment:expr) => {{
-        crate::stats::OT_STATS
+        crate::metrics::METRICS
             .connections_counter
             .add($increment, &[]);
 
-        crate::stats::OT_STATS
+        crate::metrics::METRICS
             .active_connections_counter
             .inc($increment)
     }};
@@ -106,17 +121,30 @@ macro_rules! connections_counter_add {
 
 macro_rules! requests_counter_add {
     ($increment:expr) => {{
-        crate::stats::OT_STATS.requests_counter.add($increment, &[]);
+        crate::metrics::METRICS
+            .requests_counter
+            .add($increment, &[]);
 
-        crate::stats::OT_STATS
+        crate::metrics::METRICS
             .active_requests_counter
             .inc($increment)
     }};
 }
 
-macro_rules! storage_counter {
+macro_rules! requests_histogram_rec {
+    ($start:expr, $($key:expr => $val:expr),*) => {
+        crate::metrics::METRICS.requests_histogram.record(
+            $start.elapsed().as_secs_f64(),
+            &[
+                $(::opentelemetry::KeyValue::new($key, $val),)*
+            ],
+        )
+    };
+}
+
+macro_rules! storage_counter_add {
     ($increment:expr, $($key:expr => $val:expr),*) => {
-        crate::stats::OT_STATS.storage_counter.add(
+        crate::metrics::METRICS.storage_counter.add(
             $increment,
             &[
                 $(::opentelemetry::KeyValue::new($key, $val),)*
@@ -125,10 +153,21 @@ macro_rules! storage_counter {
     };
 }
 
-macro_rules! storage_histogram {
-    ($value:expr, $($key:expr => $val:expr),*) => {
-        crate::stats::OT_STATS.storage_histogram.record(
-            $value,
+macro_rules! storage_histogram_rec {
+    ($start:expr, $($key:expr => $val:expr),*) => {
+        crate::metrics::METRICS.storage_histogram.record(
+            $start.elapsed().as_secs_f64(),
+            &[
+                $(::opentelemetry::KeyValue::new($key, $val),)*
+            ],
+        )
+    };
+}
+
+macro_rules! middleware_histogram_rec {
+    ($start:expr, $($key:expr => $val:expr),*) => {
+        crate::metrics::METRICS.middleware_histogram.record(
+            $start.elapsed().as_secs_f64(),
             &[
                 $(::opentelemetry::KeyValue::new($key, $val),)*
             ],
@@ -173,7 +212,16 @@ where
                         .expect("Cannot build Response")
                 }));
             }
-            inner.call(req).await
+
+            let start = Instant::now();
+            let result = inner.call(req).await;
+            let mut status = 0i64;
+            if let Ok(response) = result.as_ref() {
+                status = response.status().as_u16() as i64;
+            }
+            requests_histogram_rec!(start, "status" => status);
+
+            result
         })
     }
 }
@@ -182,7 +230,7 @@ impl<S> Instrumentation<S> {
     async fn metrics_handler(_: Request<Body>) -> Result<Response<Body>, anyhow::Error> {
         let mut buffer = vec![];
         let encoder = TextEncoder::new();
-        let metric_families = OT_STATS.exporter.registry().gather();
+        let metric_families = PROMETHEUS_EXPORTER.registry().gather();
         encoder.encode(&metric_families, &mut buffer)?;
         Ok(Response::builder()
             .status(200)

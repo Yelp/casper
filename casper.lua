@@ -8,6 +8,7 @@ return {
   http = {
     middleware = {
       {
+        name = "redis",
         code = "require('lua.v2.redis')"
       },
     },
@@ -26,6 +27,8 @@ return {
       pool_size = 4,
       compression_level = 3,
       wait_for_connect = 3,
+      internal_cache_size = 64 * 1024 * 1024,
+      internal_cache_ttl = 2.0,
     },
   }
 }

@@ -5,6 +5,7 @@ main:
 
 http:
   middleware:
+      name: redis
     - code: "require('lua.v2.redis')"
 
 storage:

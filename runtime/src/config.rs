@@ -36,7 +36,7 @@ pub struct HttpConfig {
 
 #[derive(Debug, Deserialize)]
 pub struct Middleware {
-    pub name: Option<String>,
+    pub name: String,
     pub code: String,
 }
 

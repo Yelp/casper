@@ -11,9 +11,10 @@ use fred::prelude::{Expiration, RedisError, RedisKey, RedisValue, SetOptions, St
 use futures::future::{try_join, try_join_all, TryFutureExt};
 use futures::stream::{self, StreamExt};
 use hyper::{Response, StatusCode};
-use linked_hash_map::LinkedHashMap;
+use moka::future::Cache;
+use once_cell::sync::Lazy;
+use opentelemetry::{global, metrics::Counter};
 use serde::{Deserialize, Serialize};
-use tokio::sync::Mutex;
 use tokio::time::timeout;
 use tracing::error;
 
@@ -28,15 +29,7 @@ pub struct RedisBackend {
     config: Config,
     client: StaticRedisPool,
     connected: AtomicBool,
-    internal_cache: Mutex<InternalCache>,
-}
-
-#[derive(Default)]
-struct InternalCache {
-    // Surrogate keys cache
-    map: LinkedHashMap<Key, (SurrogateKeyItem, Instant)>,
-    // Map (approx.) size in bytes
-    size: usize,
+    internal_cache: Cache<Key, (SurrogateKeyItem, Instant)>,
 }
 
 // Redis backend configuration
@@ -213,6 +206,34 @@ bitflags! {
     }
 }
 
+struct RedisMetrics {
+    pub internal_cache_counter: Counter<u64>,
+}
+
+static METRICS: Lazy<RedisMetrics> = Lazy::new(RedisMetrics::new);
+
+impl RedisMetrics {
+    fn new() -> Self {
+        let meter = global::meter("redis");
+        RedisMetrics {
+            internal_cache_counter: meter
+                .u64_counter("redis_internal_cache_requests_total")
+                .with_description("Total number of Redis requests served from the internal cache.")
+                .init(),
+        }
+    }
+
+    fn internal_cache_counter_inc(&self, name: &str, status: &'static str) {
+        use opentelemetry::KeyValue;
+
+        let attributes = [
+            KeyValue::new("name", name.to_owned()),
+            KeyValue::new("status", status),
+        ];
+        self.internal_cache_counter.add(1, &attributes);
+    }
+}
+
 impl RedisBackend {
     pub async fn new(config: Config, name: impl Into<Option<String>>) -> Result<Self> {
         let pool_size = config.pool_size;
@@ -226,7 +247,10 @@ impl RedisBackend {
             config: config.clone(),
             client: pool,
             connected: AtomicBool::new(false),
-            internal_cache: Mutex::default(),
+            internal_cache: Cache::builder()
+                .max_capacity(config.internal_cache_size as u64)
+                .weigher(|k: &Key, _| k.len() as u32)
+                .build(),
         };
 
         if !config.lazy {
@@ -272,20 +296,23 @@ impl RedisBackend {
         // Check surrogate keys in the internal cache first
         let mut surrogate_keys = response_item.surrogate_keys;
         if self.config.internal_cache_size > 0 {
-            let mut int_cache = self.internal_cache.lock().await;
             let int_cache_ttl = self.config.internal_cache_ttl;
 
             let mut surrogate_keys_new = Vec::with_capacity(surrogate_keys.len());
             for sk in surrogate_keys {
-                match int_cache.map.get_refresh(&sk) {
+                match self.internal_cache.get(&sk) {
                     // If we have a cached key that indicates expired record then don't go to Redis
                     Some((sk_item, _)) if response_item.timestamp <= sk_item.timestamp => {
+                        METRICS.internal_cache_counter_inc(&self.name, "hit");
                         return Ok(None);
                     }
                     // Filter surrogate keys that fetched earlier and not expired
-                    Some((_, t)) if t.elapsed().as_secs_f64() <= int_cache_ttl => {}
+                    Some((_, t)) if t.elapsed().as_secs_f64() <= int_cache_ttl => {
+                        METRICS.internal_cache_counter_inc(&self.name, "hit");
+                    }
                     _ => {
                         surrogate_keys_new.push(sk);
+                        METRICS.internal_cache_counter_inc(&self.name, "miss");
                     }
                 }
             }
@@ -309,8 +336,9 @@ impl RedisBackend {
 
                     // Cache this surrogate key
                     if self.config.internal_cache_size > 0 {
-                        let mut int_cache = self.internal_cache.lock().await;
-                        self.insert_to_internal_cache(&mut int_cache, sk, sk_item);
+                        self.internal_cache
+                            .insert(sk, (sk_item, Instant::now()))
+                            .await;
                     }
 
                     // Check that the response item having this key is not expired
@@ -368,8 +396,9 @@ impl RedisBackend {
 
                 // Update internal cache
                 if self.config.internal_cache_size > 0 {
-                    let mut int_cache = self.internal_cache.lock().await;
-                    self.insert_to_internal_cache(&mut int_cache, skey.clone(), sk_item);
+                    self.internal_cache
+                        .insert(skey.clone(), (sk_item, Instant::now()))
+                        .await;
                 }
 
                 Ok(self
@@ -499,18 +528,6 @@ impl RedisBackend {
     #[allow(unused)]
     pub fn take_network_latency_metrics(&self) -> Stats {
         self.client.take_network_latency_metrics()
-    }
-
-    fn insert_to_internal_cache(&self, cache: &mut InternalCache, key: Key, val: SurrogateKeyItem) {
-        let max_size = self.config.internal_cache_size;
-        while !cache.map.is_empty() && cache.size + key.len() > max_size {
-            let (removed_key, _) = cache.map.pop_front().unwrap(); // never fails
-            cache.size -= removed_key.len();
-        }
-        if cache.size + key.len() <= max_size {
-            cache.size += key.len();
-            cache.map.insert(key, (val, Instant::now()));
-        }
     }
 }
 

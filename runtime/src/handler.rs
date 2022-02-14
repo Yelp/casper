@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 use std::rc::Rc;
+use std::time::Instant;
 
 use anyhow::Result;
 use http::uri::Scheme;
@@ -7,13 +8,14 @@ use hyper::header::{self, HeaderMap, HeaderName};
 use hyper::{client::HttpConnector, Body, Client, Request, Response, Uri};
 use mlua::{FromLua, Function, Lua, RegistryKey, Table, Value, Variadic};
 use once_cell::sync::Lazy;
+use scopeguard::defer;
 use tracing::warn;
 
 use crate::request::LuaRequest;
 use crate::response::LuaResponse;
 use crate::worker::WorkerData;
 
-pub static CLIENT: Lazy<Client<HttpConnector>> = Lazy::new(Client::new);
+pub static HTTP_CLIENT: Lazy<Client<HttpConnector>> = Lazy::new(Client::new);
 
 static HOP_BY_HOP_HEADERS: Lazy<[HeaderName; 8]> = Lazy::new(|| {
     [
@@ -56,6 +58,12 @@ pub(crate) async fn handler(
         .enumerate()
         .filter_map(|(i, it)| it.on_request.as_ref().map(|r| (i, r)))
     {
+        let start = Instant::now();
+        let name = middleware_list[i].name.clone();
+        defer! {
+            middleware_histogram_rec!(start, "name" => name, "phase" => "on_request");
+        }
+
         let on_request: Function = lua.registry_value(on_request)?;
         match on_request
             .call_async::<_, Value>((lua_req.clone(), ctx.clone()))
@@ -110,6 +118,12 @@ pub(crate) async fn handler(
         if skip_middleware.contains(&i) {
             continue;
         }
+        let start = Instant::now();
+        let name = middleware_list[i].name.clone();
+        defer! {
+            middleware_histogram_rec!(start, "name" => name, "phase" => "on_response");
+        }
+
         let on_response: Function = lua.registry_value(on_response)?;
         if let Err(err) = on_response
             .call_async::<_, Value>((lua_resp.clone(), ctx.clone()))
@@ -149,6 +163,11 @@ pub(crate) async fn handler(
         {
             if skip_middleware.contains(&i) {
                 continue;
+            }
+            let start = Instant::now();
+            let name = data.middleware[i].name.clone();
+            defer! {
+                middleware_histogram_rec!(start, "name" => name, "phase" => "after_response");
             }
 
             let mut args = Variadic::new();
@@ -192,7 +211,7 @@ async fn proxy_to_downstream(mut req: Request<Body>, dst: Option<Uri>) -> Result
 
     // Proxy to the downstream service
     filter_hop_headers(req.headers_mut());
-    let resp = CLIENT.request(req).await?;
+    let resp = HTTP_CLIENT.request(req).await?;
 
     Ok(resp)
 }

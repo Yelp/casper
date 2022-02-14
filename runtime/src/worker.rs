@@ -13,8 +13,8 @@ use tracing::error;
 
 use crate::config::Config;
 use crate::core;
+use crate::metrics::{ActiveCounter, ActiveCounterHandler, InstrumentationLayer};
 use crate::service::Svc;
-use crate::stats::{ActiveCounter, ActiveCounterHandler, InstrumentationLayer};
 
 const LUA_THREAD_CACHE_SIZE: usize = 128;
 
@@ -30,6 +30,7 @@ pub struct WorkerData {
 }
 
 pub struct Middleware {
+    pub name: String,
     pub on_request: Option<RegistryKey>,
     pub on_response: Option<RegistryKey>,
     pub after_response: Option<RegistryKey>,
@@ -115,6 +116,7 @@ impl LocalWorker {
             let after_response: Option<Function> = handlers.get("after_response")?;
 
             worker_data.middleware.push(Middleware {
+                name: middleware.name.clone(),
                 on_request: on_request
                     .map(|x| lua.create_registry_value(x))
                     .transpose()?,

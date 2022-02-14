@@ -75,13 +75,16 @@ async fn main() {
     // Convert log records to tracing Events
     let _ = LogTracer::init();
 
+    // Init Metrics subsystem
+    crate::metrics::init();
+
     if let Err(err) = main_inner().await {
         error!("{:?}", err);
     }
 }
 
 #[macro_use]
-mod stats;
+mod metrics;
 
 mod backends;
 mod config;
