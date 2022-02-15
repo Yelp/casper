@@ -2,7 +2,7 @@ use std::ops::Deref;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::thread;
-use std::time::{Instant, SystemTime};
+use std::time::{Duration, Instant, SystemTime};
 
 use anyhow::{Context, Result};
 use hyper::server::conn::{AddrStream, Http};
@@ -89,11 +89,23 @@ impl LocalWorker {
             }
 
             let local = LocalSet::new();
+
+            // Track Lua used memory every second
+            let (worker_id, lua2) = (worker_data.id, lua.clone());
+            local.spawn_local(async move {
+                loop {
+                    lua_used_memory_update!(worker_id, lua2.used_memory());
+                    tokio::time::sleep(Duration::from_secs(1)).await;
+                }
+            });
+
+            // Main processing loop
             local.spawn_local(async move {
                 while let Some(stream) = recv.recv().await {
                     Self::process_connection(stream, lua.clone(), worker_data.clone()).await;
                 }
             });
+
             handler.block_on(local);
         });
 

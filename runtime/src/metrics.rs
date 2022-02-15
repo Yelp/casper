@@ -12,6 +12,7 @@ use opentelemetry::global;
 use opentelemetry::metrics::{Counter, ValueObserver, ValueRecorder};
 use opentelemetry_prometheus::PrometheusExporter;
 use prometheus::{Encoder, TextEncoder};
+use tokio::sync::RwLock;
 use tower::Layer;
 
 static PROMETHEUS_EXPORTER: Lazy<PrometheusExporter> = Lazy::new(|| {
@@ -25,7 +26,8 @@ static PROMETHEUS_EXPORTER: Lazy<PrometheusExporter> = Lazy::new(|| {
 });
 
 pub fn init() {
-    let _ = PROMETHEUS_EXPORTER;
+    let _exporter = Lazy::force(&PROMETHEUS_EXPORTER);
+    let _metrics = Lazy::force(&METRICS);
 }
 
 pub static METRICS: Lazy<OpenTelemetryMetrics> = Lazy::new(OpenTelemetryMetrics::new);
@@ -44,6 +46,9 @@ pub struct OpenTelemetryMetrics {
     pub storage_histogram: ValueRecorder<f64>,
 
     pub middleware_histogram: ValueRecorder<f64>,
+
+    pub lua_used_memory: Arc<RwLock<Vec<AtomicU64>>>,
+    pub lua_used_memory_observer: ValueObserver<u64>,
 }
 
 impl OpenTelemetryMetrics {
@@ -51,19 +56,19 @@ impl OpenTelemetryMetrics {
         let meter = global::meter("casper");
 
         let active_connections_counter = ActiveCounter::new(0);
-        let active_connections_counter2 = active_connections_counter.clone();
         let active_requests_counter = ActiveCounter::new(0);
-        let active_requests_counter2 = active_requests_counter.clone();
+
+        let lua_used_memory = Arc::new(RwLock::default());
 
         OpenTelemetryMetrics {
             connections_counter: meter
                 .u64_counter("http_connections_total")
                 .with_description("Total number of HTTP connections processed by the application.")
                 .init(),
-            active_connections_counter,
+            active_connections_counter: active_connections_counter.clone(),
             active_connections_observer: meter
                 .u64_value_observer("http_connections_current", move |observer| {
-                    observer.observe(active_connections_counter2.get(), &[]);
+                    observer.observe(active_connections_counter.get(), &[]);
                 })
                 .with_description(
                     "Current number of HTTP connections being processed by the application.",
@@ -78,10 +83,10 @@ impl OpenTelemetryMetrics {
                 .f64_value_recorder("http_request_duration_seconds")
                 .with_description("HTTP request latency in seconds.")
                 .init(),
-            active_requests_counter,
+            active_requests_counter: active_requests_counter.clone(),
             active_requests_observer: meter
                 .u64_value_observer("http_requests_current", move |observer| {
-                    observer.observe(active_requests_counter2.get(), &[]);
+                    observer.observe(active_requests_counter.get(), &[]);
                 })
                 .with_description(
                     "Current number of HTTP requests being processed by the application.",
@@ -102,6 +107,21 @@ impl OpenTelemetryMetrics {
             middleware_histogram: meter
                 .f64_value_recorder("middleware_request_duration_seconds")
                 .with_description("Middleware only request latency in seconds.")
+                .init(),
+
+            lua_used_memory: lua_used_memory.clone(),
+            lua_used_memory_observer: meter
+                .u64_value_observer("lua_used_memory_bytes", move |observer| {
+                    // Almost all the time it's locked for read only
+                    if let Ok(lua_used_memory) = lua_used_memory.try_read() {
+                        let lua_used_memory_total = lua_used_memory
+                            .iter()
+                            .map(|v| v.load(Ordering::Relaxed))
+                            .sum();
+                        observer.observe(lua_used_memory_total, &[]);
+                    }
+                })
+                .with_description("Total memory used by Lua workers.")
                 .init(),
         }
     }
@@ -173,6 +193,23 @@ macro_rules! middleware_histogram_rec {
             ],
         )
     };
+}
+
+macro_rules! lua_used_memory_update {
+    ($id:expr, $value:expr) => {{
+        let lua_used_memory = crate::metrics::METRICS.lua_used_memory.read().await;
+        if $id < lua_used_memory.len() {
+            lua_used_memory[$id].store($value as u64, ::std::sync::atomic::Ordering::Relaxed);
+        } else {
+            drop(lua_used_memory);
+            let mut lua_used_memory = crate::metrics::METRICS.lua_used_memory.write().await;
+            // Double check (situation can be changed after acquiring lock) and grow vector
+            if $id >= lua_used_memory.len() {
+                lua_used_memory.resize_with($id + 1, Default::default);
+            }
+            lua_used_memory[$id].store($value as u64, ::std::sync::atomic::Ordering::Relaxed);
+        }
+    }};
 }
 
 #[derive(Clone, Debug)]
