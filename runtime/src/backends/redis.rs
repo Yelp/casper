@@ -1,4 +1,5 @@
 use std::borrow::BorrowMut;
+use std::mem;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant, SystemTime};
 
@@ -249,7 +250,11 @@ impl RedisBackend {
             connected: AtomicBool::new(false),
             internal_cache: Cache::builder()
                 .max_capacity(config.internal_cache_size as u64)
-                .weigher(|k: &Key, _| k.len() as u32)
+                .weigher(|k: &Key, _: &(SurrogateKeyItem, Instant)| {
+                    (k.len() + mem::size_of::<SurrogateKeyItem>() + mem::size_of::<Instant>())
+                        .try_into()
+                        .unwrap_or(u32::MAX)
+                })
                 .build(),
         };
 
