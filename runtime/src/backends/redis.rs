@@ -25,6 +25,8 @@ use crate::utils::zstd::ZstdDecoder;
 
 pub const MAX_CONCURRENCY: usize = 100;
 
+const SURROGATE_KEYS_TTL: i64 = 86400; // 1 day
+
 pub struct RedisBackend {
     name: String,
     config: Config,
@@ -411,8 +413,8 @@ impl RedisBackend {
                     .set(
                         make_redis_key(&skey),
                         RedisValue::Bytes(sk_item_enc),
-                        Some(Expiration::KEEPTTL), // Retain the TTL associated with the key
-                        Some(SetOptions::XX),      // Only set the key if it already exist
+                        Some(Expiration::EX(SURROGATE_KEYS_TTL)),
+                        None,
                         false,
                     )
                     .await?)
@@ -506,7 +508,7 @@ impl RedisBackend {
                         .set(
                             make_redis_key(&skey),
                             RedisValue::Bytes(sk_item_enc),
-                            Some(Expiration::EX(86400)), // 24 hours
+                            Some(Expiration::EX(SURROGATE_KEYS_TTL)),
                             Some(SetOptions::NX),
                             false,
                         )
