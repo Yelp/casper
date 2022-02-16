@@ -489,27 +489,32 @@ impl RedisBackend {
             .await?;
 
         // Update surrogate keys
+        let int_cache_ttl = self.config.internal_cache_ttl;
         try_join_all(surrogate_keys.into_iter().map(|skey| async move {
-            let sk_item = SurrogateKeyItem { timestamp: 0 };
-            let sk_item_enc = flexbuffers::to_vec(&sk_item)?;
+            match self.internal_cache.get(&skey) {
+                Some((_, t)) if t.elapsed().as_secs_f64() <= int_cache_ttl => {
+                    // Do nothing, key is known
+                    METRICS.internal_cache_counter_inc(&self.name, "hit");
+                }
+                _ => {
+                    METRICS.internal_cache_counter_inc(&self.name, "miss");
+                    let sk_item = SurrogateKeyItem { timestamp: 0 };
+                    let sk_item_enc = flexbuffers::to_vec(&sk_item)?;
 
-            // Store surrogate key only if it does not exist (NX option)
-            let is_exists: RedisValue = self
-                .client
-                .set(
-                    make_redis_key(&skey),
-                    RedisValue::Bytes(sk_item_enc),
-                    Some(Expiration::EX(86400)), // 24 hours
-                    Some(SetOptions::NX),
-                    false,
-                )
-                .await?;
+                    // Store new surrogate key atomically (NX option)
+                    self.client
+                        .set(
+                            make_redis_key(&skey),
+                            RedisValue::Bytes(sk_item_enc),
+                            Some(Expiration::EX(86400)), // 24 hours
+                            Some(SetOptions::NX),
+                            false,
+                        )
+                        .await?;
 
-            // In case the key already exist, reset TTL to 24h
-            if is_exists.is_null() {
-                self.client.expire(make_redis_key(&skey), 86400).await?;
+                    // Don't reset TTL for existing keys (logic removed)
+                }
             }
-
             anyhow::Ok(())
         }))
         .await?;
