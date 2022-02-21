@@ -397,7 +397,7 @@ impl RedisBackend {
             ItemKey::Primary(key) => Ok(self.client.del(make_redis_key(&key)).await?),
             ItemKey::Surrogate(skey) => {
                 let sk_item = SurrogateKeyItem {
-                    timestamp: unix_timestamp(),
+                    timestamp: current_timestamp(),
                 };
                 let sk_item_enc = flexbuffers::to_vec(&sk_item)?;
 
@@ -468,9 +468,10 @@ impl RedisBackend {
             }
         }
 
+        let timestamp = current_timestamp();
         let response_item = ResponseItem {
             status_code: response.status().as_u16(),
-            timestamp: unix_timestamp(),
+            timestamp,
             surrogate_keys: surrogate_keys.clone(),
             headers,
             body,
@@ -493,18 +494,26 @@ impl RedisBackend {
         // Update surrogate keys
         let int_cache_ttl = self.config.internal_cache_ttl;
         try_join_all(surrogate_keys.into_iter().map(|skey| async move {
-            match self.internal_cache.get(&skey) {
+            let refresh_ttl = match self.internal_cache.get(&skey) {
                 Some((_, t)) if t.elapsed().as_secs_f64() <= int_cache_ttl => {
                     // Do nothing, key is known
                     METRICS.internal_cache_counter_inc(&self.name, "hit");
+                    true
                 }
                 _ => {
                     METRICS.internal_cache_counter_inc(&self.name, "miss");
-                    let sk_item = SurrogateKeyItem { timestamp: 0 };
+                    // We set timestamp to the current time to not accidentally serve stalled items
+                    // in case of surrogate key loss.
+                    // Minus 1 second is needed to keep the current response fresh, because we invalidate
+                    // everything up to (and including) the surrogate key timestamp.
+                    let sk_item = SurrogateKeyItem {
+                        timestamp: timestamp - 1,
+                    };
                     let sk_item_enc = flexbuffers::to_vec(&sk_item)?;
 
                     // Store new surrogate key atomically (NX option)
-                    self.client
+                    let is_executed: RedisValue = self
+                        .client
                         .set(
                             make_redis_key(&skey),
                             RedisValue::Bytes(sk_item_enc),
@@ -513,9 +522,14 @@ impl RedisBackend {
                             false,
                         )
                         .await?;
-
-                    // Don't reset TTL for existing keys (logic removed)
+                    is_executed.is_null()
                 }
+            };
+            if refresh_ttl && rand::random::<u8>() % 100 < 1 {
+                // Refresh TTL with 1% probability
+                self.client
+                    .expire(make_redis_key(&skey), SURROGATE_KEYS_TTL)
+                    .await?;
             }
             anyhow::Ok(())
         }))
@@ -592,7 +606,7 @@ impl Storage for RedisBackend {
 }
 
 #[inline]
-fn unix_timestamp() -> u64 {
+fn current_timestamp() -> u64 {
     SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .expect("System time is before UNIX_EPOCH")
