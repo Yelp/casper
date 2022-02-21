@@ -49,6 +49,8 @@ pub struct OpenTelemetryMetrics {
 
     pub lua_used_memory: Arc<RwLock<Vec<AtomicU64>>>,
     pub lua_used_memory_observer: ValueObserver<u64>,
+
+    pub num_threads_observer: ValueObserver<u64>,
 }
 
 impl OpenTelemetryMetrics {
@@ -122,6 +124,15 @@ impl OpenTelemetryMetrics {
                     }
                 })
                 .with_description("Total memory used by Lua workers.")
+                .init(),
+
+            num_threads_observer: meter
+                .u64_value_observer("process_threads_count", move |observer| {
+                    if let Some(n) = num_threads::num_threads() {
+                        observer.observe(n.get() as u64, &[]);
+                    }
+                })
+                .with_description("Current number of active threads.")
                 .init(),
         }
     }

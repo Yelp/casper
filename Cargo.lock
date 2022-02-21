@@ -255,6 +255,7 @@ dependencies = [
  "mlua",
  "moka",
  "num_cpus",
+ "num_threads",
  "once_cell",
  "opentelemetry",
  "opentelemetry-prometheus",
@@ -1207,6 +1208,15 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
+]
+
+[[package]]
+name = "num_threads"
+version = "0.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "97ba99ba6393e2c3734791401b66902d981cb03bf190af674ca69949b6d5fb15"
+dependencies = [
+ "libc",
 ]
 
 [[package]]
