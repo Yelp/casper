@@ -263,7 +263,6 @@ dependencies = [
  "pin-project-lite",
  "prometheus",
  "rand",
- "rayon",
  "regex",
  "ripemd",
  "scopeguard",
@@ -387,17 +386,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "crossbeam-deque"
-version = "0.8.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6455c0ca19f0d2fbf751b908d5c55c1f5cbc65e03c4225427254b46890bdde1e"
-dependencies = [
- "cfg-if 1.0.0",
- "crossbeam-epoch 0.9.7",
- "crossbeam-utils 0.8.7",
-]
-
-[[package]]
 name = "crossbeam-epoch"
 version = "0.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -409,19 +397,6 @@ dependencies = [
  "lazy_static",
  "maybe-uninit",
  "memoffset 0.5.6",
- "scopeguard",
-]
-
-[[package]]
-name = "crossbeam-epoch"
-version = "0.9.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c00d6d2ea26e8b151d99093005cb442fb9a37aeaca582a03ec70946f49ab5ed9"
-dependencies = [
- "cfg-if 1.0.0",
- "crossbeam-utils 0.8.7",
- "lazy_static",
- "memoffset 0.6.5",
  "scopeguard",
 ]
 
@@ -484,12 +459,6 @@ dependencies = [
  "block-buffer 0.10.2",
  "crypto-common",
 ]
-
-[[package]]
-name = "either"
-version = "1.6.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e78d4f1cc4ae33bbfc157ed5d5a5ef3bc29227303d595861deb238fcec4e9457"
 
 [[package]]
 name = "env_logger"
@@ -1114,7 +1083,7 @@ dependencies = [
  "async-io",
  "async-lock",
  "crossbeam-channel",
- "crossbeam-epoch 0.8.2",
+ "crossbeam-epoch",
  "crossbeam-utils 0.8.7",
  "futures-util",
  "num_cpus",
@@ -1607,31 +1576,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "929f54e29691d4e6a9cc558479de70db7aa3d98cd6fe7ab86d7507aa2886b9d2"
 dependencies = [
  "bitflags",
-]
-
-[[package]]
-name = "rayon"
-version = "1.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c06aca804d41dbc8ba42dfd964f0d01334eceb64314b9ecf7c5fad5188a06d90"
-dependencies = [
- "autocfg",
- "crossbeam-deque",
- "either",
- "rayon-core",
-]
-
-[[package]]
-name = "rayon-core"
-version = "1.9.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d78120e2c850279833f1dd3582f730c4ab53ed95aeaaaa862a2a5c71b1656d8e"
-dependencies = [
- "crossbeam-channel",
- "crossbeam-deque",
- "crossbeam-utils 0.8.7",
- "lazy_static",
- "num_cpus",
 ]
 
 [[package]]
