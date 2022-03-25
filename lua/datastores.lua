@@ -46,8 +46,11 @@ end
 -- Ananlogous in function to yelp_cassandra.connection.get_cassandra_cluster_hosts
 function cassandra_helper.get_cluster_hosts()
     local configs = config_loader.get_spectre_config_for_namespace(config_loader.CASPER_INTERNAL_NAMESPACE)['cassandra']
-    local contents = io.open(configs['seeds_file']):read()
+    local ok, contents = pcall(function() return io.open(configs['seeds_file']):read() end)
     local hosts = {}
+    if not ok then
+        return hosts
+    end
 
     for _,v in pairs(json:decode(contents)) do
         if string.match(v['name'], configs['local_region']) then
