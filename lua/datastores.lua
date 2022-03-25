@@ -119,7 +119,7 @@ function cassandra_helper.create_cluster(cluster_module, shm, timeout)
     -- Retrieve the cluster's nodes informations early, to avoid
     -- slowing down our first incoming request, which would have triggered
     -- a refresh should this not be done already.
-    cluster:refresh()
+    pcall(function() cluster:refresh() end)
 
     return cluster
 end
