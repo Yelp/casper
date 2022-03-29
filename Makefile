@@ -53,11 +53,10 @@ itest: clean-docker $(DOCKER_COMPOSE) cook-image run-itest
 .PHONY: run-itest
 run-itest: $(DOCKER_COMPOSE)
 	$(DOCKER_COMPOSE) -f $(DOCKER_COMPOSE_YML) build
-	$(DOCKER_COMPOSE) -f $(DOCKER_COMPOSE_YML) up -d spectre backend cassandra syslog redis_1 redis_2
+	$(DOCKER_COMPOSE) -f $(DOCKER_COMPOSE_YML) up -d spectre backend syslog redis_1 redis_2
 	sleep 10
 	$(DOCKER_COMPOSE) -f $(DOCKER_COMPOSE_YML) run test python3 -m pytest -vv spectre
 	$(DOCKER_COMPOSE) -f $(DOCKER_COMPOSE_YML) exec --user=root -T spectre /opt/drop_all.sh
-	# $(DOCKER_COMPOSE) -f $(DOCKER_COMPOSE_YML) run test python3 -m pytest -vv cassandra
 	$(DOCKER_COMPOSE) -f $(DOCKER_COMPOSE_YML) kill
 	$(DOCKER_COMPOSE) -f $(DOCKER_COMPOSE_YML) rm -f
 
@@ -79,12 +78,11 @@ clean-docker: $(DOCKER_COMPOSE)
 	$(DOCKER_COMPOSE) -f $(DOCKER_COMPOSE_YML) kill
 	$(DOCKER_COMPOSE) -f $(DOCKER_COMPOSE_YML) rm -f
 
-luarocks: luarocks-dependencies.txt lua-cassandra-dev-0.rockspec
+luarocks: luarocks-dependencies.txt
 	rm -rf $@
 	mkdir $@
 	# Pin lua version so that it can work on macos' homebrew lua
 	cat luarocks-dependencies.txt | xargs -L 1 luarocks install --lua-version=5.1 --tree=$@
-	luarocks build --lua-version=5.1 --tree=$@ lua-cassandra-dev-0.rockspec
 	# Symlink in our Lua executable so that scripts that install with
 	# a "#!/usr/bin/env lua" shebang will get the right interpreter.
 	ln -s /usr/local/openresty/luajit/bin/luajit $@/bin/lua

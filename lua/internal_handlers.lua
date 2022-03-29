@@ -1,9 +1,7 @@
-local datastores = require 'datastores'
 local json = require 'vendor.json'
 local config_loader = require 'config_loader'
 local spectre_common = require 'spectre_common'
 
-local cassandra_helper = datastores.cassandra_helper
 local _swagger_json = nil
 
 local casper_v2 = require 'v2_helper'
@@ -33,7 +31,6 @@ local function _purge_handler(smartstack_destination)
     end
 
     local status, body = spectre_common.purge_cache(
-        cassandra_helper,
         namespace,
         cache_name,
         id
@@ -45,36 +42,9 @@ end
 -- Handle requests to /status, returns info about Spectre
 local function status_handler(_)
     local status_info = {
-        ['cassandra_status'] = 'skipped',
+        ['datastore_status'] = 'skipped',
     }
     local status = ngx.HTTP_OK
-    local uri_args = ngx.req.get_uri_args()
-
-    -- Check Cassandra's health only if check_cassandra=true is set
-    if uri_args['check_cassandra'] == 'true' then
-        local connection = cassandra_helper.get_connection(cassandra_helper.READ_CONN)
-        local is_cassandra_healthy = cassandra_helper.healthcheck(connection)
-        if is_cassandra_healthy == true then
-            status_info['cassandra_status'] = 'up'
-        else
-            status_info['cassandra_status'] = 'down'
-            status = ngx.HTTP_INTERNAL_SERVER_ERROR
-        end
-
-        local read_conn = cassandra_helper.get_connection(cassandra_helper.READ_CONN)
-        local peers = read_conn.get_peers(read_conn)
-        local nodes_status = {}
-        for i = 1, #peers do
-            table.insert(nodes_status, {
-                host = peers[i].host,
-                data_center = peers[i].data_center,
-                up = peers[i].up,
-                err = peers[i].err,
-            })
-        end
-        status_info['cassandra_nodes'] = nodes_status
-
-    end
 
     -- Ensure config file at /nail/etc/services/services.yaml is parsed
     if config_loader.has_smartstack_info() ~= true then

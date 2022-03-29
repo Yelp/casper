@@ -1,17 +1,3 @@
-cassandra:
-    connect_timeout_ms: 100
-    default_num_buckets: 1000
-    keyspace: 'spectre_db'
-    local_dc: 'norcal-devc'
-    local_region: '.*'
-    num_retries: 3
-    read_timeout_ms: 15
-    refresh_interval: 60
-    retry_on_timeout: false
-    seeds_file: 'tests/data/synapse/services/cassandra_casper.main.json'
-    write_consistency: 'all'
-    write_timeout_ms: 1000
-
 http:
     timeout_ms: 10000
 

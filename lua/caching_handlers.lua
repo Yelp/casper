@@ -1,8 +1,6 @@
 local bulk_endpoints = require 'bulk_endpoints'
-local datastores = require 'datastores'
 local spectre_common = require 'spectre_common'
 
-local cassandra_helper = datastores.cassandra_helper
 local caching_handlers = {}
 
 
@@ -53,11 +51,8 @@ function caching_handlers._post_request_callback(response, request_info, cacheab
     local cache_uri = caching_handlers._get_cache_uri(request_info)
     local success, err = xpcall(
         function()
-            -- Refresh cluster topology before writing the result
-            pcall(cassandra_helper.refresh)
 
             spectre_common.cache_store(
-                cassandra_helper,
                 ids,
                 cache_uri,
                 request_info.destination,
@@ -82,7 +77,6 @@ function caching_handlers._caching_handler(request_info, cacheability_info)
 
     -- Check if datastore already has url cached
     local cached_value = spectre_common.fetch_from_cache(
-        cassandra_helper,
         id,
         cache_uri,
         request_info.destination,
@@ -116,7 +110,7 @@ function caching_handlers._caching_handler(request_info, cacheability_info)
 
     if response.status == ngx.HTTP_OK then
         headers[spectre_common.HEADERS.CACHE_STATUS] = 'miss'
-        if not cached_value['cassandra_error'] then
+        if not cached_value['datastore_error'] then
             post_request = function()
                 caching_handlers._post_request_callback(response, request_info, cacheability_info)
             end

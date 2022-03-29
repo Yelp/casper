@@ -165,7 +165,7 @@ def test_bulk_endpoint_miss(log_file):
     assert response.headers['Spectre-Cache-Status'] == 'miss'
 
     metrics = _load_metrics(log_file)
-    # We need to know if the backend is Redis or cassandra
+    # Dynamically discover the backend
     backend = metrics[0].dimensions['backend']
 
     # We have `spectre.fetch_body_and_headers` and `spectre.hit_rate` twice
@@ -207,7 +207,7 @@ def test_no_cache_header_metrics(log_file):
     assert response.status_code == 200
 
     metrics = _load_metrics(log_file)
-    # We need to know if the backend is Redis or cassandra
+    # Dynamically discover the backend
     backend = metrics[0].dimensions['backend']
 
     # Since we send the no-cache header we don't have a `spectre.fetch_body_and_headers`

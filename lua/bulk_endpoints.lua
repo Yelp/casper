@@ -1,9 +1,6 @@
 local json = require 'vendor.json'
-
-local datastores = require 'datastores'
 local spectre_common = require 'spectre_common'
 
-local cassandra_helper = datastores.cassandra_helper
 local JSON_NULL_VALUE = '\0'
 
 json.decodeNumbersAsObjects = true
@@ -24,7 +21,6 @@ local function kick_off_requests_for_bulk_request(endpoint_ids, separator, reque
         )
         local thread_spawn = ngx.thread.spawn(
             spectre_common.fetch_from_cache,
-            cassandra_helper,
             endpoint_id,
             indiv_request,
             request_info.destination,
@@ -51,7 +47,7 @@ local function get_bulk_data_from_cache(endpoint_ids, separator, request_info, c
         local indiv_request = futures[ordinal][2]
         if not success then
             -- cached_value is the error msg in case of failure
-            error("Async call to cassandra has failed: " .. json:encode(cached_value))
+            error("Async call to datastore has failed: " .. json:encode(cached_value))
         end
         if cached_value['body'] ~= nil then
             -- If body is null, we don't populate it into the response
@@ -67,7 +63,7 @@ local function get_bulk_data_from_cache(endpoint_ids, separator, request_info, c
             miss_ids[ordinal] = endpoint_id
         end
         num_ids = num_ids + 1
-        if cached_value['cassandra_error'] == true then
+        if cached_value['datastore_error'] == true then
             read_failure = true
         end
     end
@@ -90,7 +86,6 @@ local function bulk_proxy_post_request_handler(response, request_info, cacheabil
             local success, err = xpcall(
                 function()
                     spectre_common.cache_store(
-                        cassandra_helper,
                         {response.miss_ids[ordinal]},
                         miss_request,
                         request_info.destination,

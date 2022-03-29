@@ -14,28 +14,10 @@ class TestCanReachStatuses(object):
         assert response.status_code == 200
         assert response.text == 'Backend is alive\n'
 
-        response = get_from_spectre('/status?check_cassandra=true')
-        assert response.status_code == 200
-        status = json.loads(response.text)
-        assert status['cassandra_status'] == 'up'
-        assert status['smartstack_configs'] == 'present'
-        assert status['spectre_configs'] == 'present'
-        assert status['proxied_services'] == {
-            'backend.main': {
-                'host':'10.5.0.3',
-                'port': 9080,
-            },
-        }
-
-    def test_can_skip_cassandra_check(self):
-        response = get_through_spectre('/status')
-        assert response.status_code == 200
-        assert response.text == 'Backend is alive\n'
-
         response = get_from_spectre('/status')
         assert response.status_code == 200
         status = json.loads(response.text)
-        assert status['cassandra_status'] == 'skipped'
+        assert status['datastore_status'] == 'skipped'
         assert status['smartstack_configs'] == 'present'
         assert status['spectre_configs'] == 'present'
         assert status['proxied_services'] == {

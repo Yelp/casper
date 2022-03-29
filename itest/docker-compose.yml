@@ -18,7 +18,6 @@ services:
             - SRV_CONFIGS_PATH=/code/itest/data/srv-configs
             - SERVICES_YAML_PATH=/code/itest/data/services.yaml
             - DISABLE_STDOUT_ACCESS_LOG=1
-            - WAIT_ON=10.5.0.5:9042
             - CASPER_CONFIG=/code/itest/data/casper.yaml
 
         volumes:
@@ -39,15 +38,6 @@ services:
                 ipv4_address: 10.5.0.3
         volumes:
             - ./data/srv-configs:/code/srv-configs:ro
-
-    cassandra:
-        build:
-            context: ./cassandra
-        ports:
-            - '9042:9042'
-        networks:
-            spectre_net:
-                ipv4_address: 10.5.0.5
 
     redis_1:
         container_name: "itest_redis_1"

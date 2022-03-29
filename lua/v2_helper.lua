@@ -27,7 +27,7 @@ local function fetch_body_and_headers(id, cache_key, namespace, cache_name, vary
     })
 
     if err ~= nil or res.status ~= 200 then
-        return {cassandra_error = err ~= nil or res.status >= 500}
+        return {datastore_error = err ~= nil or res.status >= 500}
     end
 
     local body = res.body
