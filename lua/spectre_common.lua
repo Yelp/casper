@@ -31,9 +31,6 @@ local SUPPORTED_ENCODING_FOR_ID_EXTRACTION = {
 
 local DEFAULT_REQUEST_METHOD = 'GET'
 local REDIS_BACKEND_NAME = 'redis'
-local CASSANDRA_BACKEND_NAME = 'cassandra'
-
-local REDIS_DISABLED = os.getenv('REDIS_DISABLED') == '1'
 
 -- JSON encode the message table provided and logs it
 local function log(level, err)
@@ -536,56 +533,17 @@ local function extract_ids_from_string(ids_string)
     return individual_ids, separator
 end
 
-
--- Deterministically calculates whether the redis backend is enabled for a given cache item
--- Uses the "redis_enabled_pct" value when making the decision
-local function is_redis_enabled(cache_key)
-    if REDIS_DISABLED then return false end
-
-    local spectre_config = config_loader.get_spectre_config_for_namespace(
-        config_loader.CASPER_INTERNAL_NAMESPACE
-    )
-    local enabled_percent = spectre_config['redis_enabled_pct'] or 0
-
-    if enabled_percent <= 0 then return false end
-    if enabled_percent >= 100 then return true end
-
-    -- Take first 7 characters of the hash, as we want to get a 32bit number
-    local hash = ngx.md5(cache_key):sub(1, 7)
-    local hash_mod = math.fmod(tonumber(hash, 16), 100)
-
-    return hash_mod < enabled_percent
-end
-
-
-local function fetch_from_cache(cassandra_helper, id, uri, destination, cache_name, vary_headers, num_buckets)
+local function fetch_from_cache(id, uri, destination, cache_name, vary_headers)
     -- Check if datastore already has url cached
     -- Returns the response body. Fills out the the headers
     local start_time = socket.gettime()
-
-    local redis_enabled = is_redis_enabled(cache_name .. uri .. vary_headers)
-    local backend
-
     local cached_value
-    if redis_enabled then
-        cached_value = casper_v2.fetch_body_and_headers(id, uri, destination, cache_name, vary_headers)
-        backend = REDIS_BACKEND_NAME
-    else
-        cached_value = cassandra_helper.fetch_body_and_headers(
-            cassandra_helper.get_connection(cassandra_helper.READ_CONN),
-            id,
-            uri,
-            destination,
-            cache_name,
-            vary_headers,
-            num_buckets
-        )
-        backend = CASSANDRA_BACKEND_NAME
-    end
+
+    cached_value = casper_v2.fetch_body_and_headers(id, uri, destination, cache_name, vary_headers)
 
     local cache_status = cached_value['body'] ~= nil and 'hit' or 'miss'
     local dims = {{'namespace', destination}, {'cache_name', cache_name}, {'cache_status', cache_status},
-                  {'backend', backend}}
+                  {'backend', REDIS_BACKEND_NAME}}
     metrics_helper.emit_timing('spectre.fetch_body_and_headers', (socket.gettime() - start_time) * 1000, dims)
     metrics_helper.emit_counter('spectre.hit_rate', dims)
 
@@ -593,7 +551,6 @@ local function fetch_from_cache(cassandra_helper, id, uri, destination, cache_na
 end
 
 local function cache_store(
-    cassandra_helper,
     ids,
     uri,
     destination,
@@ -601,66 +558,22 @@ local function cache_store(
     response_body,
     response_headers,
     vary_headers,
-    ttl,
-    num_buckets
+    ttl
 )
     local start_time = socket.gettime()
 
-    local redis_enabled = is_redis_enabled(cache_name .. uri .. vary_headers)
-    local backend
+    casper_v2.store_body_and_headers(ids, uri, destination, cache_name, response_body,
+                                    response_headers, vary_headers, ttl)
 
-    if redis_enabled then
-        casper_v2.store_body_and_headers(ids, uri, destination, cache_name, response_body,
-                                        response_headers, vary_headers, ttl)
-        backend = REDIS_BACKEND_NAME
-    else
-        cassandra_helper.store_body_and_headers(
-            cassandra_helper.get_connection(cassandra_helper.WRITE_CONN),
-            ids,
-            uri,
-            destination,
-            cache_name,
-            response_body,
-            response_headers,
-            vary_headers,
-            ttl,
-            num_buckets
-        )
-        backend = CASSANDRA_BACKEND_NAME
-    end
-
-    local dims = {{'namespace', destination}, {'cache_name', cache_name}, {'backend', backend}}
+    local dims = {{'namespace', destination}, {'cache_name', cache_name}, {'backend', REDIS_BACKEND_NAME}}
     metrics_helper.emit_timing('spectre.store_body_and_headers', (socket.gettime() - start_time) * 1000, dims)
 end
 
-local function purge_cache(cassandra_helper, namespace, cache_name, id)
+local function purge_cache(namespace, cache_name, id)
     local start_time = socket.gettime()
-
     local status, body
 
-    -- Because we calculate the backend based on the URI etc, and we don't purge on URI
-    -- just purge both backends to make sure we purge all items
-    -- unless we have completely disabled a backend, then we can skip the purge
-
-    local spectre_config = config_loader.get_spectre_config_for_namespace(
-        config_loader.CASPER_INTERNAL_NAMESPACE
-    )
-    local redis_percent = spectre_config['redis_enabled_pct'] or 0
-
-    -- purge redis
-    if redis_percent > 0 then
-        status, body = casper_v2.purge(namespace, cache_name, id)
-    end
-
-    -- purge cassandra
-    if redis_percent < 100 then
-        status, body = cassandra_helper.purge(
-            cassandra_helper.get_connection(cassandra_helper.WRITE_CONN),
-            namespace,
-            cache_name,
-            id
-        )
-    end
+    status, body = casper_v2.purge(namespace, cache_name, id)
 
     local dims = {{'namespace', namespace}, {'cache_name', cache_name}}
     metrics_helper.emit_timing('spectre.purge_cache', (socket.gettime() - start_time) * 1000, dims)

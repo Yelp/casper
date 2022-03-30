@@ -799,7 +799,7 @@ class TestGetBulkRequest(object):
 
 
 class TestPurge(object):
-    def test_purge_cassandra(self):
+    def test_purge_datastore(self):
         val1_before = get_timestamp('/timestamp/purge/1')
         val2_before = get_timestamp('/timestamp/purge/2')
         val3_before = get_timestamp('/long_ttl/no-purge')
@@ -819,7 +819,7 @@ class TestPurge(object):
         assert val2_before != val2_after
         assert val3_before in [val3_after] + miss_values
 
-    def test_purge_cassandra_by_id(self):
+    def test_purge_datastore_by_id(self):
         get_through_spectre('/bulk_requester?ids=1')
         assert_is_in_spectre_cache('/bulk_requester?ids=1')
         time.sleep(1)
@@ -831,7 +831,7 @@ class TestPurge(object):
         # resp 3 was no longer cached.
         assert get_resp_3.headers['Spectre-Cache-Status'] == 'miss'
 
-    def test_purge_cassandra_by_id_backward_compatible(self):
+    def test_purge_datastore_by_id_backward_compatible(self):
         # Delete after PERF-2453 is done
         get_through_spectre('/bulk_requester?ids=1')
         assert_is_in_spectre_cache('/bulk_requester?ids=1')

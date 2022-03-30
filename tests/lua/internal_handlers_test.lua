@@ -2,8 +2,6 @@ require 'busted.runner'()
 
 describe('internal_handlers', function()
     local internal_handlers
-    local datastores
-    local cassandra_helper
     local config_loader
     local spectre_common
 
@@ -24,8 +22,6 @@ describe('internal_handlers', function()
         }
 
         internal_handlers = require 'internal_handlers'
-        datastores = require 'datastores'
-        cassandra_helper = datastores.cassandra_helper
         config_loader = require 'config_loader'
         spectre_common = require 'spectre_common'
 
@@ -33,15 +29,13 @@ describe('internal_handlers', function()
     end)
 
     describe('purge_handler', function()
-        local old_get_uri_args, cass_mock
+        local old_get_uri_args
 
         before_each(function()
             old_get_uri_args = ngx.req.get_uri_args
-            cass_mock = mock(cassandra_helper, true)
         end)
         after_each(function()
             ngx.req.get_uri_args = old_get_uri_args
-            mock.revert(cass_mock)
             config_loader.set_smartstack_info_for_namespace('backend.main', nil)
             config_loader.set_spectre_config_for_namespace('backend.main', nil)
         end)
@@ -53,13 +47,11 @@ describe('internal_handlers', function()
             status, body, _ = internal_handlers._purge_handler(nil)
             assert.are.equal(ngx.HTTP_BAD_REQUEST, status)
             assert.are.equal('namespace and cache_name are required arguments', body)
-            assert.spy(cassandra_helper.purge).was_not_called()
 
             ngx.req.get_uri_args = function() return {cache_name = 'test_cache'} end
             status, body, _ = internal_handlers._purge_handler(nil)
             assert.are.equal(ngx.HTTP_BAD_REQUEST, status)
             assert.are.equal('namespace and cache_name are required arguments', body)
-            assert.spy(cassandra_helper.purge).was_not_called()
         end)
 
         it('returns 400 if namespace is unknown', function()
@@ -69,7 +61,6 @@ describe('internal_handlers', function()
             status, body, _ = internal_handlers._purge_handler(nil)
             assert.are.equal(ngx.HTTP_BAD_REQUEST, status)
             assert.are.equal('Unknown namespace foo.bar', body)
-            assert.spy(cassandra_helper.purge).was_not_called()
         end)
 
         it('returns 400 if cache_name is unknown', function()
@@ -80,10 +71,9 @@ describe('internal_handlers', function()
             status, body, _ = internal_handlers._purge_handler(nil)
             assert.are.equal(ngx.HTTP_BAD_REQUEST, status)
             assert.are.equal('Unknown cache_name test for namespace backend.main', body)
-            assert.spy(cassandra_helper.purge).was_not_called()
         end)
 
-        it('calls cassandra if validation succeded', function()
+        it('calls datastore if validation succeded', function()
             local status, body
             config_loader.set_smartstack_info_for_namespace('backend.main', {host='1.2.3.4', port='1234'})
             config_loader.set_spectre_config_for_namespace('backend.main', {cached_endpoints= {test_cache = {}}})

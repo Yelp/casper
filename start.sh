@@ -3,16 +3,9 @@
 SRV_CONFIGS_PATH=${SRV_CONFIGS_PATH:-/nail/srv/configs/spectre}
 SERVICES_YAML_PATH=${SERVICES_YAML_PATH:-/nail/etc/services/services.yaml}
 ENVOY_CONFIGS_PATH=${ENVOY_CONFIGS_PATH:-/nail/srv/configs}
-CASSANDRA_CLUSTER_CONFIG=${CASSANDRA_CLUSTER_CONFIG:-/var/run/synapse/services/cassandra_spectre.main.json}
 # We run 2 worker per container in production
 WORKER_PROCESSES=${WORKER_PROCESSES:-2}
 NGINX_CONF=config/nginx.conf
-
-if [ $ACCEPTANCE ]; then
-    # Cassandra ip is automatically generated
-    host=$(grep 'cassandra_spectre.main:' /nail/etc/services/services.yaml | cut -d' ' -f3 | cut -d',' -f1)
-    echo '[{"name": "cassandra-spectre-itest","host": "'$host'","port": 9042,"id": 1,"weight": 10}]' > $CASSANDRA_CLUSTER_CONFIG
-fi
 
 if [ "$DISABLE_STDOUT_ACCESS_LOG" = "1" ]; then
     # We already send logs to syslog from the Lua code.

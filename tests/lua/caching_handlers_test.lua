@@ -10,8 +10,6 @@ insulate('caching_handlers', function()
     local old_get_id_from_req_body
     local old_extract_ids_from_uri
     local spectre_common
-    local cassandra_helper
-    local cassandra_helper_mock
 
     setup(function()
         _G.package.loaded.socket = {
@@ -28,10 +26,6 @@ insulate('caching_handlers', function()
                 }
             end
         }
-
-        local datastores = require 'datastores'
-        cassandra_helper = datastores.cassandra_helper
-        cassandra_helper_mock = mock(cassandra_helper, true)
 
         bulk_endpoints = require 'bulk_endpoints'
         caching_handlers = require 'caching_handlers'
@@ -94,11 +88,9 @@ insulate('caching_handlers', function()
                 }
             )
 
-            assert.stub(cassandra_helper_mock.refresh).was_called()
             assert.stub(spectre_common.cache_store).was_called()
             assert.stub(spectre_common.cache_store).was_called_with(
                 match.is_table(),
-                {'null'},
                 '/uri',
                 'backend.main',
                 'test_cache',
@@ -140,11 +132,9 @@ insulate('caching_handlers', function()
                 }
             )
 
-            assert.stub(cassandra_helper_mock.refresh).was_called()
             assert.stub(spectre_common.cache_store).was_called()
             assert.stub(spectre_common.cache_store).was_called_with(
                 match.is_table(),
-                {'null'},
                 '/uri{"id1":123}',
                 'backend.main',
                 'test_cache',
@@ -215,7 +205,6 @@ insulate('caching_handlers', function()
             assert.stub(spectre_common.cache_store).was_called()
             assert.stub(spectre_common.cache_store).was_called_with(
                 match.is_table(),
-                {'1', '2', '3'},
                 '/uri?ids=1%2C2%2C3&foo=bar',
                 'backend.main',
                 'test_cache',
@@ -261,7 +250,6 @@ insulate('caching_handlers', function()
             assert.stub(spectre_common.cache_store).was_called()
             assert.stub(spectre_common.cache_store).was_called_with(
                 match.is_table(),
-                {'123'},
                 '/uri',
                 'backend.main',
                 'test_cache',
@@ -353,7 +341,7 @@ insulate('caching_handlers', function()
                 return {
                     body = 'cached body',
                     headers = {Header1 = 'foobar'},
-                    cassandra_error = false,
+                    datastore_error = false,
                 }
             end
             local res = caching_handlers._caching_handler({incoming_zipkin_headers = {}},{cache_entry = {}})
@@ -364,12 +352,12 @@ insulate('caching_handlers', function()
         end)
 
         it('returns cached result for POST request', function()
-            spectre_common.fetch_from_cache = function(_, _, cache_uri, _, _, _, _)
+            spectre_common.fetch_from_cache = function(_, cache_uri, _, _, _, _)
                 assert.are.equal('/uri{"id1":123}', cache_uri)
                 return {
                     body = 'cached body',
                     headers = {Header1 = 'foobar'},
-                    cassandra_error = false,
+                    datastore_error = false,
                 }
             end
             local res = caching_handlers._caching_handler(
@@ -392,7 +380,7 @@ insulate('caching_handlers', function()
                 return {
                     body = nil,
                     headers = nil,
-                    cassandra_error = false,
+                    datastore_error = false,
                 }
             end
             spectre_common.get_response_from_remote_service = function(_, _, _, _)
@@ -424,7 +412,7 @@ insulate('caching_handlers', function()
                 return {
                     body = nil,
                     headers = nil,
-                    cassandra_error = false,
+                    datastore_error = false,
                 }
             end
             spectre_common.get_response_from_remote_service = function(_, _, _, _)
@@ -454,7 +442,7 @@ insulate('caching_handlers', function()
                 return {
                     body = nil,
                     headers = nil,
-                    cassandra_error = true,
+                    datastore_error = true,
                 }
             end
             spectre_common.get_response_from_remote_service = function(_, _, _, _)
