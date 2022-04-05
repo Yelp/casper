@@ -61,7 +61,7 @@ function caching_handlers._post_request_callback(response, request_info, cacheab
                 response.cacheable_headers,
                 request_info.vary_headers,
                 cacheability_info.cache_entry.ttl,
-                cacheability_info.cache_entry.num_buckets
+                cacheability_info.cache_entry.custom_module
             )
         end, debug.traceback)
 
@@ -82,7 +82,7 @@ function caching_handlers._caching_handler(request_info, cacheability_info)
         request_info.destination,
         cacheability_info.cache_name,
         request_info.vary_headers,
-        cacheability_info.cache_entry.num_buckets
+        cacheability_info.cache_entry.custom_module
     )
 
     -- Cache hit
