@@ -25,7 +25,8 @@ local function kick_off_requests_for_bulk_request(endpoint_ids, separator, reque
             indiv_request,
             request_info.destination,
             cacheability_info.cache_name,
-            request_info.vary_headers
+            request_info.vary_headers,
+            cacheability_info.cache_entry.custom_module
         )
         futures[ordinal] = {thread_spawn, indiv_request}
     end
@@ -93,7 +94,8 @@ local function bulk_proxy_post_request_handler(response, request_info, cacheabil
                         json:encode({final_responses[ordinal]}, nil, { null = JSON_NULL_VALUE }),
                         headers,
                         request_info.vary_headers,
-                        cacheability_info.cache_entry.ttl
+                        cacheability_info.cache_entry.ttl,
+                        cacheability_info.cache_entry.custom_module
                     )
                 end, debug.traceback)
 

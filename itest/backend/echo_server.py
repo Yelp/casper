@@ -9,10 +9,7 @@ import yaml
 
 from BaseHTTPServer import BaseHTTPRequestHandler, HTTPServer
 
-
 PORT = 9080
-SERVICES_CONFIG = os.getenv('SRV_CONFIGS_PATH') + '/backend.main.yaml'
-
 
 class EchoServer(BaseHTTPRequestHandler):
     """Simple server that should return a different response every time
@@ -43,7 +40,7 @@ class EchoServer(BaseHTTPRequestHandler):
         else:
             self.wfile.write(json.dumps(response))
 
-    def handle_bulk(self, cache_name, delimeter):
+    def handle_bulk(self, cache_name, delimeter, namespace='backend.main'):
         """
         This function is targeted to test the behavior of receiving
         bulk endpoints. Here we introduce the feature of treating each id
@@ -53,7 +50,8 @@ class EchoServer(BaseHTTPRequestHandler):
         We return text to verify that spectre doesn't crash when it doens't
         receive json and defaults to normal forwarding behavior.
         """
-        yaml_file = open(SERVICES_CONFIG)
+        yaml_file_path = os.getenv('SRV_CONFIGS_PATH') + '/' + namespace + '.yaml'
+        yaml_file = open(yaml_file_path)
         cached_endpoints = yaml.load(yaml_file)['cached_endpoints']
         cache_name_configs = cached_endpoints[cache_name]
         if not cache_name_configs['bulk_support']:
@@ -130,6 +128,11 @@ class EchoServer(BaseHTTPRequestHandler):
             return
         elif self.path.startswith('/bulk_requester'):
             result = self.handle_bulk('bulk_requester_does_not_cache_missing_ids', '%2C')
+            self.wfile.write(result)
+            return
+        # Discover custom defined test bulk endpoints
+        elif 'X-Casper-Bulk' in self.headers:
+            result = self.handle_bulk(self.headers['X-Casper-Bulk'], ',', 'custom.main')
             self.wfile.write(result)
             return
         else:
