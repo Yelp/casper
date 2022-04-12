@@ -7,6 +7,7 @@ local casper_v2 = require 'v2_helper'
 local http = require "http"
 local metrics_helper = require 'metrics_helper'
 local zipkin = require 'zipkin'
+local custom_hooks = require('./custom_hooks/_all')
 
 json.decodeNumbersAsObjects = true
 json.strictTypes = true
@@ -29,9 +30,6 @@ local SUPPORTED_ENCODING_FOR_ID_EXTRACTION = {
     ['content-type']={'application/json'}
 }
 
--- set default custom hooks, essentially do nothing, but provide a function to be overwritten if required
-local DEFAULT_HOOKS = {["cache_key"] = function(x)return x end }
-local CUSTOM_HOOKS = DEFAULT_HOOKS
 
 local DEFAULT_REQUEST_METHOD = 'GET'
 local REDIS_BACKEND_NAME = 'redis'
@@ -297,23 +295,22 @@ local function get_target_uri(request_uri, request_headers)
 end
 
 local function configure_custom_hooks(custom_module)
-    -- If a custom module is defined, load it
+    ngx.ctx.custom_hooks = {}
+    -- If a custom module argument is provided, try and use it, otherwise use defaults
     if custom_module ~= nil then
-        local custom_lua_path = "custom_hooks." .. custom_module
-        local custom_mod = require(custom_lua_path)
+        local custom_mod = custom_hooks[custom_module]
         if custom_mod ~= nil then
             -- overwrite the default hooks with the custom hooks from the module
 
             -- if custom hook - custom_cache_key_fn - defined
             if custom_mod.custom_cache_key_fn ~= nil then
-                CUSTOM_HOOKS = {["cache_key"] = custom_mod.custom_cache_key_fn}
+                ngx.ctx.custom_hooks.cache_key = custom_mod.custom_cache_key_fn
             end
-
+        else
+            ngx.ctx.custom_hooks.cache_key = custom_hooks.defaults.custom_cache_key_fn
         end
     else
-        -- set defaults, required incase custom hooks that were previously set
-        -- need to be reset
-        CUSTOM_HOOKS = DEFAULT_HOOKS
+        ngx.ctx.custom_hooks.cache_key = custom_hooks.defaults.custom_cache_key_fn
     end
 end
 
@@ -566,7 +563,7 @@ local function fetch_from_cache(id, uri, destination, cache_name, vary_headers, 
     local start_time = socket.gettime()
 
     configure_custom_hooks(custom_module)
-    local cache_key = CUSTOM_HOOKS["cache_key"](uri)
+    local cache_key = ngx.ctx.custom_hooks.cache_key(uri)
 
     local cached_value = casper_v2.fetch_body_and_headers(id, cache_key, destination, cache_name, vary_headers)
 
@@ -593,7 +590,7 @@ local function cache_store(
     local start_time = socket.gettime()
 
     configure_custom_hooks(custom_module)
-    local cache_key = CUSTOM_HOOKS["cache_key"](uri)
+    local cache_key = ngx.ctx.custom_hooks.cache_key(uri)
 
     casper_v2.store_body_and_headers(ids, cache_key, destination, cache_name, response_body,
                                     response_headers, vary_headers, ttl)
