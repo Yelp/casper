@@ -11,3 +11,4 @@ for _, key in pairs(_all_hooks) do
 end
 
 return custom_hooks
+

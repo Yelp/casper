@@ -6,3 +6,4 @@ uncacheable_headers:
 # Default Vary headers. Can be overridden by pattern specific Vary headers
 vary_headers:
     - 'Accept-Encoding'
+

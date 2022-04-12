@@ -30,7 +30,6 @@ local SUPPORTED_ENCODING_FOR_ID_EXTRACTION = {
     ['content-type']={'application/json'}
 }
 
-
 local DEFAULT_REQUEST_METHOD = 'GET'
 local REDIS_BACKEND_NAME = 'redis'
 
