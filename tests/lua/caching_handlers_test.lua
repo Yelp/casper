@@ -83,7 +83,6 @@ insulate('caching_handlers', function()
                     cache_name = 'test_cache',
                     cache_entry = {
                         ttl = 10,
-                        num_buckets = 500,
                     },
                 }
             )
@@ -98,7 +97,7 @@ insulate('caching_handlers', function()
                 {Header1 = 'cacheable'},
                 {Header3 = 'vary'},
                 10,
-                500
+		nil
             )
             assert.stub(spectre_common.log).was_not_called()
 
@@ -127,7 +126,6 @@ insulate('caching_handlers', function()
                     cache_name = 'test_cache',
                     cache_entry = {
                         ttl = 10,
-                        num_buckets = 500,
                     },
                 }
             )
@@ -142,7 +140,7 @@ insulate('caching_handlers', function()
                 {Header1 = 'cacheable'},
                 {Header3 = 'vary'},
                 10,
-                500
+		nil
             )
             assert.stub(spectre_common.log).was_not_called()
             -- revert the stubs
@@ -197,7 +195,6 @@ insulate('caching_handlers', function()
                         enable_id_extraction = true,
                         pattern = '^/uri\\?ids=((?:\\d|%2C)+)&.*$',
                         ttl = 10,
-                        num_buckets = 500,
                     },
                 }
             )
@@ -212,7 +209,7 @@ insulate('caching_handlers', function()
                 {Header1 = 'cacheable'},
                 {Header3 = 'vary'},
                 10,
-                500
+		nil
             )
             assert.stub(spectre_common.log).was_not_called()
             -- revert the stubs
@@ -242,7 +239,6 @@ insulate('caching_handlers', function()
                         ttl = 10,
                         enable_id_extraction = true,
                         post_body_id = 'id',
-                        num_buckets = 500,
                     },
                 }
             )
@@ -257,7 +253,7 @@ insulate('caching_handlers', function()
                 {Header1 = 'cacheable'},
                 {Header3 = 'vary'},
                 10,
-                500
+		nil
             )
             assert.stub(spectre_common.log).was_not_called()
             -- revert the stubs

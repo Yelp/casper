@@ -7,6 +7,7 @@ local casper_v2 = require 'v2_helper'
 local http = require "http"
 local metrics_helper = require 'metrics_helper'
 local zipkin = require 'zipkin'
+local custom_hooks = require('./custom_hooks/_all')
 
 json.decodeNumbersAsObjects = true
 json.strictTypes = true
@@ -133,6 +134,7 @@ local function determine_if_cacheable(url, namespace, request_headers)
             post_body_id = nil,
             vary_body_field_list = nil,
             request_method = DEFAULT_REQUEST_METHOD,
+            custom_module = nil,
         },
         cache_name = nil,
         reason = 'non-cacheable-uri (' .. namespace .. ')',
@@ -290,6 +292,29 @@ local function get_target_uri(request_uri, request_headers)
     end
 
 end
+
+local function configure_custom_hooks(custom_module)
+    -- If a custom module argument is defined, and if this matches an enabled custom module
+    -- try and set specific custom hooks, otherwise use all of the default hooks
+    if custom_module ~= nil then
+        local custom_mod = custom_hooks[custom_module]
+        if custom_mod ~= nil then
+            ngx.ctx.custom_hooks = {}
+
+            -- If a specific hook is defined within the module use it, otherwise use the default
+            if custom_mod.cache_key ~= nil then
+                ngx.ctx.custom_hooks.cache_key = custom_mod.cache_key
+            else
+                ngx.ctx.custom_hooks.cache_key = custom_hooks.defaults.cache_key
+            end
+        else
+            ngx.ctx.custom_hooks = custom_hooks.defaults
+        end
+    else
+        ngx.ctx.custom_hooks = custom_hooks.defaults
+    end
+end
+
 
 -- Utility function to perform request to underlying service and write response
 -- @return (response status, response body, cacheable_headers, uncacheable_headers)
@@ -533,13 +558,15 @@ local function extract_ids_from_string(ids_string)
     return individual_ids, separator
 end
 
-local function fetch_from_cache(id, uri, destination, cache_name, vary_headers)
+local function fetch_from_cache(id, uri, destination, cache_name, vary_headers, custom_module)
     -- Check if datastore already has url cached
     -- Returns the response body. Fills out the the headers
     local start_time = socket.gettime()
-    local cached_value
 
-    cached_value = casper_v2.fetch_body_and_headers(id, uri, destination, cache_name, vary_headers)
+    configure_custom_hooks(custom_module)
+    local cache_key = ngx.ctx.custom_hooks.cache_key(uri)
+
+    local cached_value = casper_v2.fetch_body_and_headers(id, cache_key, destination, cache_name, vary_headers)
 
     local cache_status = cached_value['body'] ~= nil and 'hit' or 'miss'
     local dims = {{'namespace', destination}, {'cache_name', cache_name}, {'cache_status', cache_status},
@@ -558,11 +585,15 @@ local function cache_store(
     response_body,
     response_headers,
     vary_headers,
-    ttl
+    ttl,
+    custom_module
 )
     local start_time = socket.gettime()
 
-    casper_v2.store_body_and_headers(ids, uri, destination, cache_name, response_body,
+    configure_custom_hooks(custom_module)
+    local cache_key = ngx.ctx.custom_hooks.cache_key(uri)
+
+    casper_v2.store_body_and_headers(ids, cache_key, destination, cache_name, response_body,
                                     response_headers, vary_headers, ttl)
 
     local dims = {{'namespace', destination}, {'cache_name', cache_name}, {'backend', REDIS_BACKEND_NAME}}

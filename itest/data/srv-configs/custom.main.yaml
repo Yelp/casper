@@ -1,0 +1,9 @@
+# Placeholder backend, here to provide a backend where additional tests can be defined (e.g. when testing custom hooks)
+
+uncacheable_headers:
+    - 'Uncacheable-Header'
+
+# Default Vary headers. Can be overridden by pattern specific Vary headers
+vary_headers:
+    - 'Accept-Encoding'
+

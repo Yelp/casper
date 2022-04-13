@@ -25,6 +25,10 @@ class TestCanReachStatuses(object):
                 'host':'10.5.0.3',
                 'port': 9080,
             },
+            'custom.main': {
+                'host':'10.5.0.3',
+                'port': 9080,
+            },
         }
 
     def test_can_reach_nginx_status(self):
@@ -46,8 +50,8 @@ class TestConfigs(object):
         assert status['service_configs']['backend.main']['vary_headers'] == ['Accept-Encoding']
         # status['smartstack_configs'] should only contain enabled services
         assert status['smartstack_configs'] == {
-            u'backend.main': {u'host': u'10.5.0.3', u'port': 9080},
+            u'backend.main': {u'host': u'10.5.0.3', u'port': 9080}, u'custom.main': {u'host': u'10.5.0.3', u'port': 9080}
         }
-        # services.yaml, backend.main.yaml, casper.internal.yaml and envoy_client.yaml
-        assert len(status['mod_time_table']) == 4
+        # services.yaml, backend.main.yaml, custom.main.yaml, casper.internal.yaml and envoy_client.yaml
+        assert len(status['mod_time_table']) == 5
         assert isinstance(status['worker_id'], int)

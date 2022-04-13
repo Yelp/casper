@@ -2,6 +2,9 @@
 backend.main:
     host: 10.5.0.3
     port: 9080
+custom.main:
+    host: 10.5.0.3
+    port: 9080
 other.main:
     host: 1.2.3.4
     port: 8888
