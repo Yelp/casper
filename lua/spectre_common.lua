@@ -294,22 +294,24 @@ local function get_target_uri(request_uri, request_headers)
 end
 
 local function configure_custom_hooks(custom_module)
-    ngx.ctx.custom_hooks = {}
-    -- If a custom module argument is provided, try and use it, otherwise use defaults
+    -- If a custom module argument is defined, and if this matches an enabled custom module
+    -- try and set specific custom hooks, otherwise use all of the default hooks
     if custom_module ~= nil then
         local custom_mod = custom_hooks[custom_module]
         if custom_mod ~= nil then
-            -- overwrite the default hooks with the custom hooks from the module
+            ngx.ctx.custom_hooks = {}
 
-            -- if custom hook - custom_cache_key_fn - defined
-            if custom_mod.custom_cache_key_fn ~= nil then
-                ngx.ctx.custom_hooks.cache_key = custom_mod.custom_cache_key_fn
+            -- If a specific hook is defined within the module use it, otherwise use the default
+            if custom_mod.cache_key ~= nil then
+                ngx.ctx.custom_hooks.cache_key = custom_mod.cache_key
+            else
+                ngx.ctx.custom_hooks.cache_key = custom_hooks.defaults.cache_key
             end
         else
-            ngx.ctx.custom_hooks.cache_key = custom_hooks.defaults.custom_cache_key_fn
+            ngx.ctx.custom_hooks = custom_hooks.defaults
         end
     else
-        ngx.ctx.custom_hooks.cache_key = custom_hooks.defaults.custom_cache_key_fn
+        ngx.ctx.custom_hooks = custom_hooks.defaults
     end
 end
 
