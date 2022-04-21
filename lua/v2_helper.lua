@@ -7,6 +7,42 @@ local resty_http = require("resty.http")
 local TIMEOUT = 1000
 local BACKEND_ADDR = 'http://127.0.0.1:34567'
 
+local HOP_BY_HOP_HEADERS = {
+    ["connection"]          = true,
+    ["keep-alive"]          = true,
+    ["proxy-authenticate"]  = true,
+    ["proxy-authorization"] = true,
+    ["te"]                  = true,
+    ["trailers"]            = true,
+    ["transfer-encoding"]   = true,
+    ["upgrade"]             = true,
+}
+
+local function forward_to_v2()
+    local httpc = resty_http.new()
+    httpc:set_timeouts(1000, 60000, 60000)
+
+    local parsed_uri = httpc:parse_uri("http://nil" .. ngx.var.request_uri, false)
+    local headers = ngx.req.get_headers()
+    for h, _ in pairs(HOP_BY_HOP_HEADERS) do headers[h] = nil end
+
+    local res, err = httpc:request_uri(BACKEND_ADDR, {
+        method = ngx.req.get_method(),
+        path = parsed_uri[4],
+        query = parsed_uri[5],
+        headers = headers,
+        body = ngx.var.request_body or httpc:get_client_body_reader(),
+    })
+    if err ~= nil then return err end
+
+    ngx.status = res.status
+    for h, _ in pairs(HOP_BY_HOP_HEADERS) do res.headers[h] = nil end
+    for key, val in pairs(res.headers) do ngx.header[key] = val end
+    ngx.print(res.body)
+    ngx.flush()
+    ngx.eof()
+end
+
 local function fetch_body_and_headers(id, cache_key, namespace, cache_name, vary_headers)
     if id == "" or id == "null" then
         id = nil
@@ -24,6 +60,7 @@ local function fetch_body_and_headers(id, cache_key, namespace, cache_name, vary
             cache_name = cache_name,
             vary_headers = vary_headers,
         },
+        headers = { host = "casper.v2.redis" },
     })
 
     if err ~= nil or res.status ~= 200 then
@@ -55,7 +92,7 @@ local function store_body_and_headers(ids, cache_key, namespace, cache_name,
     end
 
     -- Mark original headers using the prefix `x-res-`
-    local new_headers = {}
+    local new_headers = { host = "casper.v2.redis" }
     for k, v in pairs(headers) do
         new_headers["x-res-" .. k] = v
     end
@@ -96,6 +133,7 @@ local function purge(namespace, cache_name, id)
             namespace = namespace,
             cache_name = cache_name,
         },
+        headers = { host = "casper.v2.redis" },
     })
 
     if err ~= nil or res.status ~= 200 then
@@ -128,6 +166,7 @@ local function metrics_handler()
 end
 
 return {
+    forward_to_v2 = forward_to_v2,
     store_body_and_headers = store_body_and_headers,
     fetch_body_and_headers = fetch_body_and_headers,
     purge = purge,

@@ -78,7 +78,8 @@ impl Svc {
 
         let lua = self.lua.clone();
         let worker_data = self.worker_data.clone();
-        let response = handler::handler(lua, worker_data, req, ctx_key.clone()).await;
+        let response =
+            handler::handler(lua, worker_data, req, self.remote_addr, ctx_key.clone()).await;
 
         log_data.elapsed = start.elapsed();
         log_data.active_conns = METRICS.active_connections_counter.get();

@@ -1,13 +1,13 @@
+use std::process;
 use std::sync::Arc;
 
 use mlua::{Function, Lua, Result as LuaResult, Table};
 
 use crate::backends::{self, Backend};
 use crate::config_loader;
-use crate::regex;
+use crate::lua;
 use crate::response::LuaResponse;
 use crate::storage::LuaStorage;
-use crate::udp;
 use crate::utils;
 
 pub fn init_core(lua: &Lua) -> LuaResult<Table> {
@@ -29,29 +29,19 @@ pub fn init_core(lua: &Lua) -> LuaResult<Table> {
     }
     core.set("storage", storage)?;
 
-    // Create `config` module
-    let config = lua.create_table()?;
-    config.set(
-        "get_config",
-        lua.create_async_function(config_loader::lua::get_config)?,
-    )?;
-    core.set("config", config)?;
+    // Modules
+    core.set("config", config_loader::lua::create_module(lua)?)?;
+    core.set("datetime", lua::datetime::create_module(lua)?)?;
+    core.set("json", lua::json::create_module(lua)?)?;
+    core.set("metrics", lua::metrics::create_module(lua)?)?;
+    core.set("regex", lua::regex::create_module(lua)?)?;
+    core.set("udp", lua::udp::create_module(lua)?)?;
+    core.set("utils", utils::lua::create_utils_table(lua)?)?;
 
-    // Create `regex` module
-    let regex = lua.create_table()?;
-    regex.set("new", lua.create_function(regex::regex_new)?)?;
-    core.set("regex", regex)?;
-
-    // Create `udp` module
-    core.set("udp", udp::create_udp_table(lua)?)?;
-
-    // Create `utils` module
-    let utils = lua.create_table()?;
-    utils.set(
-        "normalize_uri",
-        lua.create_function(utils::lua::normalize_uri)?,
-    )?;
-    core.set("utils", utils)?;
+    // Variables
+    let hostname = sys_info::hostname().expect("couldn't get hostname");
+    core.set("hostname", hostname)?;
+    core.set("pid", process::id())?;
 
     Ok(core)
 }

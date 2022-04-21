@@ -22,15 +22,12 @@ pub enum IndexKey {
     String(String),
 }
 
-pub async fn get_config<P>(
-    config: &P,
+pub async fn get_config(
+    config: impl AsRef<Path>,
     keys: &[IndexKey],
     bypass_cache: Option<bool>,
     interval: Option<Duration>,
-) -> anyhow::Result<Option<YamlValue>>
-where
-    P: AsRef<Path> + ?Sized,
-{
+) -> anyhow::Result<Option<YamlValue>> {
     let config = config.as_ref();
 
     if bypass_cache.unwrap_or(false) {
@@ -38,17 +35,19 @@ where
         return Ok(traverse_value(&yaml, keys).cloned());
     }
 
-    match CONFIGS.read().await.get(config) {
+    let configs_guard = CONFIGS.read().await;
+    match configs_guard.get(config) {
         Some(value) if value.last_checked + value.interval > Instant::now() => {
             // Use cache
             Ok(traverse_value(&value.yaml, keys).cloned())
         }
         Some(_) => {
             // Check file modification time and optionally refresh the cache
+            drop(configs_guard); // To release the lock
             let meta = fs::metadata(config).await?;
             let modified = meta.modified()?;
-            let mut configs = CONFIGS.write().await;
-            let value = configs
+            let mut configs_guard = CONFIGS.write().await;
+            let value = configs_guard
                 .get_mut(config)
                 .expect("disappeared config from cache");
             if modified != value.modified {
@@ -60,6 +59,8 @@ where
             Ok(traverse_value(&value.yaml, keys).cloned())
         }
         None => {
+            drop(configs_guard); // To release the lock
+
             let modified = fs::metadata(config).await?.modified()?;
             let value = Value {
                 yaml: serde_yaml::from_slice(&fs::read(config).await?)?,
@@ -86,14 +87,17 @@ fn traverse_value<'a>(value: &'a YamlValue, keys: &[IndexKey]) -> Option<&'a Yam
 }
 
 pub mod lua {
-    use mlua::{ExternalError, ExternalResult, Lua, LuaSerdeExt, Result, SerializeOptions, Value};
+    use anyhow::Context;
+    use mlua::{
+        ExternalError, ExternalResult, Lua, LuaSerdeExt, MultiValue, Result, SerializeOptions,
+        Table, Value,
+    };
 
     pub async fn get_config<'a>(
         lua: &'a Lua,
-        (config, keys): (String, Option<Vec<Value<'a>>>),
+        (config, keys): (String, MultiValue<'a>),
     ) -> Result<Value<'a>> {
         let keys = keys
-            .unwrap_or_default()
             .into_iter()
             .map(|k| match k {
                 Value::Nil => Ok(super::IndexKey::None),
@@ -106,6 +110,7 @@ pub mod lua {
 
         let value = super::get_config(&config, &keys, None, None)
             .await
+            .with_context(|| format!("failed to read '{config}'"))
             .to_lua_err()?;
 
         let options = SerializeOptions::new()
@@ -114,5 +119,10 @@ pub mod lua {
             .serialize_unit_to_null(false);
 
         lua.to_value_with(&value, options)
+    }
+
+    pub fn create_module(lua: &Lua) -> Result<Table> {
+        let get_config = lua.create_async_function(get_config)?;
+        lua.create_table_from([("get_config", get_config)])
     }
 }

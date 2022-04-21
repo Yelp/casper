@@ -9,7 +9,19 @@ return {
     middleware = {
       {
         name = "redis",
-        code = "require('lua.v2.redis')"
+        code = "require('lua.v2.middleware.redis')"
+      },
+      {
+        name = "zipkin",
+        code = "require('lua.v2.middleware.zipkin')"
+      },
+      {
+        name = "spectre",
+        code = "require('lua.v2.middleware.spectre')"
+      },
+      {
+        name = "single_endpoint",
+        code = "require('lua.v2.middleware.single_endpoint')"
       },
     },
 
@@ -17,6 +29,13 @@ return {
       code = [[
         function() end
       ]],
+    },
+  },
+
+  metrics = {
+    counters = {
+      cache_hits_counter = {description = "Total number of cache HITs."},
+      cache_misses_counter = {description = "Total number of cache MISSes."},
     },
   },
 

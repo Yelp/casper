@@ -6,6 +6,8 @@ local socket = require 'socket'
 local spectre_common = require 'spectre_common'
 local traceback = require 'traceback'
 local zipkin = require 'zipkin'
+local casper_v2 = require 'v2_helper'
+local config_loader = require 'config_loader'
 
 
 -- The single point from where responses are sent back for proxied requests
@@ -79,7 +81,8 @@ local function request_handler_wrapper(handler, internal)
     -- millisecond granularity
     local start_time = socket.gettime()
 
-    local incoming_zipkin_headers = zipkin.extract_zipkin_headers(ngx.req.get_headers())
+    local incoming_zipkin_headers = ngx.ctx.incoming_zipkin_headers
+                                    or zipkin.extract_zipkin_headers(ngx.req.get_headers())
     local namespace = spectre_common.get_smartstack_destination(ngx.req.get_headers())
 
     -- Catch and format spectre handler errors.
@@ -122,6 +125,31 @@ local function main()
     )
 
     if should_proxy then
+        local incoming_zipkin_headers = zipkin.extract_zipkin_headers(ngx.req.get_headers())
+        local cacheability_info, request_info = caching_handlers._parse_request(incoming_zipkin_headers)
+        ngx.ctx.incoming_zipkin_headers = incoming_zipkin_headers
+        ngx.ctx.cacheability_info = cacheability_info
+        ngx.ctx.request_info = request_info
+
+        if not(cacheability_info.is_cacheable and cacheability_info.cache_entry.bulk_support) then
+            local spectre_config = config_loader.get_spectre_config_for_namespace(
+                config_loader.CASPER_INTERNAL_NAMESPACE
+            )
+            local enabled_percent = spectre_config['v2_single_enabled_pct'] or 0
+
+            -- Deterministic random
+            local hash = ngx.md5(ngx.var.http_x_smartstack_destination .. ngx.var.request_uri):sub(1, 7)
+            local hash_mod = math.fmod(tonumber(hash, 16), 100)
+
+            if hash_mod < enabled_percent then
+                local err2 = casper_v2.forward_to_v2()
+                if err2 == nil then
+                    return
+                end
+                spectre_common.log(ngx.ERR, {err=err2, critical=false, v2=true})
+            end
+        end
+
         request_handler_wrapper(caching_handlers.caching_proxy, false)
     elseif err then
         metrics_helper.emit_counter('spectre.errors', {

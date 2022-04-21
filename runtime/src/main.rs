@@ -40,6 +40,11 @@ async fn main_inner() -> anyhow::Result<()> {
     // Register storage backends defined in the config
     backends::register_backends(config.storage.clone()).await?;
 
+    // Register metrics defined in the config
+    if let Some(metrics) = config.metrics.clone() {
+        metrics::register_custom_metrics(metrics);
+    }
+
     let main_config = &config.main;
 
     let mut workers = Vec::new();
@@ -91,11 +96,11 @@ mod config;
 mod config_loader;
 mod core;
 mod handler;
-mod regex;
+mod http;
+mod lua;
 mod request;
 mod response;
 mod service;
 mod storage;
-mod udp;
 mod utils;
 mod worker;

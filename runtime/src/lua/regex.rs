@@ -1,12 +1,12 @@
 use std::ops::Deref;
 
-use linked_hash_map::LinkedHashMap;
-use mlua::{ExternalResult, Lua, MetaMethod, UserData, UserDataMethods, Value};
+use mlua::{ExternalResult, Lua, MetaMethod, Result, Table, UserData, UserDataMethods, Value};
+use moka::sync::Cache;
 use ouroboros::self_referencing;
 
-const REGEX_CACHE_SIZE: usize = 256;
+const REGEX_CACHE_SIZE: u64 = 512;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Regex(regex::Regex);
 
 impl Deref for Regex {
@@ -14,6 +14,28 @@ impl Deref for Regex {
 
     fn deref(&self) -> &Self::Target {
         &self.0
+    }
+}
+
+impl Regex {
+    pub fn new(lua: &Lua, re: String) -> Result<Self> {
+        match lua.app_data_ref::<Cache<String, Regex>>() {
+            Some(cache) => {
+                if let Some(regex) = cache.get(&re) {
+                    return Ok(regex.clone());
+                }
+                let regex = regex::Regex::new(&re).map(Self).to_lua_err()?;
+                cache.insert(re, regex.clone());
+                Ok(regex)
+            }
+            None => {
+                let cache = Cache::new(REGEX_CACHE_SIZE);
+                let regex = regex::Regex::new(&re).map(Self).to_lua_err()?;
+                cache.insert(re, regex.clone());
+                lua.set_app_data::<Cache<String, Regex>>(cache);
+                Ok(regex)
+            }
+        }
     }
 }
 
@@ -67,32 +89,42 @@ impl UserData for RegexCaptures {
             Value::Integer(i) => {
                 Ok(this.with_caps(|caps| caps.get(i as usize).map(|v| v.as_str().to_string())))
             }
-            _ => unreachable!(),
+            _ => Ok(None),
         })
     }
 }
 
-pub fn regex_new(lua: &Lua, pattern: String) -> mlua::Result<Regex> {
-    // Check cache
-    match lua.app_data_mut::<LinkedHashMap<String, Regex>>() {
-        Some(mut cache) => {
-            if let Some(regex) = cache.get_refresh(&pattern) {
-                return Ok(regex.clone());
-            }
-        }
-        None => {
-            lua.set_app_data::<LinkedHashMap<String, Regex>>(LinkedHashMap::new());
-        }
-    }
+pub fn create_module(lua: &Lua) -> Result<Table> {
+    lua.create_table_from([("new", lua.create_function(Regex::new)?)])
+}
 
-    let regex = Regex(regex::Regex::new(&pattern).to_lua_err()?);
-    let mut cache = lua
-        .app_data_mut::<LinkedHashMap<String, Regex>>()
-        .expect("Regex cache must exist");
-    if cache.len() >= REGEX_CACHE_SIZE {
-        cache.pop_front();
-    }
-    cache.insert(pattern, regex.clone());
+#[cfg(test)]
+mod tests {
+    use mlua::{chunk, Lua, Result};
 
-    Ok(regex)
+    #[test]
+    fn test_module() -> Result<()> {
+        let lua = Lua::new();
+
+        let regex = super::create_module(&lua)?;
+        lua.load(chunk! {
+            local re = $regex.new(".*(?P<gr1>abc)")
+
+            assert(re:is_match("123abc321"))
+            assert(not re:is_match("123"))
+
+            local matches = re:match("123abc321")
+            assert(matches[0] == "123abc")
+            assert(matches[1] == "abc")
+            assert(matches["gr1"] == "abc")
+            assert(matches[true] == nil) // Bad key
+
+            local re = $regex.new("[,.]")
+            local vec = re:split("abc.qwe,rty.asd")
+            assert(#vec == 4)
+        })
+        .exec()?;
+
+        Ok(())
+    }
 }

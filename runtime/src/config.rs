@@ -12,6 +12,7 @@ pub struct Config {
     #[serde(default)]
     pub main: MainConfig,
     pub http: HttpConfig,
+    pub metrics: Option<MetricsConfig>,
     pub storage: HashMap<String, serde_yaml::Value>,
 }
 
@@ -48,6 +49,16 @@ pub struct AccessLog {
 #[derive(Debug, Deserialize)]
 pub struct ErrorLog {
     pub code: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct MetricsConfig {
+    pub counters: HashMap<String, MetricCounterConfig>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct MetricCounterConfig {
+    pub description: Option<String>,
 }
 
 pub(crate) fn read_config<P: AsRef<Path> + ?Sized>(path: &P) -> Result<Config> {

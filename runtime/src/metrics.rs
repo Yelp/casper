@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::mem;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -11,9 +12,12 @@ use once_cell::sync::Lazy;
 use opentelemetry::global;
 use opentelemetry::metrics::{Counter, ValueObserver, ValueRecorder};
 use opentelemetry_prometheus::PrometheusExporter;
+use parking_lot::Mutex;
 use prometheus::{Encoder, TextEncoder};
 use tokio::sync::RwLock;
 use tower::Layer;
+
+use crate::config::MetricsConfig;
 
 static PROMETHEUS_EXPORTER: Lazy<PrometheusExporter> = Lazy::new(|| {
     let boundaries = vec![
@@ -51,6 +55,11 @@ pub struct OpenTelemetryMetrics {
     pub lua_used_memory_observer: ValueObserver<u64>,
 
     pub num_threads_observer: ValueObserver<u64>,
+
+    //
+    // User-defined metrics
+    //
+    pub counters: Mutex<HashMap<String, Counter<u64>>>,
 }
 
 impl OpenTelemetryMetrics {
@@ -134,7 +143,22 @@ impl OpenTelemetryMetrics {
                 })
                 .with_description("Current number of active threads.")
                 .init(),
+
+            counters: Mutex::default(),
         }
+    }
+}
+
+pub fn register_custom_metrics(config: MetricsConfig) {
+    let meter = global::meter("casper");
+
+    let mut counters = METRICS.counters.lock();
+    for (name, config) in config.counters {
+        let mut counter = meter.u64_counter(name.clone());
+        if let Some(description) = config.description {
+            counter = counter.with_description(description);
+        }
+        counters.insert(name, counter.init());
     }
 }
 

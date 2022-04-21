@@ -2,6 +2,7 @@ use std::convert::TryInto;
 use std::error::Error as StdError;
 
 use hyper::Uri;
+use rand::{distributions::Alphanumeric, thread_rng, Rng, RngCore};
 
 pub fn normalize_uri<U, E>(uri: U) -> anyhow::Result<Uri>
 where
@@ -40,11 +41,51 @@ where
     Ok(Uri::from_parts(parts)?)
 }
 
-pub mod lua {
-    use mlua::{ExternalResult, Lua, Result};
+/// Generates a random string with a given length and charset
+///
+/// Default charset is Alphanumeric
+pub fn random_string(len: usize, charset: Option<&str>) -> String {
+    let mut rng = thread_rng();
+    match charset {
+        None | Some("") => rng
+            .sample_iter(&Alphanumeric)
+            .take(len)
+            .map(char::from)
+            .collect(),
+        Some("hex") => {
+            let mut buf = vec![0u8; (len + 1) / 2];
+            rng.fill_bytes(&mut buf);
+            let mut s = hex::encode(&buf);
+            if len % 2 != 0 {
+                s.pop();
+            }
+            s
+        }
+        Some(charset) => {
+            let charset = charset.chars().collect::<Vec<_>>();
+            (0..len)
+                .map(|_| charset[rng.gen_range(0..charset.len())])
+                .collect()
+        }
+    }
+}
 
-    pub fn normalize_uri(_: &Lua, uri: String) -> Result<String> {
+pub mod lua {
+    use mlua::{ExternalResult, Lua, Result, Table};
+
+    fn normalize_uri(_: &Lua, uri: String) -> Result<String> {
         Ok(super::normalize_uri(uri).to_lua_err()?.to_string())
+    }
+
+    fn random_string(_: &Lua, (len, mode): (usize, Option<String>)) -> Result<String> {
+        Ok(super::random_string(len, mode.as_ref().map(|s| s.as_str())))
+    }
+
+    pub fn create_utils_table(lua: &Lua) -> Result<Table> {
+        lua.create_table_from([
+            ("normalize_uri", lua.create_function(normalize_uri)?),
+            ("random_string", lua.create_function(random_string)?),
+        ])
     }
 }
 
@@ -52,11 +93,24 @@ pub mod zstd;
 
 #[cfg(test)]
 mod tests {
-    use super::normalize_uri;
+    use super::{normalize_uri, random_string};
 
     #[test]
     fn test_normalize_uri() {
         assert_eq!(normalize_uri("/a/b/c").unwrap(), "/a/b/c");
+        assert_eq!(normalize_uri("/?x=3&b=2&a=1").unwrap(), "/?a=1&b=2&x=3");
         assert_eq!(normalize_uri("/?a=3&b=c&a=1").unwrap(), "/?a=3&a=1&b=c");
+    }
+
+    #[test]
+    fn test_random_string() {
+        assert!(random_string(0, None).len() == 0);
+        assert!(random_string(8, Some("hex")).len() == 8);
+        assert!(random_string(5, Some("hex")).len() == 5);
+
+        // Custom charset
+        for c in random_string(32, Some("qw!")).chars() {
+            assert!(c == 'q' || c == 'w' || c == '!');
+        }
     }
 }

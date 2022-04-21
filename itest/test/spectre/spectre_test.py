@@ -173,8 +173,8 @@ class TestGetMethod(object):
         response = get_through_spectre('/timestamp/cached?sleep=1500')
         duration = time.time() - start
 
-        assert response.text == 'Error requesting /timestamp/cached?sleep=1500: timeout'
         assert response.status_code == 504
+        assert response.text == 'deadline has elapsed'
         # Duration should be >= 1.0 seconds since that's the HTTP_TIMEOUT_MS
         # value we set in start.sh
         assert duration >= 1.0
@@ -182,8 +182,8 @@ class TestGetMethod(object):
     def test_connection_drops_return_502(self):
         response = get_through_spectre('/timestamp/cached?drop_connection=true')
 
-        assert response.text == 'Error requesting /timestamp/cached?drop_connection=true: closed'
         assert response.status_code == 502
+        assert response.text == 'connection closed before message completed'
 
     def test_caching_works_with_id_extraction(self):
         response = get_through_spectre('/biz?foo=bar&business_id=1234')
@@ -338,7 +338,7 @@ class TestPostMethod(object):
 
         # Calling again with more fields in body which are ignored would also be a cache hit
         assert_is_in_spectre_cache(
-            '/post_id_cache_variable_body/', 
+            '/post_id_cache_variable_body/',
             data='{"request_id":234, "ignore_field1":"xyz", "ignore_field3":"21"}',
             extra_headers={'content-type': 'application/json'}
         )

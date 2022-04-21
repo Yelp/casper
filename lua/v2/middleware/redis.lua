@@ -1,3 +1,7 @@
+--
+-- Middleware used by Casper.v1 for Redis communication
+--
+
 local core = require("core")
 
 local Response = core.Response
@@ -29,6 +33,10 @@ local function make_surrogate_keys(args)
 end
 
 local function on_request(req)
+    if req:header("host") ~= "casper.v2.redis" then
+        return
+    end
+
     local method, uri_path = req.method, req.uri_path
 
     if method == "GET" and uri_path == "/fetch_body_and_headers" then

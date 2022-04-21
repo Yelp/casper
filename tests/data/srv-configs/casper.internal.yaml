@@ -13,3 +13,5 @@ zipkin:
         port: 514
 
 route_through_envoy: false
+
+v2_single_enabled_pct: 100

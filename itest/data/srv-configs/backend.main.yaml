@@ -6,6 +6,7 @@ cached_endpoints:
         pattern: '^/timestamp/.*$'
         ttl: 2
         vary_headers: ['X-Mode', 'accept-encoding']
+        use_filter: 'dummy'
     long_ttl:
         pattern: '^/long_ttl/.*$'
         ttl: 30

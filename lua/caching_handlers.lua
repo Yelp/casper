@@ -188,7 +188,10 @@ end
 
 -- Invoked when Spectre received a request and behaves as a caching proxy
 function caching_handlers.caching_proxy(incoming_zipkin_headers)
-    local cacheability_info, request_info = caching_handlers._parse_request(incoming_zipkin_headers)
+    local cacheability_info, request_info = ngx.ctx.cacheability_info, ngx.ctx.request_info
+    if cacheability_info == nil then
+        cacheability_info, request_info = caching_handlers._parse_request(incoming_zipkin_headers)
+    end
 
     if not cacheability_info.is_cacheable then
         local response = caching_handlers._forward_non_handleable_requests(
