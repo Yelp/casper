@@ -52,15 +52,17 @@ pub(crate) async fn handler(
             Ok(Value::UserData(resp)) => {
                 if resp.is::<LuaResponse>() {
                     early_resp = Some(resp);
+                    // Skip next middleware
                     process_level = i + 1;
                     break;
                 }
             }
             Ok(_) => {}
             Err(err) => {
-                // Skip faulty middleware
+                // Skip faulty middleware and stop processing
                 warn!("middleware '{name}' on-request error: {:?}", err);
-                skip_middleware.insert(i);
+                process_level = i;
+                break;
             }
         }
     }
@@ -117,9 +119,6 @@ pub(crate) async fn handler(
         .rev()
         .filter_map(|(i, it)| it.on_response.as_ref().map(|r| (i, r)))
     {
-        if skip_middleware.contains(&i) {
-            continue;
-        }
         let start = Instant::now();
         let name = middleware_list[i].name.clone();
         defer! {
