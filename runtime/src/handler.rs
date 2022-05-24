@@ -40,7 +40,7 @@ pub(crate) async fn handler(
         let start = Instant::now();
         let name = middleware_list[i].name.clone();
         defer! {
-            middleware_histogram_rec!(start, "name" => name, "phase" => "on_request");
+            middleware_histogram_rec!(start, "name" => name.clone(), "phase" => "on_request");
         }
 
         let on_request: Function = lua.registry_value(on_request)?;
@@ -59,7 +59,7 @@ pub(crate) async fn handler(
             Ok(_) => {}
             Err(err) => {
                 // Skip faulty middleware
-                warn!("middleware on-request error: {:?}", err);
+                warn!("middleware '{name}' on-request error: {:?}", err);
                 skip_middleware.insert(i);
             }
         }
@@ -123,7 +123,7 @@ pub(crate) async fn handler(
         let start = Instant::now();
         let name = middleware_list[i].name.clone();
         defer! {
-            middleware_histogram_rec!(start, "name" => name, "phase" => "on_response");
+            middleware_histogram_rec!(start, "name" => name.clone(), "phase" => "on_response");
         }
 
         let on_response: Function = lua.registry_value(on_response)?;
@@ -131,7 +131,7 @@ pub(crate) async fn handler(
             .call_async::<_, Value>((lua_resp.clone(), ctx.clone()))
             .await
         {
-            warn!("middleware on-response error: {:?}", err);
+            warn!("middleware '{name}' on-response error: {:?}", err);
             skip_middleware.insert(i);
         }
     }
@@ -169,7 +169,7 @@ pub(crate) async fn handler(
             let start = Instant::now();
             let name = data.middleware[i].name.clone();
             defer! {
-                middleware_histogram_rec!(start, "name" => name, "phase" => "after_response");
+                middleware_histogram_rec!(start, "name" => name.clone(), "phase" => "after_response");
             }
 
             let mut args = Variadic::new();
@@ -180,7 +180,7 @@ pub(crate) async fn handler(
 
             if let Ok(after_response) = lua.registry_value::<Function>(after_response) {
                 if let Err(err) = after_response.call_async::<_, ()>(args).await {
-                    warn!("middleware after-response error: {:?}", err);
+                    warn!("middleware '{name}' after-response error: {:?}", err);
                 }
             }
         }
