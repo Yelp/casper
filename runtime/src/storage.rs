@@ -15,6 +15,7 @@ use mlua::{
 };
 use ripemd::{Digest, Ripemd160};
 
+use crate::http::filter_hop_headers;
 use crate::response::LuaResponse;
 
 pub type Key = BString;
@@ -242,6 +243,9 @@ where
                 // Read Response body and save it to restore after caching
                 let body = hyper::body::to_bytes(resp.body_mut()).await.to_lua_err()?;
                 *resp.body_mut() = Body::from(body.clone());
+
+                // Remove hop by hop headers
+                filter_hop_headers(resp.headers_mut());
 
                 this.0
                     .store_response(Item {

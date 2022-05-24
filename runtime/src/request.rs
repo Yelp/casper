@@ -1,33 +1,44 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::convert::TryFrom;
 use std::mem;
+use std::net::SocketAddr;
 use std::ops::{Deref, DerefMut};
+use std::time::Duration;
 
 use bytes::BufMut;
 use hyper::header::{HeaderName, HeaderValue};
 use hyper::{body::HttpBody, Body, Method, Request, Uri};
 use mlua::{
-    AnyUserData, ExternalResult, Result as LuaResult, String as LuaString, Table, ToLua, UserData,
-    UserDataFields, UserDataMethods, Value,
+    AnyUserData, ExternalResult, FromLua, Result as LuaResult, String as LuaString, Table, ToLua,
+    UserData, UserDataFields, UserDataMethods, Value,
 };
+
+use crate::http::set_headers_metatable;
+use crate::lua::regex::Regex;
 
 pub struct LuaRequest {
     req: Request<Body>,
-    body: Option<Vec<u8>>,
+    remote_addr: SocketAddr,
     destination: Option<Uri>,
+    timeout: Option<Duration>,
 }
 
 impl LuaRequest {
-    pub fn new(request: Request<Body>) -> Self {
+    pub fn new(request: Request<Body>, remote_addr: SocketAddr) -> Self {
         LuaRequest {
             req: request,
-            body: None,
+            remote_addr,
             destination: None,
+            timeout: None,
         }
     }
 
-    pub fn into_parts(self) -> (Request<Body>, Option<Vec<u8>>, Option<Uri>) {
-        (self.req, self.body, self.destination)
+    pub fn into_parts(self) -> (Request<Body>, Option<Uri>) {
+        (self.req, self.destination)
+    }
+
+    pub fn timeout(&self) -> Option<Duration> {
+        self.timeout
     }
 }
 
@@ -60,11 +71,21 @@ impl UserData for LuaRequest {
         });
 
         fields.add_field_method_get("uri_path", |_, this| Ok(this.uri().path().to_string()));
+
+        fields.add_field_method_get("remote_addr", |_, this| Ok(this.remote_addr.to_string()));
     }
 
     fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
         methods.add_method_mut("set_destination", |_, this, dst: String| {
             this.destination = Some(dst.parse().to_lua_err()?);
+            Ok(())
+        });
+
+        methods.add_method_mut("set_timeout", |_, this, timeout: Option<f64>| {
+            match timeout {
+                Some(t) if t > 0.0 => this.timeout = Some(Duration::from_secs_f64(t)),
+                Some(_) | None => this.timeout = None,
+            };
             Ok(())
         });
 
@@ -78,7 +99,7 @@ impl UserData for LuaRequest {
         methods.add_method("header_all", |lua, this, name: String| {
             let vals = this.headers().get_all(name);
             let vals = vals
-                .into_iter()
+                .iter()
                 .map(|val| lua.create_string(val.as_bytes()))
                 .collect::<LuaResult<Vec<_>>>()?;
             if vals.is_empty() {
@@ -88,13 +109,13 @@ impl UserData for LuaRequest {
         });
 
         methods.add_method("header_cnt", |_, this, name: String| {
-            Ok(this.headers().get_all(name).into_iter().count())
+            Ok(this.headers().get_all(name).iter().count())
         });
 
         methods.add_method(
             "header_match",
             |lua, this, (name, pattern): (String, String)| {
-                let regex = crate::regex::regex_new(lua, pattern)?;
+                let regex = Regex::new(lua, pattern)?;
                 for hdr_val in this.headers().get_all(name) {
                     if let Ok(val) = hdr_val.to_str() {
                         if regex.is_match(val) {
@@ -131,15 +152,25 @@ impl UserData for LuaRequest {
             },
         );
 
-        methods.add_method("headers", |lua, this, ()| {
+        methods.add_method("headers", |lua, this, names: Option<HashSet<String>>| {
             let mut headers = HashMap::new();
             for (name, value) in this.headers() {
+                if let Some(ref names) = names {
+                    if !names.contains(name.as_str()) {
+                        continue;
+                    }
+                }
+
                 headers
                     .entry(name.to_string())
                     .or_insert_with(Vec::new)
                     .push(lua.create_string(value.as_bytes())?);
             }
-            Ok(headers)
+
+            let lua_headers = Table::from_lua(headers.to_lua(lua)?, lua)?;
+            set_headers_metatable(lua, lua_headers.clone())?;
+
+            Ok(lua_headers)
         });
 
         methods.add_method("uri_args", |lua, this, ()| {
@@ -167,7 +198,7 @@ impl UserData for LuaRequest {
         });
 
         methods.add_async_function("body", |lua, this: AnyUserData| async move {
-            // Check attached value
+            // Check if body cached
             if let Some(body) = this.get_user_value::<Option<LuaString>>()? {
                 return Ok(Value::String(body));
             }
@@ -184,7 +215,9 @@ impl UserData for LuaRequest {
                 }
 
                 let lua_body = lua.create_string(&vec)?;
-                this.body = Some(vec);
+                // Restore request body
+                *this.body_mut() = Body::from(vec);
+
                 lua_body
             };
 

@@ -1,45 +1,24 @@
 use std::collections::HashSet;
+use std::net::SocketAddr;
 use std::rc::Rc;
 use std::time::Instant;
 
 use anyhow::Result;
-use http::uri::Scheme;
-use hyper::header::{self, HeaderMap, HeaderName};
-use hyper::{client::HttpConnector, Body, Client, Request, Response, Uri};
+use hyper::{header, Body, Request, Response};
 use mlua::{FromLua, Function, Lua, RegistryKey, Table, Value, Variadic};
-use once_cell::sync::Lazy;
 use scopeguard::defer;
 use tracing::warn;
 
+use crate::http::{proxy_to_downstream, ProxyError};
 use crate::request::LuaRequest;
 use crate::response::LuaResponse;
 use crate::worker::WorkerData;
-
-pub static HTTP_CLIENT: Lazy<Client<HttpConnector>> = Lazy::new(Client::new);
-
-static HOP_BY_HOP_HEADERS: Lazy<[HeaderName; 8]> = Lazy::new(|| {
-    [
-        header::CONNECTION,
-        HeaderName::from_static("keep-alive"),
-        header::PROXY_AUTHENTICATE,
-        header::PROXY_AUTHORIZATION,
-        header::TE,
-        header::TRAILER,
-        header::TRANSFER_ENCODING,
-        header::UPGRADE,
-    ]
-});
-
-fn filter_hop_headers(headers: &mut HeaderMap) {
-    for header in &*HOP_BY_HOP_HEADERS {
-        headers.remove(header);
-    }
-}
 
 pub(crate) async fn handler(
     lua: Rc<Lua>,
     data: Rc<WorkerData>,
     req: Request<Body>,
+    remote_addr: SocketAddr,
     ctx_key: Rc<RegistryKey>,
 ) -> Result<Response<Body>> {
     let middleware_list = &data.middleware;
@@ -47,7 +26,7 @@ pub(crate) async fn handler(
     // Get Lua context table
     let ctx = lua.registry_value::<Table>(&ctx_key)?;
 
-    let lua_req = lua.create_userdata(LuaRequest::new(req))?;
+    let lua_req = lua.create_userdata(LuaRequest::new(req, remote_addr))?;
     let mut early_resp = None;
 
     // Process a chain of Lua's `on_request` actions
@@ -61,7 +40,7 @@ pub(crate) async fn handler(
         let start = Instant::now();
         let name = middleware_list[i].name.clone();
         defer! {
-            middleware_histogram_rec!(start, "name" => name, "phase" => "on_request");
+            middleware_histogram_rec!(start, "name" => name.clone(), "phase" => "on_request");
         }
 
         let on_request: Function = lua.registry_value(on_request)?;
@@ -80,7 +59,7 @@ pub(crate) async fn handler(
             Ok(_) => {}
             Err(err) => {
                 // Skip faulty middleware
-                warn!("middleware on-request error: {:?}", err);
+                warn!("middleware '{name}' on-request error: {:?}", err);
                 skip_middleware.insert(i);
             }
         }
@@ -91,17 +70,40 @@ pub(crate) async fn handler(
     let lua_resp = match early_resp {
         Some(resp) => resp,
         None => {
+            let lua_req = lua_req.take::<LuaRequest>()?;
+
             // Take out the original request from Lua
-            let (mut req, body, dst) = lua_req.take::<LuaRequest>()?.into_parts();
+            let timeout = lua_req.timeout();
+            let (req, dst) = lua_req.into_parts();
 
-            // If body was read by Lua, set it back again
-            if let Some(bytes) = body {
-                *req.body_mut() = Body::from(bytes);
-            }
-
-            let resp = proxy_to_downstream(req, dst).await?;
-            let mut lua_resp = LuaResponse::new(resp);
-            lua_resp.is_proxied = true;
+            let lua_resp = match proxy_to_downstream(req, dst, timeout).await {
+                Ok(resp) => {
+                    let mut lua_resp = LuaResponse::new(resp);
+                    lua_resp.is_proxied = true;
+                    lua_resp
+                }
+                Err(err) if matches!(err, ProxyError::Uri(..)) => {
+                    let resp = Response::builder()
+                        .status(500)
+                        .header(header::CONTENT_TYPE, "text/plan")
+                        .body(Body::from(format!("invalid destination: {err}")))?;
+                    LuaResponse::new(resp)
+                }
+                Err(err) if matches!(err, ProxyError::Timeout(..)) => {
+                    let resp = Response::builder()
+                        .status(504)
+                        .header(header::CONTENT_TYPE, "text/plan")
+                        .body(Body::from(err.to_string()))?;
+                    LuaResponse::new(resp)
+                }
+                Err(err) => {
+                    let resp = Response::builder()
+                        .status(502)
+                        .header(header::CONTENT_TYPE, "text/plan")
+                        .body(Body::from(err.to_string()))?;
+                    LuaResponse::new(resp)
+                }
+            };
             lua.create_userdata(lua_resp)?
         }
     };
@@ -121,7 +123,7 @@ pub(crate) async fn handler(
         let start = Instant::now();
         let name = middleware_list[i].name.clone();
         defer! {
-            middleware_histogram_rec!(start, "name" => name, "phase" => "on_response");
+            middleware_histogram_rec!(start, "name" => name.clone(), "phase" => "on_response");
         }
 
         let on_response: Function = lua.registry_value(on_response)?;
@@ -129,7 +131,7 @@ pub(crate) async fn handler(
             .call_async::<_, Value>((lua_resp.clone(), ctx.clone()))
             .await
         {
-            warn!("middleware on-response error: {:?}", err);
+            warn!("middleware '{name}' on-response error: {:?}", err);
             skip_middleware.insert(i);
         }
     }
@@ -167,7 +169,7 @@ pub(crate) async fn handler(
             let start = Instant::now();
             let name = data.middleware[i].name.clone();
             defer! {
-                middleware_histogram_rec!(start, "name" => name, "phase" => "after_response");
+                middleware_histogram_rec!(start, "name" => name.clone(), "phase" => "after_response");
             }
 
             let mut args = Variadic::new();
@@ -178,38 +180,11 @@ pub(crate) async fn handler(
 
             if let Ok(after_response) = lua.registry_value::<Function>(after_response) {
                 if let Err(err) = after_response.call_async::<_, ()>(args).await {
-                    warn!("middleware after-response error: {:?}", err);
+                    warn!("middleware '{name}' after-response error: {:?}", err);
                 }
             }
         }
     });
-
-    Ok(resp)
-}
-
-async fn proxy_to_downstream(mut req: Request<Body>, dst: Option<Uri>) -> Result<Response<Body>> {
-    // Set destination to forward request
-    let mut parts = req.uri().clone().into_parts();
-    if let Some(dst_parts) = dst.map(|dst| dst.into_parts()) {
-        if let Some(scheme) = dst_parts.scheme {
-            parts.scheme = Some(scheme);
-        }
-        if let Some(authority) = dst_parts.authority {
-            parts.authority = Some(authority);
-        }
-        if let Some(path_and_query) = dst_parts.path_and_query {
-            parts.path_and_query = Some(path_and_query);
-        }
-    }
-    // Set scheme to http if not set
-    if parts.scheme.is_none() {
-        parts.scheme = Some(Scheme::HTTP);
-    }
-    *req.uri_mut() = Uri::from_parts(parts)?;
-
-    // Proxy to the downstream service
-    filter_hop_headers(req.headers_mut());
-    let resp = HTTP_CLIENT.request(req).await?;
 
     Ok(resp)
 }

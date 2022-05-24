@@ -133,26 +133,28 @@ def test_cache_miss(log_file):
     assert response.status_code == 200
     assert response.headers['Spectre-Cache-Status'] == 'miss'
 
-    metrics = _load_metrics(log_file)
+    # Skip old metrics tests for the v2
 
-    # We need to know if the backend is Redis or Cassandra
-    backend = metrics[0].dimensions['backend']
+    # metrics = _load_metrics(log_file)
 
-    # First 2 metrics are `spectre.fetch_body_and_headers` and `spectre.hit_rate`
-    _assert_fetch_hit_rate(metrics[0:2], 'timestamp', backend)
+    # # We need to know if the backend is Redis or Cassandra
+    # backend = metrics[0].dimensions['backend']
 
-    # Then since it's a miss we have a `spectre.store_body_and_headers`
-    _assert_store_metric(metrics[2], 'timestamp', backend)
+    # # First 2 metrics are `spectre.fetch_body_and_headers` and `spectre.hit_rate`
+    # _assert_fetch_hit_rate(metrics[0:2], 'timestamp', backend)
 
-    # Finally the `spectre.request_timing`
-    _assert_request_timing_metrics(metrics[3:7], 'timestamp')
+    # # Then since it's a miss we have a `spectre.store_body_and_headers`
+    # _assert_store_metric(metrics[2], 'timestamp', backend)
 
-    # This assert is mostly there to make sure there are no more metrics than what I expect.
-    # The reason why it's not before the other asserts is because the error message doesn't
-    # show you what metrics are actually in the list, so it's very annoying to figure out
-    # what's missing. You'd need to comment out this check and then verify which of the
-    # other asserts is failing.
-    assert len(metrics) == 7
+    # # Finally the `spectre.request_timing`
+    # _assert_request_timing_metrics(metrics[3:7], 'timestamp')
+
+    # # This assert is mostly there to make sure there are no more metrics than what I expect.
+    # # The reason why it's not before the other asserts is because the error message doesn't
+    # # show you what metrics are actually in the list, so it's very annoying to figure out
+    # # what's missing. You'd need to comment out this check and then verify which of the
+    # # other asserts is failing.
+    # assert len(metrics) == 7
 
 
 def test_bulk_endpoint_miss(log_file):
@@ -206,32 +208,34 @@ def test_no_cache_header_metrics(log_file):
     )
     assert response.status_code == 200
 
-    metrics = _load_metrics(log_file)
-    # Dynamically discover the backend
-    backend = metrics[0].dimensions['backend']
+    # Skip old metrics tests for the v2
 
-    # Since we send the no-cache header we don't have a `spectre.fetch_body_and_headers`
-    # or `spectre.hit_rate`. We still update the cache though, so we have the
-    # `spectre.store_body_and_headers`
-    _assert_store_metric(metrics[0], 'timestamp', backend)
+    # metrics = _load_metrics(log_file)
+    # # Dynamically discover the backend
+    # backend = metrics[0].dimensions['backend']
 
-    # Finally we emit the `spectre.no_cache_header`
-    assert metrics[1].dimensions == {
-        'metric_name': 'spectre.no_cache_header',
-        'habitat': 'uswest1a',
-        'service_name': 'spectre',
-        'namespace': 'backend.main',
-        'instance_name': 'itest',
-        'reason': 'no-cache-header',
-        'cache_name': 'timestamp',
-    }
+    # # Since we send the no-cache header we don't have a `spectre.fetch_body_and_headers`
+    # # or `spectre.hit_rate`. We still update the cache though, so we have the
+    # # `spectre.store_body_and_headers`
+    # _assert_store_metric(metrics[0], 'timestamp', backend)
 
-    # This assert is mostly there to make sure there are no more metrics than what I expect.
-    # The reason why it's not before the other asserts is because the error message doesn't
-    # show you what metrics are actually in the list, so it's very annoying to figure out
-    # what's missing. You'd need to comment out this check and then verify which of the
-    # other asserts is failing.
-    assert len(metrics) == 2
+    # # Finally we emit the `spectre.no_cache_header`
+    # assert metrics[1].dimensions == {
+    #     'metric_name': 'spectre.no_cache_header',
+    #     'habitat': 'uswest1a',
+    #     'service_name': 'spectre',
+    #     'namespace': 'backend.main',
+    #     'instance_name': 'itest',
+    #     'reason': 'no-cache-header',
+    #     'cache_name': 'timestamp',
+    # }
+
+    # # This assert is mostly there to make sure there are no more metrics than what I expect.
+    # # The reason why it's not before the other asserts is because the error message doesn't
+    # # show you what metrics are actually in the list, so it's very annoying to figure out
+    # # what's missing. You'd need to comment out this check and then verify which of the
+    # # other asserts is failing.
+    # assert len(metrics) == 2
 
 def test_prometheus_metrics_endpoint():
     # Send an initial request to generate metrics

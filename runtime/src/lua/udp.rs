@@ -1,9 +1,7 @@
 use std::io::Result as IoResult;
 use std::ops::Deref;
 
-use mlua::{
-    AnyUserData, Lua, Result as LuaResult, String as LuaString, Table, UserData, UserDataMethods,
-};
+use mlua::{AnyUserData, Lua, Result, String as LuaString, Table, UserData, UserDataMethods};
 use tokio::net::{ToSocketAddrs, UdpSocket};
 
 struct LuaUdpSocket(UdpSocket);
@@ -63,7 +61,7 @@ impl UserData for LuaUdpSocket {
     }
 }
 
-pub fn create_udp_table(lua: &Lua) -> LuaResult<Table> {
+pub fn create_module(lua: &Lua) -> Result<Table> {
     let bind = lua.create_async_function(|_, addr: Option<String>| async move {
         let addr = addr.unwrap_or_else(|| "0.0.0.0:0".to_string());
         Ok(LuaUdpSocket::bind(addr).await?)

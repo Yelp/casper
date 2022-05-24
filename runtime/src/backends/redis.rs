@@ -7,8 +7,10 @@ use anyhow::{anyhow, bail, Context, Result};
 use async_trait::async_trait;
 use bitflags::bitflags;
 use bytes::Bytes;
-use fred::pool::StaticRedisPool;
-use fred::prelude::{Expiration, RedisError, RedisKey, RedisValue, SetOptions, Stats};
+use fred::error::RedisError;
+use fred::interfaces::KeysInterface;
+use fred::pool::RedisPool;
+use fred::types::{Expiration, RedisKey, RedisValue, SetOptions};
 use futures::future::{try_join, try_join_all, TryFutureExt};
 use futures::stream::{self, StreamExt};
 use hyper::{Response, StatusCode};
@@ -30,7 +32,7 @@ const SURROGATE_KEYS_TTL: i64 = 86400; // 1 day
 pub struct RedisBackend {
     name: String,
     config: Config,
-    client: StaticRedisPool,
+    client: RedisPool,
     connected: AtomicBool,
     internal_cache: Cache<Key, (SurrogateKeyItem, Instant)>,
 }
@@ -242,8 +244,7 @@ impl RedisBackend {
         let pool_size = config.pool_size;
 
         let redis_config = config.clone().into_redis_config()?;
-        let pool =
-            StaticRedisPool::new(redis_config, pool_size).expect("Failed to create Redis pool");
+        let pool = RedisPool::new(redis_config, pool_size).expect("Failed to create Redis pool");
 
         let backend = RedisBackend {
             name: name.into().unwrap_or_else(|| "redis".to_string()),
@@ -412,7 +413,7 @@ impl RedisBackend {
                     .client
                     .set(
                         make_redis_key(&skey),
-                        RedisValue::Bytes(sk_item_enc),
+                        RedisValue::Bytes(Bytes::from(sk_item_enc)),
                         Some(Expiration::EX(SURROGATE_KEYS_TTL)),
                         None,
                         false,
@@ -459,7 +460,7 @@ impl RedisBackend {
                 self.client
                     .set(
                         make_chunk_key(&key, i as u32 + 1),
-                        RedisValue::Bytes(chunk.to_vec()),
+                        RedisValue::Bytes(Bytes::from(chunk.to_vec())),
                         Some(Expiration::EX(ttl.as_secs() as i64)),
                         None,
                         false,
@@ -484,7 +485,7 @@ impl RedisBackend {
         self.client
             .set(
                 make_redis_key(&key),
-                RedisValue::Bytes(response_item_enc),
+                RedisValue::Bytes(Bytes::from(response_item_enc)),
                 Some(Expiration::EX(ttl.as_secs() as i64)),
                 None,
                 false,
@@ -516,7 +517,7 @@ impl RedisBackend {
                         .client
                         .set(
                             make_redis_key(&skey),
-                            RedisValue::Bytes(sk_item_enc),
+                            RedisValue::Bytes(Bytes::from(sk_item_enc)),
                             Some(Expiration::EX(SURROGATE_KEYS_TTL)),
                             Some(SetOptions::NX),
                             false,
@@ -544,16 +545,6 @@ impl RedisBackend {
 
     fn get_store_timeout(&self) -> Duration {
         Duration::from_millis(self.config.timeouts.store_timeout_ms)
-    }
-
-    #[allow(unused)]
-    pub fn take_latency_metrics(&self) -> Stats {
-        self.client.take_latency_metrics()
-    }
-
-    #[allow(unused)]
-    pub fn take_network_latency_metrics(&self) -> Stats {
-        self.client.take_network_latency_metrics()
     }
 }
 
@@ -615,13 +606,13 @@ fn current_timestamp() -> u64 {
 
 #[inline]
 fn make_redis_key(key: &impl AsRef<[u8]>) -> RedisKey {
-    RedisKey::new(base64::encode_config(key, base64::URL_SAFE_NO_PAD))
+    RedisKey::from(base64::encode_config(key, base64::URL_SAFE_NO_PAD))
 }
 
 #[inline]
 fn make_chunk_key(key: &impl AsRef<[u8]>, n: u32) -> RedisKey {
     let key = base64::encode_config(key, base64::URL_SAFE_NO_PAD);
-    RedisKey::new(format!("{{{}}}|{}", key, n))
+    RedisKey::from(format!("{{{}}}|{}", key, n))
 }
 
 #[cfg(test)]

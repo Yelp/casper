@@ -101,10 +101,12 @@ impl UserData for LuaResponse {
 
         methods.add_method_mut(
             "set_header",
-            |_, this, (name, value): (String, LuaString)| {
-                let name = HeaderName::from_bytes(name.as_bytes()).to_lua_err()?;
-                let value = HeaderValue::from_bytes(value.as_bytes()).to_lua_err()?;
-                this.headers_mut().insert(name, value);
+            |_, this, (name, value): (String, Option<LuaString>)| {
+                if let Some(value) = value {
+                    let name = HeaderName::from_bytes(name.as_bytes()).to_lua_err()?;
+                    let value = HeaderValue::from_bytes(value.as_bytes()).to_lua_err()?;
+                    this.headers_mut().insert(name, value);
+                }
                 Ok(())
             },
         );
