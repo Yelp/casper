@@ -7,7 +7,6 @@ use crate::backends::{self, Backend};
 use crate::lua;
 use crate::response::LuaResponse;
 use crate::storage::LuaStorage;
-use crate::utils;
 
 pub fn init_core(lua: &Lua) -> LuaResult<Table> {
     let core = lua.create_table()?;
@@ -35,7 +34,7 @@ pub fn init_core(lua: &Lua) -> LuaResult<Table> {
     core.set("metrics", lua::metrics::create_module(lua)?)?;
     core.set("regex", lua::regex::create_module(lua)?)?;
     core.set("udp", lua::udp::create_module(lua)?)?;
-    core.set("utils", utils::lua::create_utils_table(lua)?)?;
+    core.set("utils", lua::utils::create_module(lua)?)?;
 
     // Variables
     let hostname = sys_info::hostname().expect("couldn't get hostname");
