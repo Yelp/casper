@@ -4,7 +4,6 @@ use std::sync::Arc;
 use mlua::{Function, Lua, Result as LuaResult, Table};
 
 use crate::backends::{self, Backend};
-use crate::config_loader;
 use crate::lua;
 use crate::response::LuaResponse;
 use crate::storage::LuaStorage;
@@ -30,7 +29,7 @@ pub fn init_core(lua: &Lua) -> LuaResult<Table> {
     core.set("storage", storage)?;
 
     // Modules
-    core.set("config", config_loader::lua::create_module(lua)?)?;
+    core.set("config", lua::config::create_module(lua)?)?;
     core.set("datetime", lua::datetime::create_module(lua)?)?;
     core.set("json", lua::json::create_module(lua)?)?;
     core.set("metrics", lua::metrics::create_module(lua)?)?;
