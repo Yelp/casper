@@ -78,7 +78,7 @@ pub mod lua {
     }
 
     fn random_string(_: &Lua, (len, mode): (usize, Option<String>)) -> Result<String> {
-        Ok(super::random_string(len, mode.as_ref().map(|s| s.as_str())))
+        Ok(super::random_string(len, mode.as_deref()))
     }
 
     pub fn create_utils_table(lua: &Lua) -> Result<Table> {

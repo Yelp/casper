@@ -22,7 +22,7 @@ impl Regex {
         match lua.app_data_ref::<Cache<String, Regex>>() {
             Some(cache) => {
                 if let Some(regex) = cache.get(&re) {
-                    return Ok(regex.clone());
+                    return Ok(regex);
                 }
                 let regex = regex::Regex::new(&re).map(Self).to_lua_err()?;
                 cache.insert(re, regex.clone());
