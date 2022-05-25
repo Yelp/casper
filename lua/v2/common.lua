@@ -60,8 +60,8 @@ local function get_cacheability_info(req, ctx)
             cacheability_info.refresh_cache = false
 
             -- Check if client sent no-cache header
-            for name, pattern in pairs(PLEASE_DO_NOT_CACHE_HEADERS) do
-                if req:header_match(name, pattern) then
+            for name, hdr_pattern in pairs(PLEASE_DO_NOT_CACHE_HEADERS) do
+                if req:header_match(name, hdr_pattern) then
                     cacheability_info.is_cacheable = false
                     cacheability_info.reason = "no-cache-header"
                     cacheability_info.refresh_cache = true
