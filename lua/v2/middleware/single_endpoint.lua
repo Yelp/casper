@@ -15,7 +15,9 @@ local function on_request(req, ctx)
     if on_request_filter then
         local filter_resp = on_request_filter(req, ctx)
         if filter_resp ~= nil then
-            return filter_resp
+            if type(filter_resp) ~= "boolean" or not filter_resp then
+                return filter_resp
+            end
         end
     end
 
