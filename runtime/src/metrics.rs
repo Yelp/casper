@@ -153,12 +153,12 @@ pub fn register_custom_metrics(config: MetricsConfig) {
     let meter = global::meter("casper");
 
     let mut counters = METRICS.counters.lock();
-    for (name, config) in config.counters {
-        let mut counter = meter.u64_counter(name.clone());
+    for (key, config) in config.counters {
+        let mut counter = meter.u64_counter(config.name.unwrap_or_else(|| key.clone()));
         if let Some(description) = config.description {
             counter = counter.with_description(description);
         }
-        counters.insert(name, counter.init());
+        counters.insert(key, counter.init());
     }
 }
 

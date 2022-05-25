@@ -58,6 +58,7 @@ pub struct MetricsConfig {
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct MetricCounterConfig {
+    pub name: Option<String>,
     pub description: Option<String>,
 }
 
