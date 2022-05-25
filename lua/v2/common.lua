@@ -21,6 +21,7 @@ local function get_cacheability_info(req, ctx)
         cache_entry = {
             ttl = nil,
             pattern = nil,
+            pattern_v2 = nil, -- for migration only
             bulk_support = false,
             id_identifier = nil,
             dont_cache_missing_ids = false,
@@ -47,9 +48,10 @@ local function get_cacheability_info(req, ctx)
     end
 
     for cache_name, cache_entry in pairs(service_config.cached_endpoints) do
+        local pattern = cache_entry.pattern_v2 or cache_entry.pattern
         if
             (cache_entry.request_method or DEFAULT_REQUEST_METHOD) == ctx.request_method
-            and regex_new(cache_entry["pattern"]):is_match(ctx.normalized_uri)
+            and regex_new(pattern):is_match(ctx.normalized_uri)
         then
             cacheability_info.is_cacheable = true
             cacheability_info.cache_name = cache_name
