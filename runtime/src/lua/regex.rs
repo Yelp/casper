@@ -1,7 +1,7 @@
 use std::ops::Deref;
 
 use mlua::{ExternalResult, Lua, MetaMethod, Result, Table, UserData, UserDataMethods, Value};
-use moka::sync::Cache;
+use moka::unsync::Cache;
 use ouroboros::self_referencing;
 
 const REGEX_CACHE_SIZE: u64 = 512;
@@ -19,17 +19,17 @@ impl Deref for Regex {
 
 impl Regex {
     pub fn new(lua: &Lua, re: String) -> Result<Self> {
-        match lua.app_data_ref::<Cache<String, Regex>>() {
-            Some(cache) => {
+        match lua.app_data_mut::<Cache<String, Regex>>() {
+            Some(mut cache) => {
                 if let Some(regex) = cache.get(&re) {
-                    return Ok(regex);
+                    return Ok(regex.clone());
                 }
                 let regex = regex::Regex::new(&re).map(Self).to_lua_err()?;
                 cache.insert(re, regex.clone());
                 Ok(regex)
             }
             None => {
-                let cache = Cache::new(REGEX_CACHE_SIZE);
+                let mut cache = Cache::new(REGEX_CACHE_SIZE);
                 let regex = regex::Regex::new(&re).map(Self).to_lua_err()?;
                 cache.insert(re, regex.clone());
                 lua.set_app_data::<Cache<String, Regex>>(cache);
