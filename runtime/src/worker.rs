@@ -13,10 +13,11 @@ use tracing::error;
 
 use crate::config::Config;
 use crate::core;
+use crate::lua::tasks;
 use crate::metrics::{ActiveCounter, ActiveCounterHandler, InstrumentationLayer};
 use crate::service::Svc;
 
-const LUA_THREAD_CACHE_SIZE: usize = 128;
+const LUA_THREAD_CACHE_SIZE: usize = 512;
 
 pub struct WorkerData {
     pub id: usize,
@@ -61,23 +62,38 @@ impl LocalWorker {
     pub fn new(id: usize, config: Arc<Config>) -> Result<Self> {
         let (sender, mut recv) = mpsc::unbounded_channel::<IncomingStream>();
 
-        let options = LuaOptions::new().thread_cache_size(LUA_THREAD_CACHE_SIZE);
-        let lua = Lua::new_with(LuaStdLib::ALL_SAFE, options)
-            .with_context(|| "Failed to create worker Lua")?;
-        let mut worker_data = WorkerData {
-            id,
-            config,
-            middleware: Vec::new(),
-            access_log: None,
-            error_log: None,
-            active_requests: ActiveCounter::new(0),
-        };
-        Self::init_lua(&lua, &mut worker_data)
-            .with_context(|| "Failed to initialize worker Lua")?;
-
         let handler = runtime::Handle::current();
+        let (error_tx, error_rx) = std::sync::mpsc::sync_channel::<Result<()>>(1);
         thread::spawn(move || {
-            let lua = Rc::new(lua);
+            let mut worker_data = WorkerData {
+                id,
+                config,
+                middleware: Vec::new(),
+                access_log: None,
+                error_log: None,
+                active_requests: ActiveCounter::new(0),
+            };
+
+            let options = LuaOptions::new().thread_cache_size(LUA_THREAD_CACHE_SIZE);
+            let lua_result = (|| {
+                let lua = Lua::new_with(LuaStdLib::ALL_SAFE, options)
+                    .with_context(|| "Failed to create worker Lua")?;
+                let lua = Rc::new(lua);
+                Self::init_lua(&lua, &mut worker_data)
+                    .with_context(|| "Failed to initialize worker Lua")?;
+                Ok(lua)
+            })();
+            let lua = match lua_result {
+                Ok(lua) => {
+                    error_tx.send(Ok(())).expect("cannot send result");
+                    lua
+                }
+                Err(err) => {
+                    error_tx.send(Err(err)).expect("cannot send result");
+                    return;
+                }
+            };
+
             let worker_data = Rc::new(worker_data);
 
             #[cfg(target_os = "linux")]
@@ -100,25 +116,31 @@ impl LocalWorker {
             });
 
             // Main processing loop
-            local.spawn_local(async move {
+            handler.block_on(local.run_until(async move {
+                // Launch task processor
+                tasks::spawn_tasks(&lua);
+
                 while let Some(stream) = recv.recv().await {
                     Self::process_connection(stream, lua.clone(), worker_data.clone()).await;
                 }
-            });
-
-            handler.block_on(local);
+            }));
         });
+
+        error_rx.recv().expect("cannot receive result")?;
 
         Ok(Self { sender })
     }
 
     /// Initializes Lua instance for Worker updating WorkerData
-    fn init_lua(lua: &Lua, worker_data: &mut WorkerData) -> Result<()> {
+    fn init_lua(lua: &Rc<Lua>, worker_data: &mut WorkerData) -> Result<()> {
         // Register core module
-        let core: Table = lua.load_from_function("core", core::make_core_module(lua)?)?;
+        let core: Table = lua.load_from_function("core", core::make_core_module(&lua)?)?;
 
         // Set worker id
         core.set("worker_id", worker_data.id)?;
+
+        // Save Weak reference of self
+        lua.set_app_data(Rc::downgrade(lua));
 
         // Load middleware code
         for middleware in &worker_data.config.http.middleware {
