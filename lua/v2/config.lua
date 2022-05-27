@@ -49,7 +49,7 @@ local function get_service_config(path, ...)
             }
         end)
         if not ok then
-            print("failed to load '" .. file_path .. "': " .. err)
+            print("failed to load '" .. file_path .. "': " .. tostring(err))
             CACHED_CONFIGS[file_path] = {}
         end
     end
