@@ -42,7 +42,7 @@ local function get_cacheability_info(req, ctx)
         return cacheability_info
     end
 
-    if not service_config then
+    if not service_config or not service_config.cached_endpoints then
         cacheability_info.reason = "non-configured-namespace (" .. ctx.destination .. ")"
         return cacheability_info
     end
