@@ -22,6 +22,7 @@ impl LuaUdpSocket {
 
 impl UserData for LuaUdpSocket {
     fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
+        #[allow(clippy::await_holding_refcell_ref)]
         methods.add_async_function(
             "connect",
             |_, (this, addr): (AnyUserData, String)| async move {
@@ -35,6 +36,7 @@ impl UserData for LuaUdpSocket {
             Ok(this.local_addr()?.to_string())
         });
 
+        #[allow(clippy::await_holding_refcell_ref)]
         methods.add_async_function(
             "send",
             |_, (this, buf): (AnyUserData, Option<LuaString>)| async move {
@@ -47,6 +49,7 @@ impl UserData for LuaUdpSocket {
             },
         );
 
+        #[allow(clippy::await_holding_refcell_ref)]
         methods.add_async_function(
             "send_to",
             |_, (this, dst, buf): (AnyUserData, String, Option<LuaString>)| async move {

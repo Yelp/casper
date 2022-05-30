@@ -14,6 +14,7 @@ use crate::request::LuaRequest;
 use crate::response::LuaResponse;
 use crate::worker::WorkerData;
 
+#[allow(clippy::await_holding_refcell_ref)]
 pub(crate) async fn handler(
     lua: Rc<Lua>,
     data: Rc<WorkerData>,

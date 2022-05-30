@@ -48,12 +48,16 @@ pub fn init_core(lua: &Lua) -> LuaResult<Table> {
     core.set(
         "sleep",
         lua.create_async_function(|_, secs: f64| async move {
-            Ok(tokio::time::sleep(Duration::from_secs_f64(secs)).await)
+            tokio::time::sleep(Duration::from_secs_f64(secs)).await;
+            Ok(())
         })?,
     )?;
     core.set(
         "yield",
-        lua.create_async_function(|_, ()| async { Ok(tokio::task::yield_now().await) })?,
+        lua.create_async_function(|_, ()| async {
+            tokio::task::yield_now().await;
+            Ok(())
+        })?,
     )?;
 
     Ok(core)

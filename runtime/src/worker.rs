@@ -134,7 +134,7 @@ impl LocalWorker {
     /// Initializes Lua instance for Worker updating WorkerData
     fn init_lua(lua: &Rc<Lua>, worker_data: &mut WorkerData) -> Result<()> {
         // Register core module
-        let core: Table = lua.load_from_function("core", core::make_core_module(&lua)?)?;
+        let core: Table = lua.load_from_function("core", core::make_core_module(lua)?)?;
 
         // Set worker id
         core.set("worker_id", worker_data.id)?;

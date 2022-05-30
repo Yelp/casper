@@ -197,6 +197,7 @@ impl UserData for LuaRequest {
             Ok(())
         });
 
+        #[allow(clippy::await_holding_refcell_ref)]
         methods.add_async_function("body", |lua, this: AnyUserData| async move {
             // Check if body cached
             if let Some(body) = this.get_user_value::<Option<LuaString>>()? {

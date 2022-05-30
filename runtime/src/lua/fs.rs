@@ -2,7 +2,7 @@ use std::time::UNIX_EPOCH;
 
 use mlua::{Lua, Result, Table};
 
-async fn get_metadata<'lua>(lua: &'lua Lua, path: String) -> Result<Table<'lua>> {
+async fn get_metadata(lua: &'_ Lua, path: String) -> Result<Table<'_>> {
     let metadata = tokio::fs::metadata(path).await?;
     let table = lua.create_table()?;
 
