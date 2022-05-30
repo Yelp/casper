@@ -35,9 +35,7 @@ local function traverse_value(value, keys, idx)
     end
 end
 
-local function get_service_config(path, ...)
-    local file_path = SRV_CONFIGS_PATH .. "/" .. path .. ".yaml"
-
+local function get_config(file_path, ...)
     if not CACHED_CONFIGS[file_path] then
         local ok, err = pcall(function()
             local metadata = core.fs.get_metadata(file_path)
@@ -57,14 +55,22 @@ local function get_service_config(path, ...)
     return traverse_value(CACHED_CONFIGS[file_path].value, { ... }, 1)
 end
 
+local function get_service_config(service, ...)
+    return get_config(SRV_CONFIGS_PATH .. "/" .. service .. ".yaml", ...)
+end
+
 local function get_casper_config(...)
     return get_service_config("casper.internal", ...)
+end
+
+local function get_envoy_client_config(...)
+    return get_config(ENVOY_CONFIGS_PATH .. "/envoy_client.yaml", ...)
 end
 
 return {
     get_service_config = get_service_config,
     get_casper_config = get_casper_config,
+    get_envoy_client_config = get_envoy_client_config,
 
     SERVICES_YAML_PATH = SERVICES_YAML_PATH,
-    ENVOY_CONFIGS_PATH = ENVOY_CONFIGS_PATH,
 }

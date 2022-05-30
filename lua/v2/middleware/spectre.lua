@@ -5,14 +5,15 @@ local filters = require("lua.v2.filters")
 
 local Response = core.Response
 local normalize_uri = core.utils.normalize_uri
+local string_sub = string.sub
 
 local function set_destination(req, destination)
     local uri = req.uri
     if config.get_casper_config("route_through_envoy") then
-        local envoy_url = core.config.get_config(config.ENVOY_CONFIGS_PATH .. "/envoy_client.yaml", "url")
+        local envoy_url = config.get_envoy_client_config("url")
         req:set_header("X-Yelp-Svc", destination)
         -- in `envoy_url`, we have a '/' at the end of the url, so we need to remove it
-        req:set_destination(envoy_url .. string.sub(uri, 2))
+        req:set_destination(envoy_url .. string_sub(uri, 2))
     else
         local info = core.config.get_config(config.SERVICES_YAML_PATH, destination)
         req:set_destination("http://" .. info.host .. ":" .. info.port .. uri)
