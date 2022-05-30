@@ -50,7 +50,7 @@ zstd = "0.11"
 
 [dependencies.mlua]
 features = ["luajit52", "async", "serialize", "macros", "vendored"]
-version = "0.8.0-beta.5"
+git = "https://github.com/khvzak/mlua"
 
 [dependencies.fred]
 default-features = false
