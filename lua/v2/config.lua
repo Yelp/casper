@@ -17,6 +17,7 @@ core.tasks.register_task(function()
                 local metadata = core.fs.get_metadata(file_path)
                 if metadata.modified ~= data.modified then
                     data.value = core.config.get_config(file_path)
+                    data.modified = metadata.modified
                     print("reloaded '" .. file_path .. "'")
                 end
             end)
