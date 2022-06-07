@@ -47,7 +47,7 @@ def _load_metrics(log_file):
     return metrics
 
 
-def _assert_request_timing_metrics(metrics, cache_name):
+def _assert_request_timing_metrics(metrics, cache_name, cache_status):
     assert len(metrics) == 4
     assert metrics[0].dimensions == {
         'status': '200',
@@ -57,6 +57,7 @@ def _assert_request_timing_metrics(metrics, cache_name):
         'namespace': 'backend.main',
         'instance_name': 'itest',
         'cache_name': cache_name,
+        'cache_status': cache_status,
     }
     assert metrics[1].dimensions == {
         'status': '200',
@@ -66,6 +67,7 @@ def _assert_request_timing_metrics(metrics, cache_name):
         'namespace': '__ALL__',
         'instance_name': 'itest',
         'cache_name': cache_name,
+        'cache_status': cache_status,
     }
     assert metrics[2].dimensions == {
         'status': '200',
@@ -75,6 +77,7 @@ def _assert_request_timing_metrics(metrics, cache_name):
         'namespace': 'backend.main',
         'instance_name': 'itest',
         'cache_name': '__ALL__',
+        'cache_status': cache_status,
     }
     assert metrics[3].dimensions == {
         'status': '200',
@@ -84,6 +87,7 @@ def _assert_request_timing_metrics(metrics, cache_name):
         'namespace': '__ALL__',
         'instance_name': 'itest',
         'cache_name': '__ALL__',
+        'cache_status': cache_status,
     }
 
 
@@ -161,10 +165,10 @@ def test_bulk_endpoint_miss(log_file):
     response = get_through_spectre(
         '/bulk_requester_2/10,11/v1?foo=bar',
     )
-
+    cache_status = response.headers['Spectre-Cache-Status']
     time.sleep(1)
     assert response.status_code == 200
-    assert response.headers['Spectre-Cache-Status'] == 'miss'
+    assert cache_status == 'miss'
 
     metrics = _load_metrics(log_file)
     # Dynamically discover the backend
@@ -180,7 +184,7 @@ def test_bulk_endpoint_miss(log_file):
     _assert_store_metric(metrics[5], 'bulk_requester_default', backend)
 
     # Then the `spectre.request_timing`
-    _assert_request_timing_metrics(metrics[6:10], 'bulk_requester_default')
+    _assert_request_timing_metrics(metrics[6:10], 'bulk_requester_default', cache_status)
 
     # Finally we have `spectre.bulk_hit_rate`
     assert metrics[10].dimensions == {
