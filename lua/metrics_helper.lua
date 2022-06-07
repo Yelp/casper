@@ -85,10 +85,10 @@ local function emit_counter(name, dimensions)
 end
 
 -- Emit timer for a request
-local function emit_request_timing(timing, namespace, cache_name, status)
+local function emit_request_timing(timing, namespace, cache_name, status, cache_status)
     for _, c in pairs({cache_name, '__ALL__'}) do
         for _, n in pairs({namespace, '__ALL__'}) do
-            local dimensions = {{'namespace', n}, {'cache_name', c}, {'status', status}}
+            local dimensions = {{'namespace', n}, {'cache_name', c}, {'status', status}, {'cache_status', cache_status}}
             emit_timing('spectre.request_timing', timing, dimensions)
         end
     end
@@ -96,12 +96,15 @@ end
 
 -- Emit metrics after response is sent, for external requests
 local function emit_cache_metrics(start_time, end_time, namespace, response, status)
+    local cache_status = response.headers['Spectre-Cache-Status']
+
     if response.cacheability_info.is_cacheable then
         emit_request_timing(
             (end_time - start_time) * 1000,
             namespace,
             response.cacheability_info.cache_name,
-            status
+            status,
+            cache_status
         )
     end
 
@@ -117,7 +120,7 @@ local function emit_cache_metrics(start_time, end_time, namespace, response, sta
         emit_counter('spectre.bulk_hit_rate', {
             {'namespace', namespace},
             {'cache_name', response.cacheability_info.cache_name},
-            {'cache_status', response.headers['Spectre-Cache-Status'] }
+            {'cache_status', cache_status }
         })
 
         if response.error and response.error:find('unable to process response; content-type is') then
