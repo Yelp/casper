@@ -1,5 +1,6 @@
 local core = require("core")
 local config = require("lua.v2.config")
+local metrics = require("lua.v2.metrics")
 
 local os_date = os.date
 local string_format = string.format
@@ -50,6 +51,7 @@ end
 
 local function on_response(resp, ctx)
     ctx.end_time = now()
+    ctx.response_status = resp.status
 
     if resp.is_proxied then
         -- Nothing to do, new span has been created
@@ -60,6 +62,27 @@ local function on_response(resp, ctx)
 end
 
 local function after_response(ctx)
+
+    -- Emit metrics for hit rate, and latency
+    -- Included in the Zipkin middleware as this is expected to be temporary
+    metrics.emit_counter(
+        'spectre.hit_rate',
+        {
+            {'namespace', ctx.destination},
+            {'cache_name', ctx.cacheability_info.cache_name},
+            {'cache_status', ctx.cache_status},
+            {'backend', 'redis'}
+        }
+    )
+    metrics.emit_cache_metrics(
+        ctx.start_time:unix_timestamp(),
+        ctx.end_time:unix_timestamp(),
+        ctx.destination,
+        ctx.cacheability_info,
+        ctx.cache_status,
+        ctx.response_status
+    )
+
     -- Emit syslog
     -- If Zipkin headers exist, then log them to syslog.
     -- `X-B3-Flags` and `X-B3-Sampled` are optional in the Zipkin spec,

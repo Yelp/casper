@@ -71,19 +71,19 @@ describe("metrics_helper", function()
         metrics_helper.emit_request_timing(1, 'some.namespace', 'test_cache', 200, 'hit')
 
         assert.are_equal(
-            '[["habitat", "uswest1a"],["service_name", "spectre"],["instance_name", "test"],["namespace", "some.namespace"],["cache_name", "test_cache"],["status", "200"],["cache_status", "hit"],["metric_name", "spectre.request_timing"]]:1|ms',
+            '[["habitat", "uswest1a"],["service_name", "spectre"],["instance_name", "test"],["casper_version", "v1"],["namespace", "some.namespace"],["cache_name", "test_cache"],["status", "200"],["cache_status", "hit"],["metric_name", "spectre.request_timing"]]:1|ms',
             spy_send.calls[1]['vals'][2] -- 2nd argument of the first call
         )
         assert.are_equal(
-            '[["habitat", "uswest1a"],["service_name", "spectre"],["instance_name", "test"],["namespace", "__ALL__"],["cache_name", "test_cache"],["status", "200"],["cache_status", "hit"],["metric_name", "spectre.request_timing"]]:1|ms',
+            '[["habitat", "uswest1a"],["service_name", "spectre"],["instance_name", "test"],["casper_version", "v1"],["namespace", "__ALL__"],["cache_name", "test_cache"],["status", "200"],["cache_status", "hit"],["metric_name", "spectre.request_timing"]]:1|ms',
             spy_send.calls[2]['vals'][2] -- 2nd argument of the second call
         )
         assert.are_equal(
-            '[["habitat", "uswest1a"],["service_name", "spectre"],["instance_name", "test"],["namespace", "some.namespace"],["cache_name", "__ALL__"],["status", "200"],["cache_status", "hit"],["metric_name", "spectre.request_timing"]]:1|ms',
+            '[["habitat", "uswest1a"],["service_name", "spectre"],["instance_name", "test"],["casper_version", "v1"],["namespace", "some.namespace"],["cache_name", "__ALL__"],["status", "200"],["cache_status", "hit"],["metric_name", "spectre.request_timing"]]:1|ms',
             spy_send.calls[3]['vals'][2] -- 2nd argument of the third call
         )
         assert.are_equal(
-            '[["habitat", "uswest1a"],["service_name", "spectre"],["instance_name", "test"],["namespace", "__ALL__"],["cache_name", "__ALL__"],["status", "200"],["cache_status", "hit"],["metric_name", "spectre.request_timing"]]:1|ms',
+            '[["habitat", "uswest1a"],["service_name", "spectre"],["instance_name", "test"],["casper_version", "v1"],["namespace", "__ALL__"],["cache_name", "__ALL__"],["status", "200"],["cache_status", "hit"],["metric_name", "spectre.request_timing"]]:1|ms',
             spy_send.calls[4]['vals'][2] -- 2nd argument of the fourth call
         )
     end)

@@ -1,30 +1,21 @@
-local config_loader = require 'config_loader'
-local socket = require('socket')
+local config = require("lua.v2.config")
+local core = require("core")
 
-local _sock
 local _default_dimensions
-
+local _sock
 
 local function _get_sock()
     if _sock == nil then
-        local configs = config_loader.get_spectre_config_for_namespace(
-            config_loader.CASPER_INTERNAL_NAMESPACE
-        )['yelp_meteorite']
-        _sock = socket.udp()
-        _sock:setsockname("*", 0)
-        _sock:setpeername(
-            configs['metrics-relay']['host'],
-            configs['metrics-relay']['port']
-        )
+        local metrics_relay = config.get_casper_config("yelp_meteorite", "metrics-relay")
+        _sock = core.udp.bind()
+        _sock:connect(metrics_relay.host .. ":" .. metrics_relay.port)
     end
     return _sock
 end
 
 local function get_system_dimension(name)
-    local configs = config_loader.get_spectre_config_for_namespace(
-        config_loader.CASPER_INTERNAL_NAMESPACE
-    )['yelp_meteorite']
-    return io.open(configs['etc_path'] .. '/' .. name):read()
+    local configs = config.get_casper_config('yelp_meteorite', 'etc_path')
+    return io.open(configs .. '/' .. name):read()
 end
 
 local function _get_default_dimensions()
@@ -33,7 +24,7 @@ local function _get_default_dimensions()
             {'habitat', get_system_dimension('habitat')},
             {'service_name', os.getenv('PAASTA_SERVICE')},
             {'instance_name', os.getenv('PAASTA_INSTANCE')},
-            {'casper_version', "v1"},
+            {'casper_version', "v2"},
         }
     end
     return _default_dimensions
@@ -96,68 +87,23 @@ local function emit_request_timing(timing, namespace, cache_name, status, cache_
 end
 
 -- Emit metrics after response is sent, for external requests
-local function emit_cache_metrics(start_time, end_time, namespace, response, status)
-    local cache_status = response.headers['Spectre-Cache-Status']
+local function emit_cache_metrics(start_time, end_time, namespace, cacheability_info, cache_status, response_status)
 
-    if response.cacheability_info.is_cacheable then
+    if cacheability_info.is_cacheable then
         emit_request_timing(
             (end_time - start_time) * 1000,
             namespace,
-            response.cacheability_info.cache_name,
-            status,
+            cacheability_info.cache_name,
+            response_status,
             cache_status
         )
     end
 
-    if response.cacheability_info.reason == 'no-cache-header' then
+    if cacheability_info.reason == 'no-cache-header' then
         emit_counter('spectre.no_cache_header', {
             {'namespace', namespace},
-            {'cache_name', response.cacheability_info.cache_name},
-            {'reason', response.cacheability_info.reason},
-        })
-    end
-
-    if response.cacheability_info.cache_entry.bulk_support then
-        emit_counter('spectre.bulk_hit_rate', {
-            {'namespace', namespace},
-            {'cache_name', response.cacheability_info.cache_name},
-            {'cache_status', cache_status }
-        })
-
-        if response.error and response.error:find('unable to process response; content-type is') then
-            emit_counter('spectre.unprocessable_responses', {
-                {'message', 'non_json_response'},
-                {'status_code', status},
-                {'namespace', namespace},
-                {'cache_name', response.cacheability_info.cache_name},
-            })
-        end
-
-        if status ~= 200 then
-            emit_counter('spectre.unprocessable_responses', {
-                {'message', 'unexpected_status_code'},
-                {'status_code', status},
-                {'namespace', namespace},
-                {'cache_name', response.cacheability_info.cache_name},
-            })
-        end
-    end
-end
-
--- Emit metrics after response is sent, for internal requests
-local function emit_internal_metrics(start_time, end_time, _, response, status)
-    if response.cacheability_info.internal_handler then
-        emit_timing(
-            'spectre.internal_endpoint_timing',
-            (end_time - start_time) * 1000,
-            {{'handler', response.cacheability_info.internal_handler}}
-        )
-    end
-
-    if status == ngx.HTTP_NOT_FOUND then
-        emit_counter('spectre.errors', {
-            {'message', 'spectre_endpoint_not_found'},
-            {'status_code', ngx.HTTP_NOT_FOUND},
+            {'cache_name', cacheability_info.cache_name},
+            {'reason', cacheability_info.reason},
         })
     end
 end
@@ -166,7 +112,6 @@ return {
     emit_timing = emit_timing,
     emit_counter = emit_counter,
     emit_request_timing = emit_request_timing,
-    emit_internal_metrics = emit_internal_metrics,
     emit_cache_metrics = emit_cache_metrics,
     get_system_dimension = get_system_dimension,
     _get_sock = _get_sock,
