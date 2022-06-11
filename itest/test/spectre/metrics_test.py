@@ -94,59 +94,58 @@ def _assert_request_timing_metrics(metrics, cache_name, cache_status, casper_ver
         'casper_version': casper_version,
     }
 
-def _assert_fetch_hit_rate(metrics, cache_name, backend):
+def _assert_fetch_hit_rate(metrics, cache_name, backend, casper_version):
+    if casper_version == 'v1':
+        # V1 only
+        assert metrics[0].dimensions == {
+            'metric_name': 'spectre.fetch_body_and_headers',
+            'habitat': 'uswest1a',
+            'service_name': 'spectre',
+            'namespace': 'backend.main',
+            'instance_name': 'itest',
+            'cache_name': cache_name,
+            'cache_status': 'miss',
+            'backend': backend,
+            'casper_version': casper_version,
+        }
+        assert metrics[1].dimensions == {
+            'metric_name': 'spectre.hit_rate',
+            'habitat': 'uswest1a',
+            'service_name': 'spectre',
+            'namespace': 'backend.main',
+            'instance_name': 'itest',
+            'cache_name': cache_name,
+            'cache_status': 'miss',
+            'backend': backend,
+            'casper_version': casper_version,
+        }
+    else:
+        assert metrics[0].dimensions == {
+            'metric_name': 'spectre.hit_rate',
+            'habitat': 'uswest1a',
+            'service_name': 'spectre',
+            'namespace': 'backend.main',
+            'instance_name': 'itest',
+            'cache_name': cache_name,
+            'cache_status': 'miss',
+            'backend': backend,
+            'casper_version': casper_version,
+        }
 
-    casper_version = metrics[0].dimensions['casper_version']
 
-    assert len(metrics) == 2
-
-    # Not yet enabled for V2
-    #
-    # assert metrics[0].dimensions == {
-    #     'metric_name': 'spectre.fetch_body_and_headers',
-    #     'habitat': 'uswest1a',
-    #     'service_name': 'spectre',
-    #     'namespace': 'backend.main',
-    #     'instance_name': 'itest',
-    #     'cache_name': cache_name,
-    #     'cache_status': 'miss',
-    #     'backend': backend,
-    #     'casper_version': casper_version
-    # }
-
-    expected_metrics = ['spectre.hit_rate']
-    for metric in metrics:
-        if metric.dimensions['metric_name'] == 'spectre.hit_rate':
-            assert metric.dimensions == {
-                'metric_name': 'spectre.hit_rate',
-                'habitat': 'uswest1a',
-                'service_name': 'spectre',
-                'namespace': 'backend.main',
-                'instance_name': 'itest',
-                'cache_name': cache_name,
-                'cache_status': 'miss',
-                'backend': backend,
-                'casper_version': casper_version
-            }
-            expected_metrics.remove('spectre.hit_rate')
-
-    assert len(expected_metrics) == 0
-
-
-def _assert_store_metric(metric, cache_name, backend):
-
-    casper_version = metric.dimensions['casper_version']
-
-    assert metric.dimensions == {
-        'metric_name': 'spectre.store_body_and_headers',
-        'habitat': 'uswest1a',
-        'service_name': 'spectre',
-        'namespace': 'backend.main',
-        'instance_name': 'itest',
-        'cache_name': cache_name,
-        'backend': backend,
-        'casper_version': casper_version
-    }
+def _assert_store_metric(metric, cache_name, backend, casper_version):
+    if casper_version == 'v1':
+        # V1 only
+        assert metric.dimensions == {
+            'metric_name': 'spectre.store_body_and_headers',
+            'habitat': 'uswest1a',
+            'service_name': 'spectre',
+            'namespace': 'backend.main',
+            'instance_name': 'itest',
+            'cache_name': cache_name,
+            'backend': backend,
+            'casper_version': casper_version,
+        }
 
 
 def test_cache_miss(log_file):
@@ -159,31 +158,27 @@ def test_cache_miss(log_file):
     assert cache_status == 'miss'
 
     metrics = _load_metrics(log_file)
-    backend = 'redis'
+    backend = metrics[0].dimensions['backend']
+    casper_version = metrics[0].dimensions['casper_version']
 
     # First 2 metrics are `spectre.fetch_body_and_headers` and `spectre.hit_rate`
-    _assert_fetch_hit_rate(metrics[0:2], 'timestamp', backend)
+    _assert_fetch_hit_rate(metrics[0:2], 'timestamp', backend, casper_version)
 
     # Then since it's a miss we have a `spectre.store_body_and_headers`
-    #
-    # Not yet enabled for V2
-    #_assert_store_metric(metrics[2], 'timestamp', backend)
+    _assert_store_metric(metrics[2], 'timestamp', backend, casper_version)
 
     # Finally the `spectre.request_timing`
-    # Due to a different set of enabled metrics features and sequence
-    # The V1/V2 metrics log differs
-    casper_version = metrics[0].dimensions['casper_version']
     if casper_version == 'v1':
         _assert_request_timing_metrics(metrics[3:7], 'timestamp', cache_status, casper_version)
+        # This assert is mostly there to make sure there are no more metrics than what I expect.
+        # The reason why it's not before the other asserts is because the error message doesn't
+        # show you what metrics are actually in the list, so it's very annoying to figure out
+        # what's missing. You'd need to comment out this check and then verify which of the
+        # other asserts is failing.
+        assert len(metrics) == 7
     else:
         _assert_request_timing_metrics(metrics[1:5], 'timestamp', cache_status, casper_version)
-
-    # # This assert is mostly there to make sure there are no more metrics than what I expect.
-    # # The reason why it's not before the other asserts is because the error message doesn't
-    # # show you what metrics are actually in the list, so it's very annoying to figure out
-    # # what's missing. You'd need to comment out this check and then verify which of the
-    # # other asserts is failing.
-    # assert len(metrics) == 7
+        assert len(metrics) == 5
 
 
 def test_bulk_endpoint_miss(log_file):
@@ -196,18 +191,17 @@ def test_bulk_endpoint_miss(log_file):
     assert cache_status == 'miss'
 
     metrics = _load_metrics(log_file)
-    # Dynamically discover the backend
     backend = metrics[0].dimensions['backend']
     casper_version = metrics[0].dimensions['casper_version']
 
     # We have `spectre.fetch_body_and_headers` and `spectre.hit_rate` twice
     # since we have 2 ids in the url.
-    _assert_fetch_hit_rate(metrics[0:2], 'bulk_requester_default', backend)
-    _assert_fetch_hit_rate(metrics[2:4], 'bulk_requester_default', backend)
+    _assert_fetch_hit_rate(metrics[0:2], 'bulk_requester_default', backend, casper_version)
+    _assert_fetch_hit_rate(metrics[2:4], 'bulk_requester_default', backend, casper_version)
 
     # Then we have 2 `spectre.store_body_and_headers`
-    _assert_store_metric(metrics[4], 'bulk_requester_default', backend)
-    _assert_store_metric(metrics[5], 'bulk_requester_default', backend)
+    _assert_store_metric(metrics[4], 'bulk_requester_default', backend, casper_version)
+    _assert_store_metric(metrics[5], 'bulk_requester_default', backend, casper_version)
 
     # Then the `spectre.request_timing`
     _assert_request_timing_metrics(metrics[6:10], 'bulk_requester_default', cache_status, casper_version)
@@ -240,20 +234,15 @@ def test_no_cache_header_metrics(log_file):
     assert response.status_code == 200
 
     metrics = _load_metrics(log_file)
-    # Dynamically discover the backend
     backend = metrics[0].dimensions['backend']
     casper_version = metrics[0].dimensions['casper_version']
-
 
     # Since we send the no-cache header we don't have a `spectre.fetch_body_and_headers`
     # or `spectre.hit_rate`. We still update the cache though, so we have the
     # `spectre.store_body_and_headers`
-    #
-    # Not yet enabled for V2
-    #_assert_store_metric(metrics[0], 'timestamp', backend)
+    _assert_store_metric(metrics[0], 'timestamp', backend, casper_version)
 
     # Finally we emit the `spectre.no_cache_header`
-
     assert metrics[1].dimensions == {
         'metric_name': 'spectre.no_cache_header',
         'habitat': 'uswest1a',
