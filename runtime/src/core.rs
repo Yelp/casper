@@ -1,3 +1,4 @@
+use std::env;
 use std::process;
 use std::sync::Arc;
 use std::time::Duration;
@@ -58,6 +59,10 @@ pub fn init_core(lua: &Lua) -> LuaResult<Table> {
             tokio::task::yield_now().await;
             Ok(())
         })?,
+    )?;
+    core.set(
+        "getenv",
+        lua.create_function(|_, key: String| Ok(env::var(key).ok()))?,
     )?;
 
     Ok(core)

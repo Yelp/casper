@@ -1,9 +1,9 @@
 local core = require("core")
 
 -- TODO: Rename this variables
-local SRV_CONFIGS_PATH = os.getenv("SRV_CONFIGS_PATH") or "/nail/srv/configs/spectre"
-local SERVICES_YAML_PATH = os.getenv("SERVICES_YAML_PATH") or "/nail/etc/services/services.yaml"
-local ENVOY_CONFIGS_PATH = os.getenv("ENVOY_CONFIGS_PATH") or "/nail/srv/configs"
+local SRV_CONFIGS_PATH = core.getenv("SRV_CONFIGS_PATH") or "/nail/srv/configs/spectre"
+local SERVICES_YAML_PATH = core.getenv("SERVICES_YAML_PATH") or "/nail/etc/services/services.yaml"
+local ENVOY_CONFIGS_PATH = core.getenv("ENVOY_CONFIGS_PATH") or "/nail/srv/configs"
 
 local CACHED_CONFIGS = {}
 local CONFIGS_RELOAD_DELAY = 10

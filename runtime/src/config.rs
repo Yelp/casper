@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::env;
 use std::fs;
 use std::os::unix::prelude::OsStrExt;
 use std::path::Path;
@@ -67,6 +68,7 @@ pub(crate) fn read_config<P: AsRef<Path> + ?Sized>(path: &P) -> Result<Config> {
     match path.as_ref().file_name() {
         Some(name) if name.as_bytes().ends_with(b".lua") => {
             let lua = Lua::new();
+            configure_lua(&lua)?;
             let mut chunk = lua.load(&data);
             if let Some(name) = path.as_ref().to_str() {
                 chunk = chunk.set_name(name)?;
@@ -96,4 +98,13 @@ impl MainConfig {
     fn default_listen() -> String {
         "127.0.0.1:8080".to_string()
     }
+}
+
+fn configure_lua(lua: &Lua) -> Result<()> {
+    let globals = lua.globals();
+    globals.set(
+        "getenv",
+        lua.create_function(|_, key: String| Ok(env::var(key).ok()))?,
+    )?;
+    Ok(())
 }
