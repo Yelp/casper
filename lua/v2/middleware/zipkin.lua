@@ -1,5 +1,5 @@
 local core = require("core")
-local config = require("lua.v2.config")
+local config = require("lua/v2/config")
 
 local os_date = os.date
 local string_format = string.format

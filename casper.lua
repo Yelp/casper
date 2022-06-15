@@ -9,19 +9,19 @@ return {
     middleware = {
       {
         name = "redis",
-        code = "require('lua.v2.middleware.redis')"
+        code = "require('lua/v2/middleware/redis')"
       },
       {
         name = "zipkin",
-        code = "require('lua.v2.middleware.zipkin')"
+        code = "require('lua/v2/middleware/zipkin')"
       },
       {
         name = "spectre",
-        code = "require('lua.v2.middleware.spectre')"
+        code = "require('lua/v2/middleware/spectre')"
       },
       {
         name = "single_endpoint",
-        code = "require('lua.v2.middleware.single_endpoint')"
+        code = "require('lua/v2/middleware/single_endpoint')"
       },
     },
 

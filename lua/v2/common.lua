@@ -1,5 +1,5 @@
 local core = require("core")
-local config = require("lua.v2.config")
+local config = require("lua/v2/config")
 
 local regex_new = core.regex.new
 local json_decode = core.json.decode

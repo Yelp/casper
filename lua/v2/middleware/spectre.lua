@@ -1,7 +1,7 @@
 local core = require("core")
-local common = require("lua.v2.common")
-local config = require("lua.v2.config")
-local filters = require("lua.v2.filters")
+local common = require("lua/v2/common")
+local config = require("lua/v2/config")
+local filters = require("lua/v2/filters")
 
 local Response = core.Response
 local normalize_uri = core.utils.normalize_uri

@@ -1,5 +1,5 @@
 local core = require("core")
-local common = require("lua.v2.common")
+local common = require("lua/v2/common")
 
 local cache_hits_counter = core.metrics.cache_hits_counter
 local cache_misses_counter = core.metrics.cache_misses_counter
