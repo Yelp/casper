@@ -35,7 +35,7 @@ test: deps
 		METEORITE_WORKER_PORT='-1' \
 		./luawrapper resty {}"
 
-	./luawrapper luacheck lua --exclude-files lua/vendor/*
+	./luawrapper luacheck lua --exclude-files lua/vendor/* lua/v2/*
 	./luawrapper luacov
 	@# We only want to print the summary, not the entire file
 	@# "grep -n" returns the line number, then we print all successive lines with awk
