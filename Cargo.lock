@@ -988,19 +988,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "lua-src"
-version = "544.0.1"
+name = "luau0-src"
+version = "0.3.3+luau531"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "708ba3c844d5e9d38def4a09dd871c17c370f519b3c4b7261fbabe4a613a814c"
-dependencies = [
- "cc",
-]
-
-[[package]]
-name = "luajit-src"
-version = "210.4.0+resty124ff8d"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f76fb2e2c0c7192e18719d321c9a148f7625c4dcbe3df5f4c19e685e4c286f6c"
+checksum = "a0c8678ba90c16ddb1cb4fcdf4ceba50672c53aa6288d2557c3fe9a5084cd148"
 dependencies = [
  "cc",
 ]
@@ -1071,8 +1062,7 @@ dependencies = [
  "futures-core",
  "futures-task",
  "futures-util",
- "lua-src",
- "luajit-src",
+ "luau0-src",
  "mlua_derive",
  "num-traits",
  "once_cell",

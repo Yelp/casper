@@ -50,7 +50,7 @@ zstd = "0.11"
 
 [dependencies.mlua]
 version = "0.8"
-features = ["luajit52", "async", "serialize", "macros", "vendored"]
+features = ["luau", "async", "serialize", "macros"]
 
 [dependencies.fred]
 version = "5.1.0"
