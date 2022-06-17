@@ -13,12 +13,11 @@ use tracing::{error, instrument};
 
 use crate::handler;
 use crate::metrics::METRICS;
-use crate::worker::WorkerData;
+use crate::worker::{WorkerContext, WorkerPoolHandle};
 
 #[derive(Clone)]
 pub struct Svc {
-    pub lua: Rc<Lua>,
-    pub worker_data: Rc<WorkerData>,
+    pub worker_ctx: Rc<WorkerContext>,
     pub remote_addr: SocketAddr,
 }
 
@@ -31,7 +30,6 @@ struct LogData {
     status: u16,
     active_conns: u64,
     active_requests: u64,
-    worker_active_requests: u64,
     // TODO: accept date
 }
 
@@ -55,15 +53,14 @@ impl Svc {
     async fn handler(self, req: Request<Body>) -> Result<Response<Body>, Infallible> {
         let start = Instant::now();
 
-        let _req_cnt_worker = self.worker_data.active_requests.inc(1);
+        let _req_cnt_worker = self.worker_ctx.active_requests.inc(1);
+        let lua = &self.worker_ctx.lua;
 
         // Create Lua context table
-        let ctx = self
-            .lua
+        let ctx = lua
             .create_table()
             .expect("Failed to create Lua context table");
-        let ctx_key = self
-            .lua
+        let ctx_key = lua
             .create_registry_value(ctx)
             .expect("Failed to store Lua context table in the registry");
         let ctx_key = Rc::new(ctx_key);
@@ -76,15 +73,12 @@ impl Svc {
             ..Default::default()
         };
 
-        let lua = self.lua.clone();
-        let worker_data = self.worker_data.clone();
-        let response =
-            handler::handler(lua, worker_data, req, self.remote_addr, ctx_key.clone()).await;
+        let worker_ctx = Rc::clone(&self.worker_ctx);
+        let response = handler::handler(worker_ctx, req, self.remote_addr, ctx_key.clone()).await;
 
         log_data.elapsed = start.elapsed();
         log_data.active_conns = METRICS.active_connections_counter.get();
         log_data.active_requests = METRICS.active_requests_counter.get();
-        log_data.worker_active_requests = self.worker_data.active_requests.get();
 
         match response {
             Ok(res) => {
@@ -119,14 +113,13 @@ impl Svc {
 
     /// Executes user-defined access log function
     fn spawn_access_log(&self, log_data: LogData, ctx_key: Rc<RegistryKey>) {
-        if self.worker_data.access_log.is_some() {
-            let lua = self.lua.clone();
-            let worker_data = self.worker_data.clone();
+        if self.worker_ctx.access_log.is_some() {
+            let worker_ctx = Rc::clone(&self.worker_ctx);
             let log = async move {
-                let access_log_key = worker_data.access_log.as_ref().unwrap(); // never fails
-                let ctx = lua.registry_value::<Table>(&ctx_key)?;
-                let log_data = lua.to_value(&log_data)?;
-                let access_logger = lua.registry_value::<Function>(access_log_key)?;
+                let access_log_key = worker_ctx.access_log.as_ref().unwrap(); // never fails
+                let ctx = worker_ctx.lua.registry_value::<Table>(&ctx_key)?;
+                let log_data = worker_ctx.lua.to_value(&log_data)?;
+                let access_logger = worker_ctx.lua.registry_value::<Function>(access_log_key)?;
                 access_logger.call_async::<_, ()>((log_data, ctx)).await
             };
             tokio::task::spawn_local(async move {

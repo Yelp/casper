@@ -12,17 +12,17 @@ use tracing::warn;
 use crate::http::{proxy_to_downstream, ProxyError};
 use crate::request::LuaRequest;
 use crate::response::LuaResponse;
-use crate::worker::WorkerData;
+use crate::worker::WorkerContext;
 
 #[allow(clippy::await_holding_refcell_ref)]
 pub(crate) async fn handler(
-    lua: Rc<Lua>,
-    data: Rc<WorkerData>,
+    worker_ctx: Rc<WorkerContext>,
     req: Request<Body>,
     remote_addr: SocketAddr,
     ctx_key: Rc<RegistryKey>,
 ) -> Result<Response<Body>> {
-    let middleware_list = &data.middleware;
+    let lua = Rc::clone(&worker_ctx.lua);
+    let middleware_list = &worker_ctx.middleware;
 
     // Get Lua context table
     let ctx = lua.registry_value::<Table>(&ctx_key)?;
@@ -155,7 +155,7 @@ pub(crate) async fn handler(
         let ctx = get_registry::<Table>(&lua, &ctx_key);
 
         // Execute `after_response` actions
-        for (i, after_response) in data
+        for (i, after_response) in worker_ctx
             .middleware
             .iter()
             .enumerate()
@@ -167,7 +167,7 @@ pub(crate) async fn handler(
                 continue;
             }
             let start = Instant::now();
-            let name = data.middleware[i].name.clone();
+            let name = worker_ctx.middleware[i].name.clone();
             defer! {
                 middleware_histogram_rec!(start, "name" => name.clone(), "phase" => "after_response");
             }

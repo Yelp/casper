@@ -1,4 +1,4 @@
-use std::rc::Weak;
+use std::rc::Rc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use mlua::{Function, Lua, RegistryKey, Result, Table, UserData};
@@ -47,12 +47,7 @@ fn register_task(lua: &Lua, task: Function) -> Result<TaskHandle> {
     Ok(TaskHandle(task_id))
 }
 
-pub fn spawn_tasks(lua: &Lua) {
-    let lua = {
-        let lua = lua.app_data_ref::<Weak<Lua>>().expect("No Weak<Lua> found");
-        lua.upgrade().expect("Cannot upgrade Lua")
-    };
-
+pub fn spawn_tasks(lua: Rc<Lua>) {
     let mut rx = lua
         .remove_app_data::<UnboundedReceiver<Task>>()
         .expect("cannot get task receiver");

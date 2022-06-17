@@ -32,6 +32,7 @@ pin-project-lite = "0.2.8"
 prometheus = "0.13"
 rand = "0.8"
 regex = "1.5"
+reqwest = { version = "0.11" }
 ripemd = "0.1"
 scopeguard = "1.1.0"
 serde = { version = "1", features = ["derive"] }
@@ -49,8 +50,8 @@ tracing-subscriber = "0.3"
 zstd = "0.11"
 
 [dependencies.mlua]
-version = "0.8"
 features = ["luau", "async", "serialize", "macros"]
+version = "0.8"
 
 [dependencies.fred]
 version = "5.1.0"

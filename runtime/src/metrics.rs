@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use std::mem;
-use std::rc::Rc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::task::{Context, Poll};
@@ -249,7 +248,7 @@ macro_rules! lua_used_memory_update {
 
 #[derive(Clone, Debug)]
 pub struct Instrumentation<S> {
-    endpoint: Rc<String>,
+    endpoint: Arc<String>,
     inner: S,
 }
 
@@ -312,13 +311,13 @@ impl<S> Instrumentation<S> {
 }
 
 pub struct InstrumentationLayer {
-    endpoint: Rc<String>,
+    endpoint: Arc<String>,
 }
 
 impl InstrumentationLayer {
     pub fn new(endpoint: String) -> Self {
         InstrumentationLayer {
-            endpoint: Rc::new(endpoint),
+            endpoint: Arc::new(endpoint),
         }
     }
 }

@@ -11,7 +11,7 @@ use tokio::net::TcpListener;
 use tracing::{error, info};
 use tracing_log::LogTracer;
 
-use crate::worker::LocalWorker;
+use crate::worker::WorkerPoolHandle;
 
 struct AddrIncomingStream(AddrIncoming);
 
@@ -47,32 +47,27 @@ async fn main_inner() -> anyhow::Result<()> {
 
     let main_config = &config.main;
 
-    let mut workers = Vec::new();
-    let num_worker_threads = main_config.worker_threads;
-    for id in 0..num_worker_threads {
-        let worker =
-            LocalWorker::new(id, config.clone()).with_context(|| "Failed to initialize worker")?;
-        workers.push(worker);
-        info!("Worker {id} created");
-    }
+    let worker_threads = main_config.worker_threads;
+    let worker_pool = WorkerPoolHandle::new(worker_threads, config.clone())?;
+    info!("Created {worker_threads} workers");
 
     let addr = &main_config.listen;
-    let listener = TcpListener::bind(addr).await?;
-
+    let listener = TcpListener::bind(addr)
+        .await
+        .with_context(|| format!("Failed to listen {addr}"))?;
     info!("Listening on http://{}", addr);
 
     let mut incoming = AddrIncomingStream(AddrIncoming::from_listener(listener)?);
     incoming.0.set_nodelay(true);
-    let mut accept_count = 0;
+
     while let Some(stream) = incoming.try_next().await? {
-        workers[accept_count % num_worker_threads].spawn(stream);
-        accept_count += 1;
+        worker_pool.process_connection(stream);
     }
 
     Ok(())
 }
 
-#[tokio::main]
+#[tokio::main(flavor = "current_thread")]
 async fn main() {
     // Install global collector configured based on RUST_LOG env var.
     tracing_subscriber::fmt::init();
