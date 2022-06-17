@@ -137,16 +137,18 @@ local function main()
             )
             local enabled_percent = spectre_config['v2_single_enabled_pct'] or 0
 
-            -- Deterministic random
-            local hash = ngx.md5(ngx.var.http_x_smartstack_destination .. ngx.var.request_uri):sub(1, 7)
-            local hash_mod = math.fmod(tonumber(hash, 16), 100)
+            if enabled_percent > 0 then
+                -- Deterministic random
+                local hash = ngx.md5(ngx.var.http_x_smartstack_destination .. ngx.var.request_uri):sub(1, 7)
+                local hash_mod = math.fmod(tonumber(hash, 16), 100)
 
-            if hash_mod < enabled_percent then
-                local err2 = casper_v2.forward_to_v2()
-                if err2 == nil then
-                    return
+                if hash_mod < enabled_percent then
+                    local err2 = casper_v2.forward_to_v2()
+                    if err2 == nil then
+                        return
+                    end
+                    spectre_common.log(ngx.ERR, {err=err2, critical=false, v2=true})
                 end
-                spectre_common.log(ngx.ERR, {err=err2, critical=false, v2=true})
             end
         end
 
