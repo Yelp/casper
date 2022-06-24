@@ -106,6 +106,18 @@ local function emit_cache_metrics(start_time, end_time, namespace, response, sta
             status,
             cache_status
         )
+    elseif
+        string.sub(namespace, 1, 21) == 'yelp-main.internalapi'
+        and ngx.var.request_uri == '/ads/v1/write_to_caches_and_get_ad_opportunity_logging_data'
+    then
+        -- Emit additional internalapi metrics to collect data for DAR-1603
+        emit_request_timing(
+            (end_time - start_time) * 1000,
+            namespace,
+            'write_to_caches_and_get_ad_opportunity_logging_data',
+            status,
+            cache_status
+        )
     end
 
     if response.cacheability_info.reason == 'no-cache-header' then
