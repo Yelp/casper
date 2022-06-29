@@ -1,16 +1,17 @@
 use std::borrow::BorrowMut;
 use std::mem;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{bail, Context, Result};
 use async_trait::async_trait;
 use bitflags::bitflags;
 use bytes::Bytes;
 use fred::error::RedisError;
 use fred::interfaces::KeysInterface;
 use fred::pool::RedisPool;
-use fred::types::{Expiration, RedisKey, RedisValue, SetOptions};
+use fred::types::{Expiration, ReconnectPolicy, RedisKey, RedisValue, SetOptions};
 use futures::future::{try_join, try_join_all, TryFutureExt};
 use futures::stream::{self, StreamExt};
 use hyper::{Response, StatusCode};
@@ -19,9 +20,9 @@ use once_cell::sync::Lazy;
 use opentelemetry::{global, metrics::Counter};
 use serde::{Deserialize, Serialize};
 use tokio::time::timeout;
-use tracing::error;
 
-use super::common::{compress_with_zstd, decode_headers, encode_headers};
+use super::super::{compress_with_zstd, decode_headers, encode_headers};
+use super::Config;
 use crate::storage::{Item, ItemKey, Key, Storage};
 use crate::utils::zstd::ZstdDecoder;
 
@@ -29,161 +30,13 @@ pub const MAX_CONCURRENCY: usize = 100;
 
 const SURROGATE_KEYS_TTL: i64 = 86400; // 1 day
 
+#[derive(Clone)]
 pub struct RedisBackend {
     name: String,
-    config: Config,
-    client: RedisPool,
-    connected: AtomicBool,
+    config: Arc<Config>,
+    pool: RedisPool,
+    spawned_connect: Arc<AtomicBool>,
     internal_cache: Cache<Key, (SurrogateKeyItem, Instant)>,
-}
-
-// Redis backend configuration
-#[derive(Clone, Debug, Deserialize)]
-pub struct Config {
-    #[serde(default)]
-    pub server: ServerConfig,
-    #[serde(default)]
-    pub enable_tls: bool,
-
-    pub username: Option<String>,
-    pub password: Option<String>,
-
-    // TODO: Support reconnect policy
-    #[serde(default)]
-    pub timeouts: TimeoutConfig,
-
-    #[serde(default = "Config::default_pool_size")]
-    pub pool_size: usize,
-
-    #[serde(default = "Config::default_max_body_chunk_size")]
-    pub max_body_chunk_size: usize,
-    pub compression_level: Option<i32>,
-    pub wait_for_connect: Option<f32>,
-    #[serde(default)]
-    pub lazy: bool,
-
-    #[serde(default = "Config::default_internal_cache_size")]
-    pub internal_cache_size: usize,
-    #[serde(default = "Config::default_internal_cache_ttl")]
-    pub internal_cache_ttl: f64,
-}
-
-#[derive(Clone, Debug, Deserialize)]
-pub enum ServerConfig {
-    #[serde(rename = "centralized")]
-    Centralized { endpoint: String },
-    #[serde(rename = "clustered")]
-    Clustered { endpoints: Vec<String> },
-}
-
-impl Default for ServerConfig {
-    fn default() -> Self {
-        ServerConfig::Centralized {
-            endpoint: "127.0.0.1".into(),
-        }
-    }
-}
-
-impl ServerConfig {
-    fn into_redis_server_config(self) -> Result<fred::types::ServerConfig> {
-        match self {
-            ServerConfig::Centralized { endpoint } => {
-                let (host, port) = parse_host_port(&endpoint)
-                    .with_context(|| format!("invalid redis endpoint `{endpoint}`"))?;
-                Ok(fred::types::ServerConfig::Centralized { host, port })
-            }
-            ServerConfig::Clustered { endpoints } => {
-                let mut hosts = Vec::new();
-                for endpoint in endpoints {
-                    let (host, port) = parse_host_port(&endpoint)
-                        .with_context(|| format!("invalid redis endpoint `{endpoint}`"))?;
-                    hosts.push((host, port));
-                }
-                Ok(fred::types::ServerConfig::Clustered { hosts })
-            }
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, Deserialize)]
-pub struct TimeoutConfig {
-    /// A limit on the amount of time an application can take to fetch response or next chunk from Redis
-    #[serde(default = "TimeoutConfig::default_fetch_timeout_ms")]
-    pub fetch_timeout_ms: u64,
-
-    /// A limit on the amount of time an application can take to store response in Redis
-    #[serde(default = "TimeoutConfig::default_store_timeout_ms")]
-    pub store_timeout_ms: u64,
-}
-
-impl Default for TimeoutConfig {
-    fn default() -> Self {
-        TimeoutConfig {
-            fetch_timeout_ms: TimeoutConfig::default_fetch_timeout_ms(),
-            store_timeout_ms: TimeoutConfig::default_store_timeout_ms(),
-        }
-    }
-}
-
-impl TimeoutConfig {
-    const fn default_fetch_timeout_ms() -> u64 {
-        10000
-    }
-
-    const fn default_store_timeout_ms() -> u64 {
-        10000
-    }
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Config {
-            server: ServerConfig::default(),
-            enable_tls: false,
-            username: None,
-            password: None,
-            timeouts: TimeoutConfig::default(),
-            pool_size: Config::default_pool_size(),
-            max_body_chunk_size: Config::default_max_body_chunk_size(),
-            compression_level: None,
-            wait_for_connect: None,
-            lazy: false,
-            internal_cache_size: Config::default_internal_cache_size(),
-            internal_cache_ttl: Config::default_internal_cache_ttl(),
-        }
-    }
-}
-
-impl Config {
-    fn default_pool_size() -> usize {
-        8 * num_cpus::get()
-    }
-
-    const fn default_max_body_chunk_size() -> usize {
-        1024 * 1024 // 1 MB
-    }
-
-    const fn default_internal_cache_size() -> usize {
-        32 * 1024 * 1024 // 32 MB
-    }
-
-    const fn default_internal_cache_ttl() -> f64 {
-        0.0
-    }
-
-    fn into_redis_config(self) -> Result<fred::types::RedisConfig> {
-        Ok(fred::types::RedisConfig {
-            username: self.username,
-            password: self.password,
-            server: self.server.into_redis_server_config()?,
-            tls: if self.enable_tls {
-                Some(fred::types::TlsConfig::default())
-            } else {
-                None
-            },
-            ..Default::default()
-        })
-    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -240,19 +93,19 @@ impl RedisMetrics {
 }
 
 impl RedisBackend {
-    pub async fn new(config: Config, name: impl Into<Option<String>>) -> Result<Self> {
-        let pool_size = config.pool_size;
-
+    /// Creates a new Redis backend instance without connecting to the server.
+    pub fn new(config: Config, name: impl Into<Option<String>>) -> Result<Self> {
         let redis_config = config.clone().into_redis_config()?;
-        let pool = RedisPool::new(redis_config, pool_size).expect("Failed to create Redis pool");
+        let pool = RedisPool::new(redis_config, config.pool_size)?;
 
+        let internal_cache_size = config.internal_cache_size;
         let backend = RedisBackend {
             name: name.into().unwrap_or_else(|| "redis".to_string()),
-            config: config.clone(),
-            client: pool,
-            connected: AtomicBool::new(false),
+            config: Arc::new(config),
+            pool,
+            spawned_connect: Arc::new(AtomicBool::new(false)),
             internal_cache: Cache::builder()
-                .max_capacity(config.internal_cache_size as u64)
+                .max_capacity(internal_cache_size as u64)
                 .weigher(|k: &Key, _: &(SurrogateKeyItem, Instant)| {
                     (k.len() + mem::size_of::<SurrogateKeyItem>() + mem::size_of::<Instant>())
                         .try_into()
@@ -261,41 +114,55 @@ impl RedisBackend {
                 .build(),
         };
 
-        if !config.lazy {
-            backend.ensure_connected();
-            if let Err(err) = backend.wait_for_connect().await {
-                error!("{:#}", err.context("Failed to connect to Redis"));
-            }
-        }
-
         Ok(backend)
     }
 
-    #[inline]
-    pub fn ensure_connected(&self) {
-        if !self.connected.swap(true, Ordering::Relaxed) {
-            let policy = fred::types::ReconnectPolicy::default();
-            let _ = self.client.connect(Some(policy));
+    pub async fn connect(&self) -> Result<()> {
+        // Nothing to do on lazy mode
+        if !self.config.lazy && !self.spawned_connect.swap(true, Ordering::SeqCst) {
+            let policy = self.reconnect_policy();
+            let handles = self.pool.connect(Some(policy));
+            if let Err(err) = self.wait_for_connect().await {
+                for handle in handles {
+                    handle.abort();
+                }
+                return Err(err.context("Failed to connect to Redis"));
+            }
         }
+        Ok(())
     }
 
-    pub async fn wait_for_connect(&self) -> Result<()> {
+    async fn wait_for_connect(&self) -> Result<()> {
         match self.config.wait_for_connect {
             Some(secs) if secs > 0.0 => {
                 let dur = Duration::from_secs_f32(secs);
-                timeout(dur, self.client.wait_for_connect())
+                timeout(dur, self.pool.wait_for_connect())
                     .await
                     .map_err(anyhow::Error::new)
                     .and_then(|r| r.map_err(anyhow::Error::new))
             }
-            Some(_) => Ok(self.client.wait_for_connect().await?),
+            Some(_) => Ok(self.pool.wait_for_connect().await?),
             None => Ok(()),
+        }
+    }
+
+    #[inline]
+    fn reconnect_policy(&self) -> ReconnectPolicy {
+        ReconnectPolicy::default()
+    }
+
+    #[inline]
+    fn lazy_connect(&self) {
+        // Non-lazy instances should be already connected
+        if self.config.lazy && !self.spawned_connect.swap(true, Ordering::SeqCst) {
+            let policy = self.reconnect_policy();
+            self.pool.connect(Some(policy));
         }
     }
 
     async fn get_response_inner(&self, key: Key) -> Result<Option<Response<hyper::Body>>> {
         // Fetch response item
-        let res: Option<Vec<u8>> = self.client.get(make_redis_key(&key)).await?;
+        let res: Option<Vec<u8>> = self.pool.get(make_redis_key(&key)).await?;
         let response_item: ResponseItem = match res {
             Some(res) => flexbuffers::from_slice(&res)?,
             None => return Ok(None),
@@ -331,14 +198,14 @@ impl RedisBackend {
         if !surrogate_keys.is_empty() {
             // We cannot use "mget" operation in sharded mode because keys can be in different shards
             let skeys_vals = stream::iter(surrogate_keys.clone())
-                .map(|sk| self.client.get(make_redis_key(&sk)))
+                .map(|sk| self.pool.get(make_redis_key(&sk)))
                 .buffered(MAX_CONCURRENCY)
                 .collect::<Vec<Result<RedisValue, RedisError>>>()
                 .await;
 
             for (sk, sk_value) in surrogate_keys.into_iter().zip(skeys_vals) {
                 let sk_value =
-                    sk_value.with_context(|| format!("Failed to fetch surrogate key `{}`", sk))?;
+                    sk_value.with_context(|| format!("Failed to fetch surrogate key {sk:?}"))?;
                 if let Some(sk_data) = sk_value.as_bytes() {
                     let sk_item: SurrogateKeyItem = flexbuffers::from_slice(sk_data)?;
 
@@ -364,7 +231,7 @@ impl RedisBackend {
         // Make body stream to fetch chunks from Redis
         let num_chunks = response_item.num_chunks as usize;
         // First chunk is stored in the response item, skip it
-        let chunks_stream = stream::iter(vec![(self.client.clone(), key); num_chunks - 1])
+        let chunks_stream = stream::iter(vec![(self.pool.clone(), key); num_chunks - 1])
             .enumerate()
             .then(move |(i, (client, key))| async move {
                 let chunk_key = make_chunk_key(&key, i as u32 + 1);
@@ -395,7 +262,7 @@ impl RedisBackend {
 
     async fn delete_responses_inner(&self, key: ItemKey) -> Result<()> {
         match key {
-            ItemKey::Primary(key) => Ok(self.client.del(make_redis_key(&key)).await?),
+            ItemKey::Primary(key) => Ok(self.pool.del(make_redis_key(&key)).await?),
             ItemKey::Surrogate(skey) => {
                 let sk_item = SurrogateKeyItem {
                     timestamp: current_timestamp(),
@@ -410,7 +277,7 @@ impl RedisBackend {
                 }
 
                 Ok(self
-                    .client
+                    .pool
                     .set(
                         make_redis_key(&skey),
                         RedisValue::Bytes(Bytes::from(sk_item_enc)),
@@ -457,7 +324,7 @@ impl RedisBackend {
             for (i, chunk) in body_tail.chunks(max_chunk_size).enumerate() {
                 num_chunks += 1;
                 // Store chunk in Redis
-                self.client
+                self.pool
                     .set(
                         make_chunk_key(&key, i as u32 + 1),
                         RedisValue::Bytes(Bytes::from(chunk.to_vec())),
@@ -482,7 +349,7 @@ impl RedisBackend {
         let response_item_enc = flexbuffers::to_vec(&response_item)?;
 
         // Store response item
-        self.client
+        self.pool
             .set(
                 make_redis_key(&key),
                 RedisValue::Bytes(Bytes::from(response_item_enc)),
@@ -514,7 +381,7 @@ impl RedisBackend {
 
                     // Store new surrogate key atomically (NX option)
                     let is_executed: RedisValue = self
-                        .client
+                        .pool
                         .set(
                             make_redis_key(&skey),
                             RedisValue::Bytes(Bytes::from(sk_item_enc)),
@@ -528,7 +395,7 @@ impl RedisBackend {
             };
             if refresh_ttl && rand::random::<u8>() % 100 < 1 {
                 // Refresh TTL with 1% probability
-                self.client
+                self.pool
                     .expire(make_redis_key(&skey), SURROGATE_KEYS_TTL)
                     .await?;
             }
@@ -548,7 +415,7 @@ impl RedisBackend {
     }
 }
 
-#[async_trait]
+#[async_trait(?Send)]
 impl Storage for RedisBackend {
     type Body = hyper::Body;
     type Error = anyhow::Error;
@@ -557,8 +424,12 @@ impl Storage for RedisBackend {
         self.name.clone()
     }
 
+    async fn connect(&self) -> Result<(), Self::Error> {
+        RedisBackend::connect(self).await
+    }
+
     async fn get_response(&self, key: Key) -> Result<Option<Response<Self::Body>>, Self::Error> {
-        self.ensure_connected();
+        self.lazy_connect();
         let fetch_timeout = self.get_fetch_timeout();
         timeout(fetch_timeout, self.get_response_inner(key.clone()))
             .await
@@ -568,7 +439,7 @@ impl Storage for RedisBackend {
     }
 
     async fn delete_responses(&self, key: ItemKey) -> Result<(), Self::Error> {
-        self.ensure_connected();
+        self.lazy_connect();
         let store_timeout = self.get_store_timeout();
         timeout(store_timeout, self.delete_responses_inner(key.clone()))
             .await
@@ -579,9 +450,9 @@ impl Storage for RedisBackend {
 
     async fn store_response<R>(&self, mut item: Item<R>) -> Result<(), Self::Error>
     where
-        R: BorrowMut<Response<Self::Body>> + Send,
+        R: BorrowMut<Response<Self::Body>>,
     {
-        self.ensure_connected();
+        self.lazy_connect();
         let key = item.key.clone();
         let response = item.response.borrow_mut();
         let store_timeout = self.get_store_timeout();
@@ -624,7 +495,7 @@ mod tests {
     use http::HeaderValue;
     use hyper::{Body, Response};
 
-    use crate::backends::redis::{Config, RedisBackend};
+    use super::{Config, RedisBackend};
     use crate::storage::{Item, ItemKey, Key, Storage};
 
     fn make_response<B: ToString + ?Sized>(body: &B) -> Response<Body> {
@@ -640,7 +511,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_backend() {
-        let backend = RedisBackend::new(Config::default(), None).await.unwrap();
+        let backend = RedisBackend::new(Config::default(), None).unwrap();
+        backend.connect().await.unwrap();
 
         let mut resp = make_response("hello, world");
         resp.headers_mut()
@@ -678,7 +550,8 @@ mod tests {
     async fn test_chunked_body() {
         let mut config = Config::default();
         config.max_body_chunk_size = 2; // Set max chunk size to 2 bytes
-        let backend = RedisBackend::new(config, None).await.unwrap();
+        let backend = RedisBackend::new(config, None).unwrap();
+        backend.connect().await.unwrap();
 
         let key = make_uniq_key();
 
@@ -701,7 +574,8 @@ mod tests {
         let mut config = Config::default();
         config.max_body_chunk_size = 2; // Set max chunk size to 2 bytes
         config.compression_level = Some(0);
-        let backend = RedisBackend::new(config, None).await.unwrap();
+        let backend = RedisBackend::new(config, None).unwrap();
+        backend.connect().await.unwrap();
 
         let key = make_uniq_key();
 
@@ -723,7 +597,8 @@ mod tests {
     async fn test_compressed_headers() {
         let mut config = Config::default();
         config.compression_level = Some(22);
-        let backend = RedisBackend::new(config, None).await.unwrap();
+        let backend = RedisBackend::new(config, None).unwrap();
+        backend.connect().await.unwrap();
 
         let key = make_uniq_key();
 
@@ -749,7 +624,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_surrogate_keys() {
-        let backend = RedisBackend::new(Config::default(), None).await.unwrap();
+        let backend = RedisBackend::new(Config::default(), None).unwrap();
+        backend.connect().await.unwrap();
 
         let key = make_uniq_key();
 
@@ -780,13 +656,4 @@ mod tests {
         let resp = backend.get_response(key.clone()).await.unwrap();
         assert!(matches!(resp, None));
     }
-}
-
-fn parse_host_port(address: &str) -> Result<(String, u16)> {
-    let (host, port) = address.split_once(':').unwrap_or((address, "6379"));
-    if host.is_empty() {
-        bail!("host is empty");
-    }
-    let port = port.parse().map_err(|_| anyhow!("invalid port"))?;
-    Ok((host.to_string(), port))
 }

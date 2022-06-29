@@ -1,22 +1,17 @@
 use std::collections::HashMap;
-use std::mem;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use std::task::{Context, Poll};
-use std::time::Instant;
 
-use futures::future::LocalBoxFuture;
-use hyper::{header::CONTENT_TYPE, service::Service, Body, Request, Response};
 use once_cell::sync::Lazy;
 use opentelemetry::global;
 use opentelemetry::metrics::{Counter, ValueObserver, ValueRecorder};
 use opentelemetry_prometheus::PrometheusExporter;
 use parking_lot::Mutex;
-use prometheus::{Encoder, TextEncoder};
 use tokio::sync::RwLock;
-use tower::Layer;
 
 use crate::config::MetricsConfig;
+
+pub use middleware::MetricsLayer;
 
 static PROMETHEUS_EXPORTER: Lazy<PrometheusExporter> = Lazy::new(|| {
     let boundaries = vec![
@@ -161,27 +156,17 @@ pub fn register_custom_metrics(config: MetricsConfig) {
     }
 }
 
-macro_rules! connections_counter_add {
-    ($increment:expr) => {{
-        crate::metrics::METRICS
-            .connections_counter
-            .add($increment, &[]);
-
-        crate::metrics::METRICS
-            .active_connections_counter
-            .inc($increment)
+macro_rules! connections_counter_inc {
+    () => {{
+        crate::metrics::METRICS.connections_counter.add(1, &[]);
+        crate::metrics::METRICS.active_connections_counter.inc()
     }};
 }
 
-macro_rules! requests_counter_add {
-    ($increment:expr) => {{
-        crate::metrics::METRICS
-            .requests_counter
-            .add($increment, &[]);
-
-        crate::metrics::METRICS
-            .active_requests_counter
-            .inc($increment)
+macro_rules! requests_counter_inc {
+    () => {{
+        crate::metrics::METRICS.requests_counter.add(1, &[]);
+        crate::metrics::METRICS.active_requests_counter.inc()
     }};
 }
 
@@ -246,98 +231,11 @@ macro_rules! lua_used_memory_update {
     }};
 }
 
-#[derive(Clone, Debug)]
-pub struct Instrumentation<S> {
-    endpoint: Arc<String>,
-    inner: S,
-}
-
-impl<S> Service<Request<Body>> for Instrumentation<S>
-where
-    S: Service<Request<Body>, Response = Response<Body>> + Clone + 'static,
-    S::Future: 'static,
-{
-    type Response = S::Response;
-    type Error = S::Error;
-    type Future = LocalBoxFuture<'static, Result<Self::Response, Self::Error>>;
-
-    fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        self.inner.poll_ready(cx)
-    }
-
-    fn call(&mut self, req: Request<Body>) -> Self::Future {
-        // best practice is to clone the inner service like this
-        // see https://github.com/tower-rs/tower/issues/547 for details
-        let clone = self.inner.clone();
-        let mut inner = mem::replace(&mut self.inner, clone);
-
-        let endpoint = self.endpoint.clone();
-        Box::pin(async move {
-            let _req_counter_handler = requests_counter_add!(1);
-
-            if req.uri().path() == *endpoint {
-                return Ok(Self::metrics_handler(req).await.unwrap_or_else(|_| {
-                    Response::builder()
-                        .status(500)
-                        .body(Body::from("Error encoding metrics"))
-                        .expect("Cannot build Response")
-                }));
-            }
-
-            let start = Instant::now();
-            let result = inner.call(req).await;
-            let mut status = 0i64;
-            if let Ok(response) = result.as_ref() {
-                status = response.status().as_u16() as i64;
-            }
-            requests_histogram_rec!(start, "status" => status);
-
-            result
-        })
-    }
-}
-
-impl<S> Instrumentation<S> {
-    async fn metrics_handler(_: Request<Body>) -> Result<Response<Body>, anyhow::Error> {
-        let mut buffer = vec![];
-        let encoder = TextEncoder::new();
-        let metric_families = PROMETHEUS_EXPORTER.registry().gather();
-        encoder.encode(&metric_families, &mut buffer)?;
-        Ok(Response::builder()
-            .status(200)
-            .header(CONTENT_TYPE, encoder.format_type())
-            .body(Body::from(buffer))?)
-    }
-}
-
-pub struct InstrumentationLayer {
-    endpoint: Arc<String>,
-}
-
-impl InstrumentationLayer {
-    pub fn new(endpoint: String) -> Self {
-        InstrumentationLayer {
-            endpoint: Arc::new(endpoint),
-        }
-    }
-}
-
-impl<S> Layer<S> for InstrumentationLayer {
-    type Service = Instrumentation<S>;
-
-    fn layer(&self, inner: S) -> Self::Service {
-        Instrumentation {
-            endpoint: self.endpoint.clone(),
-            inner,
-        }
-    }
-}
-
 #[derive(Debug, Default, Clone)]
 pub struct ActiveCounter(Arc<AtomicU64>);
 
 #[derive(Debug)]
-pub struct ActiveCounterHandler(Arc<AtomicU64>, u64);
+pub struct ActiveCounterGuard(Arc<AtomicU64>, u64);
 
 impl ActiveCounter {
     pub fn new(v: u64) -> Self {
@@ -348,14 +246,16 @@ impl ActiveCounter {
         self.0.load(Ordering::Relaxed)
     }
 
-    pub fn inc(&self, n: u64) -> ActiveCounterHandler {
-        self.0.fetch_add(n, Ordering::Relaxed);
-        ActiveCounterHandler(Arc::clone(&self.0), n)
+    pub fn inc(&self) -> ActiveCounterGuard {
+        self.0.fetch_add(1, Ordering::Relaxed);
+        ActiveCounterGuard(Arc::clone(&self.0), 1)
     }
 }
 
-impl Drop for ActiveCounterHandler {
+impl Drop for ActiveCounterGuard {
     fn drop(&mut self) {
         self.0.fetch_sub(self.1, Ordering::Relaxed);
     }
 }
+
+mod middleware;

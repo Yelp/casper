@@ -1,17 +1,32 @@
 use std::pin::Pin;
+use std::rc::Rc;
 use std::sync::Arc;
 use std::task::{Context, Poll};
+use std::time::{Duration, Instant};
 
 use anyhow::Context as _;
 use clap::Parser;
 use futures::{Stream, TryStreamExt};
+use hyper::client::Client as HttpClient;
 use hyper::server::accept::Accept;
-use hyper::server::conn::{AddrIncoming, AddrStream};
+use hyper::server::conn::{AddrIncoming, AddrStream, Http};
+use hyper_tls::HttpsConnector;
 use tokio::net::TcpListener;
+use tower::ServiceBuilder;
+use tower_http::ServiceBuilderExt;
 use tracing::{error, info};
 use tracing_log::LogTracer;
 
-use crate::worker::WorkerPoolHandle;
+use crate::error::ErrorLayer;
+use crate::log::LogLayer;
+use crate::lua::tasks;
+use crate::metrics::MetricsLayer;
+use crate::service::Svc;
+use crate::types::RemoteAddr;
+use crate::worker::{WorkerContext, WorkerPoolHandle};
+
+#[macro_use]
+mod metrics;
 
 struct AddrIncomingStream(AddrIncoming);
 
@@ -37,21 +52,66 @@ async fn main_inner() -> anyhow::Result<()> {
     // Read application configuration
     let config = Arc::new(config::read_config(&args.config)?);
 
-    // Register storage backends defined in the config
-    backends::register_backends(config.storage.clone()).await?;
-
     // Register metrics defined in the config
     if let Some(metrics) = config.metrics.clone() {
         metrics::register_custom_metrics(metrics);
     }
 
-    let main_config = &config.main;
+    // Construct HTTP client shared between workers
+    let https_connector = HttpsConnector::new();
+    let http_client = HttpClient::builder()
+        .http1_preserve_header_case(true)
+        .build(https_connector);
 
-    let worker_threads = main_config.worker_threads;
-    let worker_pool = WorkerPoolHandle::new(worker_threads, config.clone())?;
-    info!("Created {worker_threads} workers");
+    // Construct storage backends defined in the config
+    let mut storage_backends = Vec::new();
+    for (name, conf) in config.storage.clone() {
+        storage_backends.push(storage::Backend::new(name, conf)?);
+    }
 
-    let addr = &main_config.listen;
+    let config2 = Arc::clone(&config);
+    let worker_pool = WorkerPoolHandle::build()
+        .pool_size(config.main.workers)
+        .on_worker_init(move |handle| {
+            let id = handle.id();
+            let config = Arc::clone(&config2);
+            let http_client = http_client.clone();
+            let storage_backends = storage_backends.clone();
+
+            #[cfg(target_os = "linux")]
+            if config.main.pin_workers {
+                let cores = affinity::get_core_num();
+                if let Err(err) = affinity::set_thread_affinity([id % cores]) {
+                    error!("Failed to set worker thread affinity: {}", err);
+                }
+            }
+
+            async move {
+                let context = WorkerContext::builder()
+                    .with_config(config)
+                    .with_http_client(http_client)
+                    .with_storage_backends(storage_backends)
+                    .build(handle)?;
+
+                // Launch Lua task processor
+                tasks::spawn_tasks(Rc::clone(&context.lua));
+
+                // Track Lua used memory every 10 seconds
+                let lua = Rc::clone(&context.lua);
+                tokio::task::spawn_local(async move {
+                    loop {
+                        lua_used_memory_update!(id, lua.used_memory());
+                        tokio::time::sleep(Duration::from_secs(10)).await;
+                    }
+                });
+
+                Ok(context)
+            }
+        })
+        .build()?;
+    info!("Created {} workers", config.main.workers);
+
+    let addr = &config.main.listen;
     let listener = TcpListener::bind(addr)
         .await
         .with_context(|| format!("Failed to listen {addr}"))?;
@@ -61,14 +121,46 @@ async fn main_inner() -> anyhow::Result<()> {
     incoming.0.set_nodelay(true);
 
     while let Some(stream) = incoming.try_next().await? {
-        worker_pool.process_connection(stream);
+        let accept_time = Instant::now();
+        worker_pool.spawn_pinned(move |worker_ctx| async move {
+            // Time spent in a queue before processing
+            let _queue_dur = accept_time.elapsed();
+            let _conn_count_guard = connections_counter_inc!();
+
+            let remote_addr = stream.remote_addr();
+            let svc = Svc {
+                worker_ctx: worker_ctx.clone(),
+                remote_addr,
+            };
+
+            let service = ServiceBuilder::new()
+                .add_extension(RemoteAddr(remote_addr))
+                .layer(MetricsLayer::new("/metrics".to_string()))
+                .layer(ErrorLayer)
+                .layer(LogLayer::new(worker_ctx.clone()))
+                .service(svc);
+
+            let server = Http::new()
+                .with_executor(worker_ctx)
+                .http1_keep_alive(true)
+                .serve_connection(stream, service);
+
+            if let Err(err) = server.await {
+                error!("{err:?}");
+            }
+        });
     }
 
     Ok(())
 }
 
-#[tokio::main(flavor = "current_thread")]
-async fn main() {
+fn main() {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .thread_name("casper-main")
+        .enable_all()
+        .build()
+        .expect("Failed to build a tokio runtime");
+
     // Install global collector configured based on RUST_LOG env var.
     tracing_subscriber::fmt::init();
 
@@ -78,24 +170,20 @@ async fn main() {
     // Init Metrics subsystem
     crate::metrics::init();
 
-    if let Err(err) = main_inner().await {
-        error!("{:?}", err);
+    if let Err(err) = runtime.block_on(main_inner()) {
+        error!("{err:?}");
     }
 }
 
-#[macro_use]
-mod metrics;
-
-mod backends;
 mod config;
 mod config_loader;
-mod core;
+mod error;
 mod handler;
 mod http;
+mod log;
 mod lua;
-mod request;
-mod response;
 mod service;
 mod storage;
+mod types;
 mod utils;
 mod worker;

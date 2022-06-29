@@ -29,7 +29,7 @@ local function on_request(req, ctx)
 
     -- Is this request for a proxied service?
     if req:header_cnt("X-Smartstack-Source") == 0 or destination == nil then
-        return Response(400, "missing `x-smartstack-source/destination`")
+        return Response.new(400, "missing `x-smartstack-source/destination`")
     end
 
     -- Set destination ahead of any logic to forward in case of exceptions

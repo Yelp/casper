@@ -1,5 +1,6 @@
 use std::borrow::BorrowMut;
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 use std::time::SystemTime;
 
 use async_trait::async_trait;
@@ -9,7 +10,7 @@ use linked_hash_map::LinkedHashMap;
 use serde::Deserialize;
 use tokio::sync::Mutex;
 
-use super::common::{decode_headers, encode_headers};
+use super::{decode_headers, encode_headers};
 use crate::storage::{Item, ItemKey, Key, Storage};
 
 // Memory backend configuration
@@ -39,11 +40,17 @@ impl Value {
     }
 }
 
-pub struct MemoryBackend(Mutex<MemoryBackendImpl>);
+#[derive(Clone)]
+pub struct MemoryBackend {
+    name: String,
+    inner: Arc<Mutex<MemoryBackendImpl>>,
+}
 
 impl MemoryBackend {
-    pub fn new(config: &Config) -> Self {
-        MemoryBackend(Mutex::new(MemoryBackendImpl::new(config.max_size)))
+    pub fn new(config: &Config, name: impl Into<Option<String>>) -> Self {
+        let name = name.into().unwrap_or_else(|| "memory".to_string());
+        let inner = Arc::new(Mutex::new(MemoryBackendImpl::new(config.max_size)));
+        MemoryBackend { name, inner }
     }
 }
 
@@ -137,13 +144,17 @@ impl MemoryBackendImpl {
     }
 }
 
-#[async_trait]
+#[async_trait(?Send)]
 impl Storage for MemoryBackend {
     type Body = hyper::Body;
     type Error = anyhow::Error;
 
     fn name(&self) -> String {
-        String::from("memory")
+        self.name.clone()
+    }
+
+    async fn connect(&self) -> Result<(), Self::Error> {
+        Ok(())
     }
 
     async fn get_response(&self, key: Key) -> Result<Option<Response<Self::Body>>, Self::Error> {
@@ -155,10 +166,9 @@ impl Storage for MemoryBackend {
         keys: KI,
     ) -> Vec<Result<Option<Response<Self::Body>>, Self::Error>>
     where
-        KI: IntoIterator<Item = Key> + Send,
-        <KI as IntoIterator>::IntoIter: Send,
+        KI: IntoIterator<Item = Key>,
     {
-        let mut memory = self.0.lock().await;
+        let mut memory = self.inner.lock().await;
         let mut responses = Vec::new();
         for key in keys {
             let resp = memory
@@ -185,10 +195,9 @@ impl Storage for MemoryBackend {
 
     async fn delete_responses_multi<KI>(&self, keys: KI) -> Vec<Result<(), Self::Error>>
     where
-        KI: IntoIterator<Item = ItemKey> + Send,
-        <KI as IntoIterator>::IntoIter: Send,
+        KI: IntoIterator<Item = ItemKey>,
     {
-        let mut memory = self.0.lock().await;
+        let mut memory = self.inner.lock().await;
         let mut results = Vec::new();
         for key in keys {
             match key {
@@ -206,18 +215,17 @@ impl Storage for MemoryBackend {
 
     async fn store_response<R>(&self, item: Item<R>) -> Result<(), Self::Error>
     where
-        R: BorrowMut<Response<Self::Body>> + Send,
+        R: BorrowMut<Response<Self::Body>>,
     {
         self.store_responses([item]).await.remove(0)
     }
 
     async fn store_responses<R, I>(&self, items: I) -> Vec<Result<(), Self::Error>>
     where
-        I: IntoIterator<Item = Item<R>> + Send,
-        <I as IntoIterator>::IntoIter: Send,
-        R: BorrowMut<Response<Self::Body>> + Send,
+        I: IntoIterator<Item = Item<R>>,
+        R: BorrowMut<Response<Self::Body>>,
     {
-        let mut memory = self.0.lock().await;
+        let mut memory = self.inner.lock().await;
         let mut results = Vec::new();
         for mut item in items {
             let result = async {
@@ -247,8 +255,7 @@ mod tests {
     use http::HeaderValue;
     use hyper::{Body, Response};
 
-    use crate::backends::memory::Config;
-    use crate::backends::MemoryBackend;
+    use super::{Config, MemoryBackend};
     use crate::storage::{Item, ItemKey, Storage};
 
     fn make_response<B: ToString + ?Sized>(body: &B) -> Response<Body> {
@@ -259,7 +266,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_backend() {
-        let memory = MemoryBackend::new(&Config { max_size: 1024 });
+        let memory = MemoryBackend::new(&Config { max_size: 1024 }, None);
         let mut resp = make_response("hello, world");
 
         resp.headers_mut()
@@ -294,7 +301,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_backend_ttl() {
-        let memory = MemoryBackend::new(&Config { max_size: 1024 });
+        let memory = MemoryBackend::new(&Config { max_size: 1024 }, None);
         let mut resp = make_response("hello, world");
 
         resp.headers_mut()
@@ -317,7 +324,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_surrogate_keys() {
-        let memory = MemoryBackend::new(&Config { max_size: 1024 });
+        let memory = MemoryBackend::new(&Config { max_size: 1024 }, None);
         let resp = make_response("hello, world");
 
         let surrogate_keys = vec!["abc"];

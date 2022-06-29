@@ -66,7 +66,7 @@ local function on_request(req)
         end
 
         -- Build Response for storing
-        local resp = Response({
+        local resp = Response.new({
             headers = headers,
             body = req:body(),
         })
@@ -79,7 +79,7 @@ local function on_request(req)
             ttl = args.ttl,
         })
 
-        return Response(200, "OK")
+        return Response.new(200, "OK")
     elseif method == "DELETE" and uri_path == "/purge" then
         -- Only take last (less wide if `id` is given) key
         local surrogate_key = table_remove(make_surrogate_keys(req:uri_args()))
@@ -89,11 +89,11 @@ local function on_request(req)
             redis_xdc:delete_responses({ surrogate_keys = { surrogate_key } })
         end
 
-        return Response(200, "OK")
+        return Response.new(200, "OK")
     end
 
     -- Make dummy response
-    return Response(404, "Not found")
+    return Response.new(404, "Not found")
 end
 
 return {

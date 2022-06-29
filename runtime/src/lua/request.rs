@@ -13,32 +13,40 @@ use mlua::{
     UserData, UserDataFields, UserDataMethods, Value,
 };
 
-use crate::http::set_headers_metatable;
-use crate::lua::regex::Regex;
+use super::headers::set_headers_metatable;
+use super::regex::Regex;
 
 pub struct LuaRequest {
     req: Request<Body>,
-    remote_addr: SocketAddr,
+    remote_addr: Option<SocketAddr>,
     destination: Option<Uri>,
     timeout: Option<Duration>,
 }
 
 impl LuaRequest {
-    pub fn new(request: Request<Body>, remote_addr: SocketAddr) -> Self {
+    pub fn new(request: Request<Body>) -> Self {
         LuaRequest {
             req: request,
-            remote_addr,
+            remote_addr: None,
             destination: None,
             timeout: None,
         }
     }
 
-    pub fn into_parts(self) -> (Request<Body>, Option<Uri>) {
-        (self.req, self.destination)
+    pub fn set_remote_addr(&mut self, addr: SocketAddr) {
+        self.remote_addr = Some(addr);
+    }
+
+    pub fn into_inner(self) -> Request<Body> {
+        self.req
     }
 
     pub fn timeout(&self) -> Option<Duration> {
         self.timeout
+    }
+
+    pub fn destination(&self) -> Option<Uri> {
+        self.destination.clone()
     }
 }
 
@@ -72,7 +80,9 @@ impl UserData for LuaRequest {
 
         fields.add_field_method_get("uri_path", |_, this| Ok(this.uri().path().to_string()));
 
-        fields.add_field_method_get("remote_addr", |_, this| Ok(this.remote_addr.to_string()));
+        fields.add_field_method_get("remote_addr", |_, this| {
+            Ok(this.remote_addr.map(|s| s.to_string()))
+        });
     }
 
     fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {

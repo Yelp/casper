@@ -8,7 +8,7 @@ use anyhow::Result;
 use mlua::{Lua, LuaSerdeExt, Value};
 use serde::Deserialize;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Default)]
 pub struct Config {
     #[serde(default)]
     pub main: MainConfig,
@@ -19,17 +19,17 @@ pub struct Config {
 
 #[derive(Debug, Deserialize)]
 pub struct MainConfig {
-    #[serde(default = "MainConfig::default_worker_threads")]
-    pub worker_threads: usize,
+    #[serde(default = "MainConfig::default_workers")]
+    pub workers: usize,
 
     #[serde(default)]
-    pub pin_worker_threads: bool,
+    pub pin_workers: bool,
 
     #[serde(default = "MainConfig::default_listen")]
     pub listen: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Default)]
 pub struct HttpConfig {
     pub middleware: Vec<Middleware>,
     pub access_log: Option<AccessLog>,
@@ -83,15 +83,15 @@ pub(crate) fn read_config<P: AsRef<Path> + ?Sized>(path: &P) -> Result<Config> {
 impl Default for MainConfig {
     fn default() -> Self {
         MainConfig {
-            worker_threads: Self::default_worker_threads(),
-            pin_worker_threads: false,
+            workers: Self::default_workers(),
+            pin_workers: false,
             listen: Self::default_listen(),
         }
     }
 }
 
 impl MainConfig {
-    fn default_worker_threads() -> usize {
+    fn default_workers() -> usize {
         num_cpus::get()
     }
 
