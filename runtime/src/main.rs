@@ -22,6 +22,7 @@ use crate::log::LogLayer;
 use crate::lua::tasks;
 use crate::metrics::MetricsLayer;
 use crate::service::Svc;
+use crate::storage::Storage;
 use crate::types::RemoteAddr;
 use crate::worker::{WorkerContext, WorkerPoolHandle};
 
@@ -66,7 +67,12 @@ async fn main_inner() -> anyhow::Result<()> {
     // Construct storage backends defined in the config
     let mut storage_backends = Vec::new();
     for (name, conf) in config.storage.clone() {
-        storage_backends.push(storage::Backend::new(name, conf)?);
+        let backend = storage::Backend::new(name.clone(), conf)?;
+        if let Err(err) = backend.connect().await {
+            // Not critical error
+            error!("Failed to establish connection with storage '{name}': {err:?}");
+        }
+        storage_backends.push(backend);
     }
 
     let config2 = Arc::clone(&config);

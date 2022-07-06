@@ -121,11 +121,9 @@ impl RedisBackend {
         // Nothing to do on lazy mode
         if !self.config.lazy && !self.spawned_connect.swap(true, Ordering::SeqCst) {
             let policy = self.reconnect_policy();
-            let handles = self.pool.connect(Some(policy));
+            let _handles = self.pool.connect(Some(policy));
             if let Err(err) = self.wait_for_connect().await {
-                for handle in handles {
-                    handle.abort();
-                }
+                // Do not abort connection tasks, only return a error
                 return Err(err.context("Failed to connect to Redis"));
             }
         }

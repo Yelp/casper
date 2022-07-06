@@ -32,7 +32,7 @@ local function on_response(resp, ctx)
 
     local dims = {namespace = ctx.destination, cache_name = ctx.cacheability_info.cache_name}
 
-    if resp.is_cached then
+    if resp.is_stored then
         -- Cache hit
         ctx.cache_status = "hit"
         cache_hits_counter:add(1, dims)
