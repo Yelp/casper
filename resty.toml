@@ -1,5 +1,0 @@
-[selene]
-base = "lua51"
-
-[ngx]
-any = true

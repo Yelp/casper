@@ -1,5 +1,0 @@
-.git*
-.dockerignore
-data/
-luarocks/
-resty_modules/

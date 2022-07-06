@@ -1,3 +1,0 @@
-bravado
-pytest
-requests

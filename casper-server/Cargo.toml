@@ -1,6 +1,6 @@
 [package]
 edition = "2021"
-name = "casper-runtime"
+name = "casper-server"
 version = "0.1.0"
 
 [dependencies]

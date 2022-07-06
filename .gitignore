@@ -1,11 +1,5 @@
-*.sw[a-z]
-bin/docker-compose*
-logs/
-luacov.report.out
-luacov.stats.out
-luarocks/
-resty_modules/
-.vscode/
+target/
+**/*.rs.bk
 
-# Rust patterns
-/target
+.vscode/
+.DS_Store

@@ -3,7 +3,7 @@ on: [push, pull_request]
 
 jobs:
   build:
-    name: Build
+    name: Build and test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
@@ -11,17 +11,9 @@ jobs:
         with:
           toolchain: stable
           override: true
-      - name: Install dependencies
+      - name: Build
         run: |
-          sudo apt-get install luarocks libyaml-dev
-          wget -qO - https://openresty.org/package/pubkey.gpg | sudo apt-key add -
-          sudo add-apt-repository -y "deb http://openresty.org/package/ubuntu $(lsb_release -sc) main"
-          sudo apt-get update && sudo apt-get install -y openresty openresty-opm openresty-resty
-
-      - name: Run unit tests
-        run: make test
-      - name: Run integration tests
-        run: make itest
+          cargo build
 
   rustfmt:
     name: Rustfmt
@@ -48,13 +40,3 @@ jobs:
       - uses: actions-rs/clippy-check@v1
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-
-  # selene:
-  #   name: Selene check
-  #   runs-on: ubuntu-latest
-  #   steps:
-  #     - uses: actions/checkout@v2
-  #     - uses: NTBBloodbath/selene-action@v1.0.0
-  #       with:
-  #         args: --display-style quiet --pattern "lua/*.lua" .
-  #         token: ${{ secrets.GITHUB_TOKEN }}
