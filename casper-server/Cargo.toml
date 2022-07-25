@@ -22,7 +22,7 @@ http-serde = "1"
 hyper = { version = "0.14", features = ["full"] }
 hyper-tls = "0.5"
 linked-hash-map = "0.5.4"
-moka = { version = "0.8", features = ["future"] }
+moka = { version = "0.9", features = ["future"] }
 num_cpus = "1.13"
 num_threads = "0.1"
 once_cell = "1"
