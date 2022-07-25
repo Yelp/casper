@@ -1,8 +1,9 @@
 use std::ops::Deref;
 
-use mlua::{Lua, Result, Table, UserData, UserDataMethods};
+use mlua::{Lua, MetaMethod, Result, Table, UserData, UserDataMethods};
 use time::OffsetDateTime;
 
+#[derive(Clone, Copy, Debug)]
 struct DateTime(OffsetDateTime);
 
 impl Deref for DateTime {
@@ -28,6 +29,10 @@ impl UserData for DateTime {
         methods.add_method("elapsed", |_, this, ()| {
             Ok((OffsetDateTime::now_utc() - this.0).as_seconds_f64())
         });
+
+        methods.add_meta_method(MetaMethod::Sub, |_, this, other: DateTime| {
+            Ok((this.0 - other.0).as_seconds_f64())
+        });
     }
 }
 
@@ -47,10 +52,11 @@ mod tests {
         lua.load(chunk! {
             local start = $datetime.now()
             local timestamp = start:unix_timestamp()
-            print(timestamp)
             assert(timestamp > 0)
             local elapsed = start:elapsed()
             assert(elapsed > 0)
+            local time2 = $datetime.now()
+            assert(time2 - start >= 0)
         })
         .exec()?;
 
