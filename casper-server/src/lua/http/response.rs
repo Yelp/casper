@@ -1,14 +1,12 @@
-use std::collections::{HashMap, HashSet};
 use std::ops::{Deref, DerefMut};
 
-use hyper::header::{HeaderMap, HeaderName, HeaderValue};
 use hyper::{Body, Response, StatusCode};
 use mlua::{
-    ExternalError, ExternalResult, FromLua, Result as LuaResult, String as LuaString, Table, ToLua,
-    UserData, UserDataFields, UserDataMethods, Value,
+    ExternalError, ExternalResult, String as LuaString, Table, UserData, UserDataFields,
+    UserDataMethods, Value,
 };
 
-use super::headers::set_headers_metatable;
+use super::{LuaHttpHeaders, LuaHttpHeadersExt};
 
 pub struct LuaResponse {
     response: Response<Body>,
@@ -134,96 +132,48 @@ impl UserData for LuaResponse {
         });
 
         methods.add_method("header", |lua, this, name: String| {
-            if let Some(val) = this.headers().get(name) {
-                return lua.create_string(val.as_bytes()).map(Value::String);
-            }
-            Ok(Value::Nil)
+            LuaHttpHeadersExt::get(this.headers(), lua, &name)
         });
 
         methods.add_method("header_all", |lua, this, name: String| {
-            let vals = this.headers().get_all(name);
-            let vals = vals
-                .into_iter()
-                .map(|val| lua.create_string(val.as_bytes()))
-                .collect::<LuaResult<Vec<_>>>()?;
-            if vals.is_empty() {
-                return Ok(Value::Nil);
-            }
-            vals.to_lua(lua)
+            LuaHttpHeadersExt::get_all(this.headers(), lua, &name)
         });
 
-        methods.add_method("header_cnt", |_, this, name: String| {
-            Ok(this.headers().get_all(name).into_iter().count())
+        methods.add_method("header_cnt", |lua, this, name: String| {
+            LuaHttpHeadersExt::get_cnt(this.headers(), lua, &name)
         });
+
+        methods.add_method(
+            "header_match",
+            |lua, this, (name, pattern): (String, String)| {
+                LuaHttpHeadersExt::is_match(this.headers(), lua, &name, pattern)
+            },
+        );
 
         methods.add_method_mut("del_header", |_, this, name: String| {
-            this.headers_mut().remove(name);
-            Ok(())
+            this.headers_mut().del(&name)
         });
 
         methods.add_method_mut(
             "add_header",
             |_, this, (name, value): (String, LuaString)| {
-                let name = HeaderName::from_bytes(name.as_bytes()).to_lua_err()?;
-                let value = HeaderValue::from_bytes(value.as_bytes()).to_lua_err()?;
-                this.headers_mut().append(name, value);
-                Ok(())
+                this.headers_mut().add(&name, value.as_bytes())
             },
         );
 
         methods.add_method_mut(
             "set_header",
-            |_, this, (name, value): (String, Option<LuaString>)| {
-                if let Some(value) = value {
-                    let name = HeaderName::from_bytes(name.as_bytes()).to_lua_err()?;
-                    let value = HeaderValue::from_bytes(value.as_bytes()).to_lua_err()?;
-                    this.headers_mut().insert(name, value);
-                }
-                Ok(())
+            |_, this, (name, value): (String, LuaString)| {
+                this.headers_mut().set(&name, value.as_bytes())
             },
         );
 
-        methods.add_method("headers", |lua, this, names: Option<HashSet<String>>| {
-            let mut headers = HashMap::new();
-            for (name, value) in this.headers() {
-                if let Some(ref names) = names {
-                    if !names.contains(name.as_str()) {
-                        continue;
-                    }
-                }
-
-                headers
-                    .entry(name.to_string())
-                    .or_insert_with(Vec::new)
-                    .push(lua.create_string(value.as_bytes())?);
-            }
-
-            let lua_headers = Table::from_lua(headers.to_lua(lua)?, lua)?;
-            set_headers_metatable(lua, lua_headers.clone())?;
-
-            Ok(lua_headers)
+        methods.add_method("headers", |_, this, ()| {
+            Ok(LuaHttpHeaders::from(this.headers().clone()))
         });
 
         methods.add_method_mut("set_headers", |lua, this, headers: Table| {
-            let mut new_headers = HeaderMap::new();
-            for kv in headers.pairs::<String, Value>() {
-                let (name, value) = kv?;
-                let name = HeaderName::from_bytes(name.as_bytes()).to_lua_err()?;
-
-                // Maybe `value` is a list of header values
-                if let Value::Table(values) = value {
-                    for value in values.raw_sequence_values::<LuaString>() {
-                        let value = HeaderValue::from_bytes(value?.as_bytes()).to_lua_err()?;
-                        new_headers.append(name.clone(), value);
-                    }
-                } else {
-                    let value = lua.unpack::<LuaString>(value)?;
-                    let value = HeaderValue::from_bytes(value.as_bytes()).to_lua_err()?;
-                    new_headers.append(name, value);
-                }
-            }
-            *this.headers_mut() = new_headers;
-            Ok(())
+            this.headers_mut().replace_all(lua, headers)
         });
 
         methods.add_method_mut("use_after_response", |_, this, ()| {

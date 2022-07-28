@@ -10,7 +10,7 @@ use mlua::{
 };
 use ripemd::{Digest, Ripemd160};
 
-use super::response::LuaResponse;
+use super::http::LuaResponse;
 use crate::http::filter_hop_headers;
 use crate::storage::{Item, ItemKey, Key, Storage};
 
