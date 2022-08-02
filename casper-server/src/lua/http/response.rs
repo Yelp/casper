@@ -185,9 +185,41 @@ impl UserData for LuaResponse {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use http::response;
+    use hyper::body;
     use mlua::{chunk, Lua, Result};
 
-    // TODO: More tests
+    #[tokio::test]
+    async fn test_clone_response() {
+        let mut resp_1 = LuaResponse::new(
+            response::Builder::new()
+                .status(200)
+                .body(Body::from("test body"))
+                .unwrap(),
+        );
+        let resp_2 = resp_1.clone_async().await.unwrap();
+
+        // Check the first response body still exists and matches the original value
+        let body_1 = String::from_utf8(
+            body::to_bytes(resp_1.response.into_body())
+                .await
+                .unwrap()
+                .to_vec(),
+        )
+        .unwrap();
+        assert_eq!(body_1, "test body");
+
+        // Check the second response body matches the first
+        let body_2 = String::from_utf8(
+            body::to_bytes(resp_2.response.into_body())
+                .await
+                .unwrap()
+                .to_vec(),
+        )
+        .unwrap();
+        assert_eq!(body_1, body_2);
+    }
 
     #[test]
     fn test_response() -> Result<()> {
@@ -206,6 +238,7 @@ mod tests {
         })
         .exec()?;
 
+        // Header tests
         lua.load(chunk! {
             local resp = Response.new({
                 status = 200,
@@ -215,8 +248,34 @@ mod tests {
                 },
                 body = "test body",
             })
+            // Header get, count and match
             assert(resp:header("X-Test") == "test1")
             assert(resp:headers()["X-Test-2"][1] == "test2")
+            assert(resp:header_all("x-test")[2] == "test2")
+            assert(resp:header_cnt("x-test") == 2)
+            assert(resp:header_match("x-test", ".*") == true)
+
+            // Adding, setting and deleting headers
+            assert(resp:header("X-Test-3") == nil)
+
+            resp:add_header("X-Test-3", "new header")
+            assert(resp:header("X-Test-3") == "new header")
+
+            resp:set_header("X-Test-3", "other header")
+            assert(resp:header("X-Test-3") == "other header")
+
+            resp:del_header("X-Test-3")
+            assert(resp:header("X-Test-3") == nil)
+
+            new_headers = {
+                ["X-Test-1"] = "new_header",
+            }
+            resp:set_headers(new_headers)
+            assert(resp:header("X-Test-1") == "new_header")
+            assert(resp:header("X-Test-3") == nil)
+
+            // call use_after_response
+            resp:use_after_response()
         })
         .exec()?;
 
