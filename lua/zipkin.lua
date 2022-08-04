@@ -107,10 +107,6 @@ function zipkin.emit_syslog(headers, start_time, end_time, response)
             end
         end
 
-        if ngx.var.request_method == 'DELETE' then
-            spectre_cache_status = "miss"
-        end
-
         local message = string.format(
             'spectre/zipkin %s %s %s %s %s %d %d, client: %s, server: , cache_status: %s, request: %s',
             headers['X-B3-TraceId'],
