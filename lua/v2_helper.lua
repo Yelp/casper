@@ -124,7 +124,10 @@ local function purge(namespace, cache_name, id)
     end
 
     local httpc = resty_http.new()
-    httpc:set_timeout(TIMEOUT)
+
+    -- Use a higher timeout for purge calls specifically (2000 rather than 1000)
+    httpc:set_timeout(2000)
+
     local res, err = httpc:request_uri(BACKEND_ADDR, {
         method = "DELETE",
         path = "/purge",
@@ -137,7 +140,7 @@ local function purge(namespace, cache_name, id)
     })
 
     if err ~= nil or res.status ~= 200 then
-        return ngx.HTTP_INTERNAL_SERVER_ERROR, 'Failed to purge some keys. Check spectre logs'
+        return ngx.HTTP_INTERNAL_SERVER_ERROR, 'Failed to purge some keys. Check spectre logs. ('..(err or "")..')'
     end
 
     local response = string.format(
