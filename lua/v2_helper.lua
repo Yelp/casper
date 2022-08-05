@@ -140,7 +140,11 @@ local function purge(namespace, cache_name, id)
     })
 
     if err ~= nil or res.status ~= 200 then
-        return ngx.HTTP_INTERNAL_SERVER_ERROR, 'Failed to purge some keys. Check spectre logs. ('..(err or "")..')'
+        local message = 'Failed to purge some keys for namespace: ' ..
+              namespace .. ' cache_name: ' .. cache_name ..
+              ' Reason: ' .. (err or "")
+        ngx.log(ngx.ERR, message)
+        return ngx.HTTP_INTERNAL_SERVER_ERROR, message
     end
 
     local response = string.format(
