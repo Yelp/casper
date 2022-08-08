@@ -141,8 +141,9 @@ local function purge(namespace, cache_name, id)
 
     if err ~= nil or res.status ~= 200 then
         local message = 'Failed to purge some keys for namespace: ' ..
-              namespace .. ' cache_name: ' .. cache_name ..
-              ' Reason: ' .. (err or "")
+              namespace .. ', cache_name: ' .. cache_name ..
+              ', id: ' .. (id or "none") ..
+              ', reason: ' .. (err or "")
         ngx.log(ngx.ERR, message)
         return ngx.HTTP_INTERNAL_SERVER_ERROR, message
     end
