@@ -125,8 +125,8 @@ local function purge(namespace, cache_name, id)
 
     local httpc = resty_http.new()
 
-    -- Use a higher timeout for purge calls specifically (2000 rather than 1000)
-    httpc:set_timeout(2000)
+    -- Use a higher timeout for purge calls specifically (4000 rather than 1000)
+    httpc:set_timeout(4000)
 
     local res, err = httpc:request_uri(BACKEND_ADDR, {
         method = "DELETE",
