@@ -10,6 +10,7 @@ pub mod datetime;
 pub mod fs;
 pub mod http;
 pub mod json;
+pub mod log;
 pub mod metrics;
 pub mod regex;
 pub mod storage;

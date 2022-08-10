@@ -16,6 +16,7 @@ pub fn create_module(lua: &Lua) -> LuaResult<Table> {
     core.set("datetime", super::datetime::create_module(lua)?)?;
     core.set("fs", super::fs::create_module(lua)?)?;
     core.set("json", super::json::create_module(lua)?)?;
+    core.set("log", super::log::create_module(lua)?)?;
     core.set("metrics", super::metrics::create_module(lua)?)?;
     core.set("regex", super::regex::create_module(lua)?)?;
     core.set("tasks", super::tasks::create_module(lua)?)?;
