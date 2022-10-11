@@ -1,9 +1,9 @@
+use std::borrow::Cow;
 use std::error::Error as StdError;
 use std::iter::IntoIterator;
-use std::ops::DerefMut;
 use std::time::{Duration, Instant};
 
-use hyper::{Body, Response};
+use hyper::Body;
 use mlua::{
     AnyUserData, ExternalResult, FromLua, Lua, Result as LuaResult, String as LuaString, Table,
     UserData, UserDataMethods, Value,
@@ -146,15 +146,18 @@ where
                     .map(|s| Key::copy_from_slice(s.as_bytes()))
                     .collect();
 
-                this.0
+                let result = this
+                    .0
                     .store_response(Item {
                         key: calculate_primary_key(lua, key)?,
-                        response: resp.deref_mut() as &mut Response<Body>,
+                        status: resp.status(),
+                        headers: Cow::Borrowed(resp.headers()),
+                        body: body.clone(),
                         surrogate_keys,
                         ttl: Duration::from_secs_f32(ttl),
                     })
                     .await
-                    .to_lua_err()?;
+                    .to_lua_err();
 
                 // Restore body
                 *resp.body_mut() = Body::from(body);
@@ -162,7 +165,7 @@ where
                 storage_counter_add!(1, "name" => this.0.name(), "operation" => "store");
                 storage_histogram_rec!(start, "name" => this.0.name(), "operation" => "store");
 
-                Ok(())
+                result
             },
         );
     }

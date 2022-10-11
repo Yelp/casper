@@ -1,5 +1,3 @@
-use std::borrow::BorrowMut;
-
 use anyhow::{anyhow, bail, Context, Result};
 use futures::future::LocalBoxFuture;
 use hyper::Response;
@@ -60,10 +58,10 @@ impl Storage for Backend {
     }
 
     #[inline]
-    fn connect<'s, 'a>(&'s self) -> LocalBoxFuture<'a, Result<(), Self::Error>>
+    fn connect<'s, 'async_trait>(&'s self) -> LocalBoxFuture<'async_trait, Result<(), Self::Error>>
     where
-        's: 'a,
-        Self: 'a,
+        's: 'async_trait,
+        Self: 'async_trait,
     {
         match self {
             Backend::Memory(inner) => inner.connect(),
@@ -72,13 +70,13 @@ impl Storage for Backend {
     }
 
     #[inline]
-    fn get_response<'s, 'a>(
+    fn get_response<'s, 'async_trait>(
         &'s self,
         key: Key,
-    ) -> LocalBoxFuture<'a, Result<Option<Response<Self::Body>>, Self::Error>>
+    ) -> LocalBoxFuture<'async_trait, Result<Option<Response<Self::Body>>, Self::Error>>
     where
-        's: 'a,
-        Self: 'a,
+        's: 'async_trait,
+        Self: 'async_trait,
     {
         match self {
             Backend::Memory(inner) => inner.get_response(key),
@@ -87,13 +85,13 @@ impl Storage for Backend {
     }
 
     #[inline]
-    fn delete_responses<'s, 'a>(
+    fn delete_responses<'s, 'async_trait>(
         &'s self,
         key: ItemKey,
-    ) -> LocalBoxFuture<'a, Result<(), Self::Error>>
+    ) -> LocalBoxFuture<'async_trait, Result<(), Self::Error>>
     where
-        's: 'a,
-        Self: 'a,
+        's: 'async_trait,
+        Self: 'async_trait,
     {
         match self {
             Backend::Memory(inner) => inner.delete_responses(key),
@@ -102,14 +100,14 @@ impl Storage for Backend {
     }
 
     #[inline]
-    fn store_response<'s, 'a, R>(
+    fn store_response<'r, 's, 'async_trait>(
         &'s self,
-        item: Item<R>,
-    ) -> LocalBoxFuture<'a, Result<(), Self::Error>>
+        item: Item<'r>,
+    ) -> LocalBoxFuture<'async_trait, Result<(), Self::Error>>
     where
-        's: 'a,
-        Self: 'a,
-        R: BorrowMut<Response<Self::Body>> + 'a,
+        'r: 'async_trait,
+        's: 'async_trait,
+        Self: 'async_trait,
     {
         match self {
             Backend::Memory(inner) => inner.store_response(item),
@@ -118,14 +116,14 @@ impl Storage for Backend {
     }
 
     #[inline]
-    fn get_responses<'s, 'a, KI>(
+    fn get_responses<'s, 'async_trait, KI>(
         &'s self,
         keys: KI,
-    ) -> LocalBoxFuture<'a, Vec<Result<Option<Response<Self::Body>>, Self::Error>>>
+    ) -> LocalBoxFuture<'async_trait, Vec<Result<Option<Response<Self::Body>>, Self::Error>>>
     where
-        's: 'a,
-        Self: 'a,
-        KI: IntoIterator<Item = Key> + 'a,
+        's: 'async_trait,
+        Self: 'async_trait,
+        KI: IntoIterator<Item = Key> + 'async_trait,
     {
         match self {
             Backend::Memory(inner) => inner.get_responses(keys),
@@ -134,14 +132,14 @@ impl Storage for Backend {
     }
 
     #[inline]
-    fn delete_responses_multi<'s, 'a, KI>(
+    fn delete_responses_multi<'s, 'async_trait, KI>(
         &'s self,
         keys: KI,
-    ) -> LocalBoxFuture<'a, Vec<Result<(), Self::Error>>>
+    ) -> LocalBoxFuture<'async_trait, Vec<Result<(), Self::Error>>>
     where
-        's: 'a,
-        Self: 'a,
-        KI: IntoIterator<Item = ItemKey> + 'a,
+        's: 'async_trait,
+        Self: 'async_trait,
+        KI: IntoIterator<Item = ItemKey> + 'async_trait,
     {
         match self {
             Backend::Memory(inner) => inner.delete_responses_multi(keys),
@@ -150,15 +148,15 @@ impl Storage for Backend {
     }
 
     #[inline]
-    fn store_responses<'s, 'a, R, I>(
+    fn store_responses<'r, 's, 'async_trait, I>(
         &'s self,
         items: I,
-    ) -> LocalBoxFuture<'a, Vec<Result<(), Self::Error>>>
+    ) -> LocalBoxFuture<'async_trait, Vec<Result<(), Self::Error>>>
     where
-        's: 'a,
-        Self: 'a,
-        I: IntoIterator<Item = Item<R>> + 'a,
-        R: BorrowMut<Response<Self::Body>> + 'a,
+        'r: 'async_trait,
+        's: 'async_trait,
+        Self: 'async_trait,
+        I: IntoIterator<Item = Item<'r>> + 'async_trait,
     {
         match self {
             Backend::Memory(inner) => inner.store_responses(items),

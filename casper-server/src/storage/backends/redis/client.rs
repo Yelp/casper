@@ -1,4 +1,3 @@
-use std::borrow::BorrowMut;
 use std::mem;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -288,29 +287,18 @@ impl RedisBackend {
         }
     }
 
-    async fn store_response_inner(
-        &self,
-        key: Key,
-        response: &mut Response<hyper::Body>,
-        surrogate_keys: Vec<Key>,
-        ttl: Duration,
-    ) -> Result<()> {
-        // Get the response body and headers
-        let mut body = hyper::body::to_bytes(response.body_mut()).await?;
-        let mut headers = encode_headers(response.headers())?;
+    async fn store_response_inner<'a>(&self, item: Item<'a>) -> Result<()> {
+        let mut headers = encode_headers(&item.headers)?;
+        let mut body = item.body;
 
         // If a compression level is set, compress the body and headers with the zstd encoding, if compressed update flags
         let mut flags = Flags::NONE;
         if let Some(level) = self.config.compression_level {
-            // TODO: Change this after Rust 1.59 release
-            // See https://github.com/rust-lang/rust/issues/71126
-            let body_and_headers = try_join(
+            (body, headers) = try_join(
                 compress_with_zstd(body, level).map_ok(Bytes::from),
                 compress_with_zstd(Bytes::from(headers), level),
             )
             .await?;
-            body = body_and_headers.0;
-            headers = body_and_headers.1;
             flags.insert(Flags::COMPRESSED);
         }
 
@@ -324,9 +312,9 @@ impl RedisBackend {
                 // Store chunk in Redis
                 self.pool
                     .set(
-                        make_chunk_key(&key, i as u32 + 1),
+                        make_chunk_key(&item.key, i as u32 + 1),
                         RedisValue::Bytes(Bytes::from(chunk.to_vec())),
-                        Some(Expiration::EX(ttl.as_secs() as i64)),
+                        Some(Expiration::EX(item.ttl.as_secs() as i64)),
                         None,
                         false,
                     )
@@ -336,9 +324,9 @@ impl RedisBackend {
 
         let timestamp = current_timestamp();
         let response_item = ResponseItem {
-            status_code: response.status().as_u16(),
+            status_code: item.status.as_u16(),
             timestamp,
-            surrogate_keys: surrogate_keys.clone(),
+            surrogate_keys: item.surrogate_keys.clone(),
             headers,
             body,
             num_chunks,
@@ -349,9 +337,9 @@ impl RedisBackend {
         // Store response item
         self.pool
             .set(
-                make_redis_key(&key),
+                make_redis_key(&item.key),
                 RedisValue::Bytes(Bytes::from(response_item_enc)),
-                Some(Expiration::EX(ttl.as_secs() as i64)),
+                Some(Expiration::EX(item.ttl.as_secs() as i64)),
                 None,
                 false,
             )
@@ -359,7 +347,7 @@ impl RedisBackend {
 
         // Update surrogate keys
         let int_cache_ttl = self.config.internal_cache_ttl;
-        try_join_all(surrogate_keys.into_iter().map(|skey| async move {
+        try_join_all(item.surrogate_keys.into_iter().map(|skey| async move {
             let refresh_ttl = match self.internal_cache.get(&skey) {
                 Some((_, t)) if t.elapsed().as_secs_f64() <= int_cache_ttl => {
                     // Do nothing, key is known
@@ -446,22 +434,15 @@ impl Storage for RedisBackend {
             .with_context(|| format!("Failed to delete Response(s) for key `{}`", key))
     }
 
-    async fn store_response<R>(&self, mut item: Item<R>) -> Result<(), Self::Error>
-    where
-        R: BorrowMut<Response<Self::Body>>,
-    {
+    async fn store_response<'a>(&self, item: Item<'a>) -> Result<(), Self::Error> {
         self.lazy_connect();
         let key = item.key.clone();
-        let response = item.response.borrow_mut();
         let store_timeout = self.get_store_timeout();
-        timeout(
-            store_timeout,
-            self.store_response_inner(item.key, response, item.surrogate_keys, item.ttl),
-        )
-        .await
-        .map_err(anyhow::Error::new)
-        .and_then(|x| x)
-        .with_context(|| format!("Failed to store Response with key `{}`", hex::encode(key)))
+        timeout(store_timeout, self.store_response_inner(item))
+            .await
+            .map_err(anyhow::Error::new)
+            .and_then(|x| x)
+            .with_context(|| format!("Failed to store Response with key `{}`", hex::encode(key)))
     }
 }
 
@@ -490,16 +471,15 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::Duration;
 
+    use bytes::Bytes;
     use http::HeaderValue;
-    use hyper::{Body, Response};
+    use hyper::Response;
 
     use super::{Config, RedisBackend};
     use crate::storage::{Item, ItemKey, Key, Storage};
 
-    fn make_response<B: ToString + ?Sized>(body: &B) -> Response<Body> {
-        Response::builder()
-            .body(Body::from(body.to_string()))
-            .unwrap()
+    fn make_response(body: impl Into<Bytes>) -> Response<Bytes> {
+        Response::builder().body(body.into()).unwrap()
     }
 
     fn make_uniq_key() -> Key {

@@ -1,4 +1,3 @@
-use std::borrow::BorrowMut;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::SystemTime;
@@ -213,35 +212,29 @@ impl Storage for MemoryBackend {
         results
     }
 
-    async fn store_response<R>(&self, item: Item<R>) -> Result<(), Self::Error>
-    where
-        R: BorrowMut<Response<Self::Body>>,
-    {
+    async fn store_response<'a>(&self, item: Item<'a>) -> Result<(), Self::Error> {
         self.store_responses([item]).await.remove(0)
     }
 
-    async fn store_responses<R, I>(&self, items: I) -> Vec<Result<(), Self::Error>>
+    async fn store_responses<'a, I>(&self, items: I) -> Vec<Result<(), Self::Error>>
     where
-        I: IntoIterator<Item = Item<R>>,
-        R: BorrowMut<Response<Self::Body>>,
+        I: IntoIterator<Item = Item<'a>>,
     {
         let mut memory = self.inner.lock().await;
         let mut results = Vec::new();
-        for mut item in items {
-            let result = async {
-                let resp = item.response.borrow_mut();
+        for item in items {
+            let result = (|| {
                 let value = Value {
-                    status: resp.status(),
-                    headers: encode_headers(resp.headers())?,
-                    // Likely body already has been read concurrently in Lua and now available as a byte array
-                    body: hyper::body::to_bytes(resp.body_mut()).await?,
+                    status: item.status,
+                    headers: encode_headers(&item.headers)?,
+                    body: item.body,
                     expires: SystemTime::now() + item.ttl,
                     surrogate_keys: item.surrogate_keys,
                 };
                 memory.insert(item.key, value);
                 Ok(())
-            };
-            results.push(result.await);
+            })();
+            results.push(result);
         }
         results
     }
@@ -252,16 +245,15 @@ mod tests {
     use std::convert::TryInto;
     use std::time::Duration;
 
+    use bytes::Bytes;
     use http::HeaderValue;
-    use hyper::{Body, Response};
+    use hyper::Response;
 
     use super::{Config, MemoryBackend};
     use crate::storage::{Item, ItemKey, Storage};
 
-    fn make_response<B: ToString + ?Sized>(body: &B) -> Response<Body> {
-        Response::builder()
-            .body(Body::from(body.to_string()))
-            .unwrap()
+    fn make_response(body: impl Into<Bytes>) -> Response<Bytes> {
+        Response::builder().body(body.into()).unwrap()
     }
 
     #[tokio::test]

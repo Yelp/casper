@@ -1,4 +1,4 @@
-use std::borrow::BorrowMut;
+use std::borrow::Cow;
 use std::fmt;
 use std::iter::IntoIterator;
 use std::time::Duration;
@@ -6,25 +6,32 @@ use std::time::Duration;
 use async_trait::async_trait;
 use bytes::Bytes;
 use futures::stream::{self, StreamExt};
-use hyper::{body::HttpBody, Response};
+use http::{HeaderMap, StatusCode};
+use hyper::body::HttpBody;
+use hyper::Response;
 
 pub use backends::Backend;
 
 pub type Key = Bytes;
 
-pub struct Item<R> {
+pub struct Item<'a> {
     pub key: Key,
-    pub response: R,
+    pub status: StatusCode,
+    pub headers: Cow<'a, HeaderMap>,
+    pub body: Bytes,
     pub surrogate_keys: Vec<Key>,
     pub ttl: Duration,
 }
 
-impl<R> Item<R> {
+impl Item<'static> {
     #[cfg(test)]
-    pub fn new(key: impl Into<Key>, response: R, ttl: Duration) -> Self {
+    pub fn new(key: impl Into<Key>, response: Response<Bytes>, ttl: Duration) -> Self {
+        let (parts, body) = response.into_parts();
         Item {
             key: key.into(),
-            response,
+            status: parts.status,
+            headers: Cow::Owned(parts.headers),
+            body,
             surrogate_keys: Vec::new(),
             ttl,
         }
@@ -33,13 +40,16 @@ impl<R> Item<R> {
     #[cfg(test)]
     pub fn new_with_skeys(
         key: impl Into<Key>,
-        response: R,
+        response: Response<Bytes>,
         surrogate_keys: Vec<impl Into<Key>>,
         ttl: Duration,
     ) -> Self {
+        let (parts, body) = response.into_parts();
         Item {
             key: key.into(),
-            response,
+            status: parts.status,
+            headers: Cow::Owned(parts.headers),
+            body,
             surrogate_keys: surrogate_keys.into_iter().map(|sk| sk.into()).collect(),
             ttl,
         }
@@ -74,9 +84,7 @@ pub trait Storage {
 
     async fn delete_responses(&self, key: ItemKey) -> Result<(), Self::Error>;
 
-    async fn store_response<R>(&self, item: Item<R>) -> Result<(), Self::Error>
-    where
-        R: BorrowMut<Response<Self::Body>>;
+    async fn store_response<'a>(&self, item: Item<'a>) -> Result<(), Self::Error>;
 
     //
     // Provided implementation
@@ -107,10 +115,9 @@ pub trait Storage {
             .await
     }
 
-    async fn store_responses<R, I>(&self, items: I) -> Vec<Result<(), Self::Error>>
+    async fn store_responses<'a, I>(&self, items: I) -> Vec<Result<(), Self::Error>>
     where
-        I: IntoIterator<Item = Item<R>>,
-        R: BorrowMut<Response<Self::Body>>,
+        I: IntoIterator<Item = Item<'a>>,
     {
         // Create list of pending futures to poll them in parallel
         stream::iter(items.into_iter().map(|it| self.store_response(it)))
