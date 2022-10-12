@@ -4,7 +4,7 @@ use std::time::Instant;
 
 use anyhow::Result;
 use hyper::{header, Body, Response};
-use mlua::{Function, Value, Variadic};
+use mlua::{Function, Value};
 use scopeguard::defer;
 use tracing::warn;
 
@@ -128,56 +128,5 @@ pub(crate) async fn handler(
         }
     }
 
-    // Extract response and check the `use_after_response` flag
-    // If it's set, we must clone response and pass it next to `after_response` handler
-    let (resp, resp_key) = {
-        let mut resp = lua_resp.borrow_mut::<LuaResponse>()?;
-        if resp.use_after_response {
-            let key = lua.create_registry_value(lua_resp.clone())?;
-            (resp.clone_async().await?, Some(key))
-        } else {
-            drop(resp);
-            (lua_resp.take::<LuaResponse>()?, None)
-        }
-    };
-
-    // Spawn Lua's post actions
-    let lua = lua.clone();
-    worker_ctx.clone().spawn_local(async move {
-        let ctx = lua_ctx.get(&lua);
-
-        // Execute `after_response` actions
-        for (i, after_response) in worker_ctx
-            .middleware
-            .iter()
-            .enumerate()
-            .take(process_level)
-            .rev()
-            .filter_map(|(i, it)| it.after_response.as_ref().map(|r| (i, r)))
-        {
-            if skip_middleware.contains(&i) {
-                continue;
-            }
-            let start = Instant::now();
-            let name = worker_ctx.middleware[i].name.clone();
-            defer! {
-                middleware_histogram_rec!(start, "name" => name.clone(), "phase" => "after_response");
-            }
-
-            let mut args = Variadic::new();
-            args.push(Value::Table(ctx.clone()));
-            if let Some(resp_key) = resp_key.as_ref() {
-                let resp = lua.registry_value(resp_key).expect("Failed to get Lua registry value");
-                args.push(resp);
-            }
-
-            if let Ok(after_response) = lua.registry_value::<Function>(after_response) {
-                if let Err(err) = after_response.call_async::<_, ()>(args).await {
-                    warn!("middleware '{name}' after-response error: {:?}", err);
-                }
-            }
-        }
-    });
-
-    Ok(resp)
+    Ok(lua_resp.take::<LuaResponse>()?)
 }

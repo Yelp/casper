@@ -33,7 +33,6 @@ pub struct Middleware {
     pub name: String,
     pub on_request: Option<RegistryKey>,
     pub on_response: Option<RegistryKey>,
-    pub after_response: Option<RegistryKey>,
 }
 
 pub struct WorkerContextInner {
@@ -159,7 +158,6 @@ impl WorkerContextInner {
             let handlers: Table = lua.load(&middleware.code).eval()?;
             let on_request: Option<Function> = handlers.get("on_request")?;
             let on_response: Option<Function> = handlers.get("on_response")?;
-            let after_response: Option<Function> = handlers.get("after_response")?;
 
             self.middleware.push(Middleware {
                 name: middleware.name.clone(),
@@ -167,9 +165,6 @@ impl WorkerContextInner {
                     .map(|x| lua.create_registry_value(x))
                     .transpose()?,
                 on_response: on_response
-                    .map(|x| lua.create_registry_value(x))
-                    .transpose()?,
-                after_response: after_response
                     .map(|x| lua.create_registry_value(x))
                     .transpose()?,
             });

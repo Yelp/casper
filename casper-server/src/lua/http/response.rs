@@ -10,7 +10,6 @@ use super::{LuaHttpHeaders, LuaHttpHeadersExt};
 
 pub struct LuaResponse {
     response: Response<Body>,
-    pub use_after_response: bool,
     pub is_proxied: bool,
     pub is_stored: bool,
 }
@@ -20,7 +19,6 @@ impl LuaResponse {
     pub fn new(response: Response<Body>) -> Self {
         LuaResponse {
             response,
-            use_after_response: false,
             is_proxied: false,
             is_stored: false,
         }
@@ -31,6 +29,7 @@ impl LuaResponse {
         self.response
     }
 
+    #[cfg(test)]
     pub async fn clone_async(&mut self) -> hyper::Result<Self> {
         let bytes = hyper::body::to_bytes(self.body_mut()).await?;
         *self.body_mut() = Body::from(bytes.clone());
@@ -175,11 +174,6 @@ impl UserData for LuaResponse {
         methods.add_method_mut("set_headers", |lua, this, headers: Table| {
             this.headers_mut().replace_all(lua, headers)
         });
-
-        methods.add_method_mut("use_after_response", |_, this, ()| {
-            this.use_after_response = true;
-            Ok(())
-        });
     }
 }
 
@@ -273,9 +267,6 @@ mod tests {
             resp:set_headers(new_headers)
             assert(resp:header("X-Test-1") == "new_header")
             assert(resp:header("X-Test-3") == nil)
-
-            // call use_after_response
-            resp:use_after_response()
         })
         .exec()?;
 
