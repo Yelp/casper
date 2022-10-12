@@ -4,13 +4,16 @@ use std::sync::Arc;
 
 use once_cell::sync::Lazy;
 use opentelemetry::global;
-use opentelemetry::metrics::{Counter, ValueObserver, ValueRecorder};
+use opentelemetry::metrics::{Counter, Histogram, ObservableGauge};
+use opentelemetry::sdk::export::metrics::aggregation;
+use opentelemetry::sdk::metrics::{controllers, processors, selectors};
 use opentelemetry_prometheus::PrometheusExporter;
 use parking_lot::Mutex;
 use tokio::sync::RwLock;
 
 use crate::config::MetricsConfig;
 
+// Re-export
 pub use middleware::MetricsLayer;
 
 static PROMETHEUS_EXPORTER: Lazy<PrometheusExporter> = Lazy::new(|| {
@@ -18,37 +21,44 @@ static PROMETHEUS_EXPORTER: Lazy<PrometheusExporter> = Lazy::new(|| {
         0.001, 0.002, 0.003, 0.005, 0.01, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.75, 1.0, 1.5, 2.0, 3.0,
         4.0, 5.0, 10.0,
     ];
-    opentelemetry_prometheus::exporter()
-        .with_default_histogram_boundaries(boundaries)
-        .init()
+    let controller = controllers::basic(
+        processors::factory(
+            selectors::simple::histogram(boundaries),
+            aggregation::cumulative_temporality_selector(),
+        )
+        .with_memory(true),
+    )
+    .build();
+
+    opentelemetry_prometheus::exporter(controller).init()
 });
+
+pub static METRICS: Lazy<OpenTelemetryMetrics> = Lazy::new(OpenTelemetryMetrics::new);
 
 pub fn init() {
     let _exporter = Lazy::force(&PROMETHEUS_EXPORTER);
     let _metrics = Lazy::force(&METRICS);
 }
 
-pub static METRICS: Lazy<OpenTelemetryMetrics> = Lazy::new(OpenTelemetryMetrics::new);
-
 pub struct OpenTelemetryMetrics {
     pub connections_counter: Counter<u64>,
     pub active_connections_counter: ActiveCounter,
-    pub active_connections_observer: ValueObserver<u64>,
+    pub active_connections_gauge: ObservableGauge<u64>,
 
     pub requests_counter: Counter<u64>,
-    pub requests_histogram: ValueRecorder<f64>,
+    pub requests_histogram: Histogram<f64>,
     pub active_requests_counter: ActiveCounter,
-    pub active_requests_observer: ValueObserver<u64>,
+    pub active_requests_gauge: ObservableGauge<u64>,
 
     pub storage_counter: Counter<u64>,
-    pub storage_histogram: ValueRecorder<f64>,
+    pub storage_histogram: Histogram<f64>,
 
-    pub middleware_histogram: ValueRecorder<f64>,
+    pub middleware_histogram: Histogram<f64>,
 
     pub lua_used_memory: Arc<RwLock<Vec<AtomicU64>>>,
-    pub lua_used_memory_observer: ValueObserver<u64>,
+    pub lua_used_memory_gauge: ObservableGauge<u64>,
 
-    pub num_threads_observer: ValueObserver<u64>,
+    pub num_threads_gauge: ObservableGauge<u64>,
 
     //
     // User-defined metrics
@@ -60,21 +70,44 @@ impl OpenTelemetryMetrics {
     pub fn new() -> Self {
         let meter = global::meter("casper");
 
-        let active_connections_counter = ActiveCounter::new(0);
-        let active_requests_counter = ActiveCounter::new(0);
+        meter
+            .register_callback(|cx| {
+                let metrics = &*METRICS;
 
-        let lua_used_memory = Arc::new(RwLock::default());
+                let active_connections = metrics.active_connections_counter.get();
+                metrics
+                    .active_connections_gauge
+                    .observe(cx, active_connections, &[]);
+
+                let active_requests = metrics.active_requests_counter.get();
+                metrics
+                    .active_requests_gauge
+                    .observe(cx, active_requests, &[]);
+
+                if let Ok(lua_used_memory) = metrics.lua_used_memory.try_read() {
+                    let lua_used_memory_total = lua_used_memory
+                        .iter()
+                        .map(|v| v.load(Ordering::Relaxed))
+                        .sum();
+                    metrics
+                        .lua_used_memory_gauge
+                        .observe(cx, lua_used_memory_total, &[]);
+                }
+
+                if let Some(n) = num_threads::num_threads() {
+                    metrics.num_threads_gauge.observe(cx, n.get() as u64, &[]);
+                }
+            })
+            .expect("Failed to register callback");
 
         OpenTelemetryMetrics {
             connections_counter: meter
                 .u64_counter("http_connections_total")
                 .with_description("Total number of HTTP connections processed by the application.")
                 .init(),
-            active_connections_counter: active_connections_counter.clone(),
-            active_connections_observer: meter
-                .u64_value_observer("http_connections_current", move |observer| {
-                    observer.observe(active_connections_counter.get(), &[]);
-                })
+            active_connections_counter: ActiveCounter::new(0),
+            active_connections_gauge: meter
+                .u64_observable_gauge("http_connections_current")
                 .with_description(
                     "Current number of HTTP connections being processed by the application.",
                 )
@@ -85,14 +118,12 @@ impl OpenTelemetryMetrics {
                 .with_description("Total number of HTTP requests processed by the application.")
                 .init(),
             requests_histogram: meter
-                .f64_value_recorder("http_request_duration_seconds")
+                .f64_histogram("http_request_duration_seconds")
                 .with_description("HTTP request latency in seconds.")
                 .init(),
-            active_requests_counter: active_requests_counter.clone(),
-            active_requests_observer: meter
-                .u64_value_observer("http_requests_current", move |observer| {
-                    observer.observe(active_requests_counter.get(), &[]);
-                })
+            active_requests_counter: ActiveCounter::new(0),
+            active_requests_gauge: meter
+                .u64_observable_gauge("http_requests_current")
                 .with_description(
                     "Current number of HTTP requests being processed by the application.",
                 )
@@ -105,36 +136,23 @@ impl OpenTelemetryMetrics {
                 )
                 .init(),
             storage_histogram: meter
-                .f64_value_recorder("storage_request_duration_seconds")
+                .f64_histogram("storage_request_duration_seconds")
                 .with_description("The storage backend request latency in seconds.")
                 .init(),
 
             middleware_histogram: meter
-                .f64_value_recorder("middleware_request_duration_seconds")
+                .f64_histogram("middleware_request_duration_seconds")
                 .with_description("Middleware only request latency in seconds.")
                 .init(),
 
-            lua_used_memory: lua_used_memory.clone(),
-            lua_used_memory_observer: meter
-                .u64_value_observer("lua_used_memory_bytes", move |observer| {
-                    // Almost all the time it's locked for read only
-                    if let Ok(lua_used_memory) = lua_used_memory.try_read() {
-                        let lua_used_memory_total = lua_used_memory
-                            .iter()
-                            .map(|v| v.load(Ordering::Relaxed))
-                            .sum();
-                        observer.observe(lua_used_memory_total, &[]);
-                    }
-                })
+            lua_used_memory: Arc::new(RwLock::default()),
+            lua_used_memory_gauge: meter
+                .u64_observable_gauge("lua_used_memory_bytes")
                 .with_description("Total memory used by Lua workers.")
                 .init(),
 
-            num_threads_observer: meter
-                .u64_value_observer("process_threads_count", move |observer| {
-                    if let Some(n) = num_threads::num_threads() {
-                        observer.observe(n.get() as u64, &[]);
-                    }
-                })
+            num_threads_gauge: meter
+                .u64_observable_gauge("process_threads_count")
                 .with_description("Current number of active threads.")
                 .init(),
 
@@ -158,21 +176,24 @@ pub fn register_custom_metrics(config: MetricsConfig) {
 
 macro_rules! connections_counter_inc {
     () => {{
-        crate::metrics::METRICS.connections_counter.add(1, &[]);
+        let cx = ::opentelemetry::Context::current();
+        crate::metrics::METRICS.connections_counter.add(&cx, 1, &[]);
         crate::metrics::METRICS.active_connections_counter.inc()
     }};
 }
 
 macro_rules! requests_counter_inc {
     () => {{
-        crate::metrics::METRICS.requests_counter.add(1, &[]);
+        let cx = ::opentelemetry::Context::current();
+        crate::metrics::METRICS.requests_counter.add(&cx, 1, &[]);
         crate::metrics::METRICS.active_requests_counter.inc()
     }};
 }
 
 macro_rules! requests_histogram_rec {
     ($start:expr, $($key:expr => $val:expr),*) => {
-        crate::metrics::METRICS.requests_histogram.record(
+        let cx = ::opentelemetry::Context::current();
+        crate::metrics::METRICS.requests_histogram.record(&cx,
             $start.elapsed().as_secs_f64(),
             &[
                 $(::opentelemetry::KeyValue::new($key, $val),)*
@@ -183,7 +204,8 @@ macro_rules! requests_histogram_rec {
 
 macro_rules! storage_counter_add {
     ($increment:expr, $($key:expr => $val:expr),*) => {
-        crate::metrics::METRICS.storage_counter.add(
+        let cx = ::opentelemetry::Context::current();
+        crate::metrics::METRICS.storage_counter.add(&cx,
             $increment,
             &[
                 $(::opentelemetry::KeyValue::new($key, $val),)*
@@ -194,7 +216,8 @@ macro_rules! storage_counter_add {
 
 macro_rules! storage_histogram_rec {
     ($start:expr, $($key:expr => $val:expr),*) => {
-        crate::metrics::METRICS.storage_histogram.record(
+        let cx = ::opentelemetry::Context::current();
+        crate::metrics::METRICS.storage_histogram.record(&cx,
             $start.elapsed().as_secs_f64(),
             &[
                 $(::opentelemetry::KeyValue::new($key, $val),)*
@@ -205,7 +228,8 @@ macro_rules! storage_histogram_rec {
 
 macro_rules! middleware_histogram_rec {
     ($start:expr, $($key:expr => $val:expr),*) => {
-        crate::metrics::METRICS.middleware_histogram.record(
+        let cx = ::opentelemetry::Context::current();
+        crate::metrics::METRICS.middleware_histogram.record(&cx,
             $start.elapsed().as_secs_f64(),
             &[
                 $(::opentelemetry::KeyValue::new($key, $val),)*

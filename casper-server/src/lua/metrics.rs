@@ -1,7 +1,7 @@
 use mlua::{Lua, Result, Table, UserData, UserDataMethods, Value};
 
 use opentelemetry::metrics::Counter;
-use opentelemetry::KeyValue;
+use opentelemetry::{Context, KeyValue};
 
 struct U64Counter(Counter<u64>);
 
@@ -10,7 +10,8 @@ impl UserData for U64Counter {
         methods.add_method(
             "add",
             |_, this, (value, attributes): (u64, Option<Table>)| {
-                this.0.add(value, &from_lua_attributes(attributes)?);
+                let cx = Context::current();
+                this.0.add(&cx, value, &from_lua_attributes(attributes)?);
                 Ok(())
             },
         );
