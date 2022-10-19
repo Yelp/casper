@@ -41,7 +41,7 @@ impl Svc {
 
         let worker_ctx = self.worker_ctx.clone();
         let lua_ctx = LuaContext::new(lua); // Create Lua context table
-        let mut lua_req = LuaRequest::new(req);
+        let mut lua_req = LuaRequest::from(req);
         lua_req.set_remote_addr(self.remote_addr);
 
         let mut resp = handler::handler(worker_ctx, lua_req, lua_ctx.clone()).await?;

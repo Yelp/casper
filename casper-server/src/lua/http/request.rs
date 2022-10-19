@@ -1,99 +1,264 @@
+use std::collections::HashMap;
 use std::convert::TryFrom;
-use std::mem;
 use std::net::SocketAddr;
 use std::ops::{Deref, DerefMut};
 use std::time::Duration;
 
-use bytes::BufMut;
-use hyper::{body::HttpBody, Body, Method, Request, Uri};
+use http::uri::PathAndQuery;
+use http::{Method, Request, Uri, Version};
+use hyper::Body;
 use mlua::{
-    AnyUserData, ExternalResult, String as LuaString, Table, ToLua, UserData, UserDataFields,
-    UserDataMethods, Value,
+    ExternalError, ExternalResult, FromLua, Lua, LuaSerdeExt, Result as LuaResult,
+    String as LuaString, Table, ToLua, UserData, UserDataFields, UserDataMethods, Value,
 };
+use serde_json::Value as JsonValue;
 
-use super::{LuaHttpHeaders, LuaHttpHeadersExt};
+use super::{EitherBody, LuaBody, LuaHttpHeaders, LuaHttpHeadersExt};
 
 pub struct LuaRequest {
-    req: Request<Body>,
+    request: Request<EitherBody>,
     remote_addr: Option<SocketAddr>,
     destination: Option<Uri>,
     timeout: Option<Duration>,
 }
 
 impl LuaRequest {
-    pub fn new(request: Request<Body>) -> Self {
+    #[inline]
+    pub fn new(body: LuaBody) -> Self {
         LuaRequest {
-            req: request,
+            request: Request::new(EitherBody::Body(body)),
             remote_addr: None,
             destination: None,
             timeout: None,
         }
     }
 
-    pub fn set_remote_addr(&mut self, addr: SocketAddr) {
-        self.remote_addr = Some(addr);
+    /// Returns request destination
+    #[inline]
+    pub fn destination(&self) -> Option<Uri> {
+        self.destination.clone()
     }
 
-    pub fn into_inner(self) -> Request<Body> {
-        self.req
-    }
-
+    /// Returns timeout for outgoing request
+    #[inline]
     pub fn timeout(&self) -> Option<Duration> {
         self.timeout
     }
 
-    pub fn destination(&self) -> Option<Uri> {
-        self.destination.clone()
+    /// Sets remote address for incoming request
+    #[inline]
+    pub fn set_remote_addr(&mut self, addr: SocketAddr) {
+        self.remote_addr = Some(addr);
+    }
+
+    /// Rewrites request's uri path
+    fn set_uri_path(&mut self, path: &str) -> LuaResult<()> {
+        // Skip everything after `?`
+        let mut path = path.split_once('?').unwrap_or((path, "/")).0;
+        if path.is_empty() {
+            path = "/";
+        }
+        let mut parts = self.uri().clone().into_parts();
+        let path_and_query =
+            if let Some(query) = parts.path_and_query.as_ref().and_then(|x| x.query()) {
+                PathAndQuery::try_from(format!("{path}?{query}"))
+            } else {
+                PathAndQuery::try_from(path)
+            };
+        parts.path_and_query = Some(path_and_query.to_lua_err()?);
+        *self.uri_mut() = Uri::from_parts(parts).to_lua_err()?;
+        Ok(())
+    }
+
+    /// Rewrites request's uri query (can be empty)
+    fn set_uri_query(&mut self, query: &str) -> LuaResult<()> {
+        let mut parts = self.uri().clone().into_parts();
+        let path = parts.path_and_query.as_ref().map(|x| x.path());
+        let path = path.unwrap_or("/");
+        let path_and_query = if query.is_empty() {
+            Some(PathAndQuery::try_from(path)).transpose()
+        } else {
+            Some(PathAndQuery::try_from(format!("{path}?{query}"))).transpose()
+        };
+        parts.path_and_query = path_and_query.to_lua_err()?;
+        *self.uri_mut() = Uri::from_parts(parts).to_lua_err()?;
+        Ok(())
+    }
+
+    /// Consumes the request, returning the wrapped hyper Request
+    #[inline]
+    pub fn into_inner(self) -> Request<Body> {
+        self.request.map(|body| body.into())
     }
 }
 
 impl Deref for LuaRequest {
-    type Target = Request<Body>;
+    type Target = Request<EitherBody>;
 
     fn deref(&self) -> &Self::Target {
-        &self.req
+        &self.request
     }
 }
 
 impl DerefMut for LuaRequest {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.req
+        &mut self.request
+    }
+}
+
+impl From<Request<Body>> for LuaRequest {
+    #[inline]
+    fn from(request: Request<Body>) -> Self {
+        LuaRequest {
+            request: request.map(|body| {
+                EitherBody::Body(LuaBody::Hyper {
+                    timeout: None,
+                    body,
+                })
+            }),
+            remote_addr: None,
+            destination: None,
+            timeout: None,
+        }
+    }
+}
+
+impl From<LuaRequest> for Request<Body> {
+    #[inline]
+    fn from(request: LuaRequest) -> Self {
+        request.into_inner()
+    }
+}
+
+impl<'lua> FromLua<'lua> for LuaRequest {
+    fn from_lua(value: Value<'lua>, lua: &'lua Lua) -> LuaResult<Self> {
+        let mut request = LuaRequest::new(LuaBody::Empty);
+        let params = match lua.unpack::<Option<Table>>(value)? {
+            Some(params) => params,
+            None => return Ok(request),
+        };
+
+        if let Ok(Some(method)) = params.raw_get::<_, Option<LuaString>>("method") {
+            *request.method_mut() = Method::from_bytes(method.as_bytes()).to_lua_err()?;
+        }
+
+        if let Ok(Some(uri)) = params.raw_get::<_, Option<LuaString>>("uri") {
+            *request.uri_mut() = Uri::try_from(uri.as_bytes())
+                .map_err(|err| format!("invalid uri: {err}"))
+                .to_lua_err()?;
+        }
+
+        if let Ok(Some(version)) = params.raw_get::<_, Option<LuaString>>("version") {
+            *request.version_mut() = match version.as_bytes() {
+                b"1.0" => Version::HTTP_10,
+                b"1.1" => Version::HTTP_11,
+                b"2" | b"2.0" => Version::HTTP_2,
+                _ => return Err(format!("invalid HTTP version")).to_lua_err(),
+            };
+        }
+
+        if let Ok(Some(timeout)) = params.raw_get::<_, Option<f64>>("timeout") {
+            if timeout > 0. {
+                request.timeout = Some(Duration::from_secs_f64(timeout));
+            }
+        }
+
+        let headers = params
+            .raw_get::<_, LuaHttpHeaders>("headers")
+            .map_err(|err| format!("invalid headers: {err}"))
+            .to_lua_err()?;
+        *request.headers_mut() = headers.into();
+
+        let body = params
+            .raw_get::<_, LuaBody>("body")
+            .map_err(|err| format!("invalid body: {err}"))
+            .to_lua_err()?;
+        *request.body_mut() = EitherBody::Body(body);
+
+        Ok(request)
     }
 }
 
 impl UserData for LuaRequest {
     fn add_fields<'lua, F: UserDataFields<'lua, Self>>(fields: &mut F) {
-        fields.add_field_method_get("method", |_, this| Ok(this.method().to_string()));
+        fields.add_field_method_get("method", |lua, this| this.method().as_str().to_lua(lua));
         fields.add_field_method_set("method", |_, this, method: String| {
             *this.method_mut() = Method::from_bytes(method.as_bytes()).to_lua_err()?;
             Ok(())
         });
 
+        fields.add_field_method_get("version", |lua, this| {
+            format!("{:?}", this.version())[5..].to_lua(lua)
+        });
+
         fields.add_field_method_get("uri", |_, this| Ok(this.uri().to_string()));
-        fields.add_field_method_set("uri", |_, this, uri: String| {
+        fields.add_field_method_set("uri", |_, this, uri: LuaString| {
             *this.uri_mut() = Uri::try_from(uri.as_bytes()).to_lua_err()?;
             Ok(())
         });
 
-        fields.add_field_method_get("uri_path", |_, this| Ok(this.uri().path().to_string()));
-
         fields.add_field_method_get("remote_addr", |_, this| {
             Ok(this.remote_addr.map(|s| s.to_string()))
+        });
+
+        fields.add_field_function_get("body", |lua, this| {
+            let mut this = this.borrow_mut::<Self>()?;
+            this.body_mut().as_userdata(lua)
         });
     }
 
     fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
-        methods.add_method_mut("set_destination", |_, this, dst: String| {
-            this.destination = Some(dst.parse().to_lua_err()?);
-            Ok(())
+        // Static constructor
+        methods.add_function("new", |lua, params: Value| {
+            LuaRequest::from_lua(params, lua)
         });
 
+        methods.add_method_mut(
+            "set_destination",
+            |_, this, (dst, options): (String, Option<Table>)| {
+                this.destination = Some(dst.parse().to_lua_err()?);
+                if let Some(options) = options {
+                    if let Ok(timeout) = options.raw_get::<_, f64>("timeout") {
+                        if timeout > 0. {
+                            this.timeout = Some(Duration::from_secs_f64(timeout));
+                        }
+                    }
+                }
+                Ok(())
+            },
+        );
+
+        methods.add_method("timeout", |_, this, ()| {
+            Ok(this.timeout.map(|d| d.as_secs_f64()))
+        });
         methods.add_method_mut("set_timeout", |_, this, timeout: Option<f64>| {
             match timeout {
                 Some(t) if t > 0.0 => this.timeout = Some(Duration::from_secs_f64(t)),
                 Some(_) | None => this.timeout = None,
             };
             Ok(())
+        });
+
+        methods.add_method("uri_path", |lua, this, ()| this.uri().path().to_lua(lua));
+        methods.add_method_mut("set_uri_path", |_, this, path: String| {
+            this.set_uri_path(&path)
+        });
+
+        methods.add_method("uri_query", |lua, this, ()| this.uri().query().to_lua(lua));
+        methods.add_method_mut("set_uri_query", |_, this, query: String| {
+            this.set_uri_query(&query)
+        });
+
+        methods.add_method("uri_args", |lua, this, ()| {
+            let query = this.uri().query().unwrap_or("");
+            let args =
+                lua_try!(serde_qs::from_str::<HashMap<String, JsonValue>>(query).to_lua_err());
+            Ok(Ok(lua.to_value(&args)?))
+        });
+
+        methods.add_method_mut("set_uri_args", |_, this, args: Table| {
+            let query = serde_qs::to_string(&args).to_lua_err()?;
+            this.set_uri_query(&query)
         });
 
         methods.add_method("header", |lua, this, name: String| {
@@ -137,90 +302,107 @@ impl UserData for LuaRequest {
             Ok(LuaHttpHeaders::from(this.headers().clone()))
         });
 
-        methods.add_method("uri_args", |lua, this, ()| {
-            let table = lua.create_table()?;
-            if let Some(query) = this.uri().query() {
-                for (k, v) in form_urlencoded::parse(query.as_bytes()) {
-                    match table.raw_get::<_, Option<Value>>(&*k)? {
-                        None => table.raw_set(k, v)?,
-                        Some(Value::Table(t)) => {
-                            t.raw_insert(t.raw_len() + 1, v)?;
-                        }
-                        Some(val) => {
-                            let inner_table = lua.create_sequence_from([val, v.to_lua(lua)?])?;
-                            table.raw_set(k, inner_table)?;
-                        }
-                    }
-                }
-            }
-            Ok(table)
-        });
-
-        methods.add_method_mut("set_uri_args", |_lua, _this, _args: Table| {
-            // TODO
-            Ok(())
-        });
-
-        #[allow(clippy::await_holding_refcell_ref)]
-        methods.add_async_function("body", |lua, this: AnyUserData| async move {
-            // Check if body cached
-            if let Some(body) = this.get_user_value::<Option<LuaString>>()? {
-                return Ok(Value::String(body));
-            }
-
-            let body = {
-                let mut this = this.borrow_mut::<Self>()?;
-
-                let mut body = Body::empty();
-                mem::swap(this.body_mut(), &mut body);
-
-                let mut vec = Vec::new();
-                while let Some(buf) = body.data().await {
-                    vec.put(buf.to_lua_err()?);
-                }
-
-                let lua_body = lua.create_string(&vec)?;
-                // Restore request body
-                *this.body_mut() = Body::from(vec);
-
-                lua_body
+        methods.add_method_mut("set_headers", |lua, this, value: Value| {
+            let headers = match value {
+                Value::Nil => Err(format!("headers must be non-nil").to_lua_err()),
+                _ => LuaHttpHeaders::from_lua(value, lua)
+                    .map_err(|err| format!("invalid headers: {err}"))
+                    .to_lua_err(),
             };
-
-            // Cache it
-            this.set_user_value(body.clone())?;
-
-            Ok(Value::String(body))
+            *this.headers_mut() = headers?.into();
+            Ok(())
         });
     }
 }
 
-// #[cfg(test)]
-// mod tests {
-//     use mlua::{ExternalResult, Lua, LuaSerdeExt, Result, ToLua, Value};
+#[cfg(test)]
+mod tests {
+    use std::rc::Rc;
 
-//     #[test]
-//     fn test_uri() -> Result<()> {
-//         let lua = Lua::new();
-//         // lua.globals().set("Url", LuaUrl("http:/".parse().unwrap()))?;
+    use mlua::{chunk, Lua, Result};
 
-//         let query = "a=b&a=c&c=d&d";
-//         let table = lua.create_table()?;
-//         for (k, v) in form_urlencoded::parse(query.as_bytes()) {
-//             match table.raw_get::<_, Option<Value>>(&*k)? {
-//                 None => table.raw_set(k, v)?,
-//                 Some(Value::Table(t)) => {
-//                     t.raw_insert(t.raw_len() + 1, v)?;
-//                 }
-//                 Some(val) => {
-//                     let inner_table = lua.create_sequence_from([val, v.to_lua(&lua)?])?;
-//                     table.raw_set(k, inner_table)?;
-//                 }
-//             }
-//         }
+    use super::*;
 
-//         let x = serde_json::to_value(table).unwrap();
-//         println!("{}", x);
+    #[test]
+    fn test_request() -> Result<()> {
+        let lua = Rc::new(Lua::new());
+        lua.set_app_data(Rc::downgrade(&lua));
 
-//         Ok(())
-//     }
-// }
+        lua.globals()
+            .set("Request", lua.create_proxy::<LuaRequest>()?)?;
+
+        // Check default request params
+        lua.load(chunk! {
+            local req = Request.new()
+            assert(req.method == "GET")
+            assert(req.uri == "/")
+            assert(req.remote_addr == nil)
+            assert(req.body:read() == nil)
+        })
+        .exec()
+        .unwrap();
+
+        // Construct complex request
+        lua.load(chunk! {
+            local req = Request.new({
+                method = "PUT",
+                uri = "http://127.0.0.1/path/a?param1=a&param2=b&param3[]=c",
+                version = "2",
+                timeout = 3.5,
+                headers = {
+                    ["user-agent"] = "test ua",
+                    foo = {"bar", "baz"},
+                },
+                body = "hello, world",
+            })
+            assert(req.method == "PUT")
+            assert(req.version == "2.0")
+            assert(req:uri_path() == "/path/a")
+            assert(req:uri_query() == "param1=a&param2=b&param3[]=c")
+            assert(req:uri_args()["param1"] == "a")
+            assert(type(req:uri_args()["param3"]) == "table")
+            req:set_uri_args({p = "q"})
+            assert(req:uri_query() == "p=q")
+        })
+        .exec()
+        .unwrap();
+
+        // Check headers manipulation
+        lua.load(chunk! {
+            local req = Request.new({
+                headers = {
+                    ["user-agent"] = "test ua",
+                    foo = {"bar", "baz"},
+                },
+            })
+            assert(req:header("User-Agent") == "test ua")
+            assert(req:header("foo") == "bar")
+            assert(table.concat(req:header_all("foo"), ",") == "bar,baz")
+            assert(req:header_cnt("foo") == 2)
+            assert(req:header_cnt("none") == 0)
+            assert(req:header_match("foo", "ba"))
+            assert(not req:header_match("foo", "abc"))
+
+            req:add_header("foo", "test")
+            assert(req:header_cnt("foo") == 3)
+
+            req:set_header("abc", "cde")
+            assert(req:header("abc") == "cde")
+
+            req:del_header("foo")
+            assert(req:header("foo") == nil)
+
+            req:set_headers({
+                ["x-new"] = "new"
+            })
+            assert(req:header("x-new") == "new")
+            assert(req:header("abc") == nil)
+
+            assert(type(req:headers()) == "userdata")
+        })
+        .exec()
+        .unwrap();
+
+        Ok(())
+    }
+}

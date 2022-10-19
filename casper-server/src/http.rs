@@ -73,7 +73,7 @@ where
 
     filter_hop_headers(resp.headers_mut());
 
-    let mut resp = LuaResponse::new(resp);
+    let mut resp = LuaResponse::from(resp);
     resp.is_proxied = true;
 
     Ok(resp)

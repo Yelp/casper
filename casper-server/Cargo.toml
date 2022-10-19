@@ -8,7 +8,6 @@ anyhow = "1"
 async-trait = "0.1"
 base64 = "0.13"
 bitflags = "1.3.2"
-bstr = { version = "0.2.17", features = ["serde1"] }
 bytes = { version = "1", features = ["serde"] }
 clap = { version = "4", features = ["derive", "env"] }
 dyn-clone = "1"
@@ -39,6 +38,7 @@ scopeguard = "1.1.0"
 serde = { version = "1", features = ["derive"] }
 serde_bytes = "0.11"
 serde_json = "1"
+serde_qs = "0.10"
 serde_yaml = "0.9"
 sys-info = "0.9"
 thiserror = "1"
@@ -50,6 +50,9 @@ tracing = "0.1"
 tracing-log = "0.1"
 tracing-subscriber = "0.3"
 zstd = "0.11"
+
+[dev-dependencies]
+tokio-stream = { version = "0.1", features = ["time"] }
 
 [dependencies.mlua]
 features = ["luau", "async", "serialize", "macros"]

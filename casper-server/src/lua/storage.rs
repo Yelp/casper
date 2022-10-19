@@ -1,7 +1,7 @@
-use std::borrow::Cow;
 use std::error::Error as StdError;
 use std::iter::IntoIterator;
 use std::time::{Duration, Instant};
+use std::{borrow::Cow, ops::Deref};
 
 use hyper::Body;
 use mlua::{
@@ -22,6 +22,15 @@ impl<T: Storage> LuaStorage<T> {
     }
 }
 
+impl<T: Storage> Deref for LuaStorage<T> {
+    type Target = T;
+
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
 impl<T> UserData for LuaStorage<T>
 where
     T: Storage<Body = Body> + 'static,
@@ -39,13 +48,13 @@ where
                 let this = this.borrow::<Self>()?;
 
                 let key = calculate_primary_key(lua, key)?;
-                let resp = this.0.get_response(key).await.to_lua_err()?;
+                let resp = this.get_response(key).await.to_lua_err()?;
 
-                storage_counter_add!(1, "name" => this.0.name(), "operation" => "get");
-                storage_histogram_rec!(start, "name" => this.0.name(), "operation" => "get");
+                storage_counter_add!(1, "name" => this.name(), "operation" => "get");
+                storage_histogram_rec!(start, "name" => this.name(), "operation" => "get");
 
                 Ok(resp.map(|resp| {
-                    let mut resp = LuaResponse::new(resp);
+                    let mut resp = LuaResponse::from(resp);
                     resp.is_stored = true;
                     resp
                 }))
@@ -63,13 +72,12 @@ where
                 let this = this.borrow::<Self>()?;
                 let key = calculate_primary_key(lua, key)?;
 
-                this.0
-                    .delete_responses(ItemKey::Primary(key))
+                this.delete_responses(ItemKey::Primary(key))
                     .await
                     .to_lua_err()?;
 
-                storage_counter_add!(1, "name" => this.0.name(), "operation" => "delete");
-                storage_histogram_rec!(start, "name" => this.0.name(), "operation" => "delete");
+                storage_counter_add!(1, "name" => this.name(), "operation" => "delete");
+                storage_histogram_rec!(start, "name" => this.name(), "operation" => "delete");
 
                 Ok(())
             },
@@ -103,13 +111,13 @@ where
                 }
 
                 let items_count: u64 = item_keys.len() as u64;
-                let results = this.0.delete_responses_multi(item_keys).await;
+                let results = this.delete_responses_multi(item_keys).await;
                 for r in results {
                     r.to_lua_err()?;
                 }
 
-                storage_counter_add!(items_count, "name" => this.0.name(), "operation" => "delete");
-                storage_histogram_rec!(start, "name" => this.0.name(), "operation" => "delete");
+                storage_counter_add!(items_count, "name" => this.name(), "operation" => "delete");
+                storage_histogram_rec!(start, "name" => this.name(), "operation" => "delete");
 
                 Ok(())
             },
@@ -132,9 +140,13 @@ where
 
                 let mut resp = resp.borrow_mut::<LuaResponse>()?;
 
-                // Read Response body and save it to restore after caching
-                let body = hyper::body::to_bytes(resp.body_mut()).await.to_lua_err()?;
-                *resp.body_mut() = Body::from(body.clone());
+                // Read Response body (it's consumed and saved)
+                let body = resp
+                    .body_mut()
+                    .buffer()
+                    .await
+                    .to_lua_err()?
+                    .unwrap_or_default();
 
                 // Remove hop by hop headers
                 filter_hop_headers(resp.headers_mut());
@@ -147,7 +159,6 @@ where
                     .collect();
 
                 let result = this
-                    .0
                     .store_response(Item {
                         key: calculate_primary_key(lua, key)?,
                         status: resp.status(),
@@ -159,11 +170,8 @@ where
                     .await
                     .to_lua_err();
 
-                // Restore body
-                *resp.body_mut() = Body::from(body);
-
-                storage_counter_add!(1, "name" => this.0.name(), "operation" => "store");
-                storage_histogram_rec!(start, "name" => this.0.name(), "operation" => "store");
+                storage_counter_add!(1, "name" => this.name(), "operation" => "store");
+                storage_histogram_rec!(start, "name" => this.name(), "operation" => "store");
 
                 result
             },

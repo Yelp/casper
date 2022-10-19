@@ -81,21 +81,21 @@ pub(crate) async fn handler(
                         .status(500)
                         .header(header::CONTENT_TYPE, "text/plan")
                         .body(Body::from(format!("invalid destination: {err}")))?;
-                    LuaResponse::new(resp)
+                    LuaResponse::from(resp)
                 }
                 Err(err) if matches!(err, ProxyError::Timeout(..)) => {
                     let resp = Response::builder()
                         .status(504)
                         .header(header::CONTENT_TYPE, "text/plan")
                         .body(Body::from(err.to_string()))?;
-                    LuaResponse::new(resp)
+                    LuaResponse::from(resp)
                 }
                 Err(err) => {
                     let resp = Response::builder()
                         .status(502)
                         .header(header::CONTENT_TYPE, "text/plan")
                         .body(Body::from(err.to_string()))?;
-                    LuaResponse::new(resp)
+                    LuaResponse::from(resp)
                 }
             };
 

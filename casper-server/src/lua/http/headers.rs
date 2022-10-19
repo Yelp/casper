@@ -5,7 +5,8 @@ use http::header::{HeaderName, HeaderValue};
 use http::HeaderMap;
 use mlua::{
     AnyUserData, ExternalError, ExternalResult, FromLua, Function, Lua, MetaMethod, RegistryKey,
-    Result as LuaResult, String as LuaString, Table, ToLua, UserData, Value, Variadic,
+    Result as LuaResult, String as LuaString, Table, ToLua, UserData, UserDataMethods, Value,
+    Variadic,
 };
 
 use super::super::Regex;
@@ -32,20 +33,38 @@ pub trait LuaHttpHeadersExt {
     /// Sets the header value removing all existing values.
     fn set(&mut self, name: &str, value: &[u8]) -> LuaResult<()>;
 
-    /// Replaces all headers with the new from a `headers` table.
-    /// All missing headers removed if not present in the new table.
-    fn replace_all(&mut self, lua: &Lua, headers: Table) -> LuaResult<()>;
-
     /// Converts internal representation of headers to a Lua table with a specific metatable
     /// for case-insensitive access.
     fn to_table<'lua>(&self, lua: &'lua Lua, names_filter: Value<'lua>) -> LuaResult<Table<'lua>>;
 }
 
-#[derive(Clone, Debug)]
-pub struct LuaHttpHeaders(HeaderMap<HeaderValue>);
+#[derive(Debug, Default)]
+pub struct LuaHttpHeaders(HeaderMap);
+
+impl LuaHttpHeaders {
+    #[inline]
+    pub fn new() -> Self {
+        LuaHttpHeaders(HeaderMap::new())
+    }
+
+    #[inline]
+    pub fn with_capacity(n: usize) -> Self {
+        LuaHttpHeaders(HeaderMap::with_capacity(n))
+    }
+
+    #[inline]
+    pub fn into_inner(self) -> HeaderMap {
+        self.0
+    }
+
+    // `Clone` trait conflicts with `FromLua` and `UserData`, so implemented as a type method
+    pub fn clone(&self) -> Self {
+        LuaHttpHeaders(self.0.clone())
+    }
+}
 
 impl Deref for LuaHttpHeaders {
-    type Target = HeaderMap<HeaderValue>;
+    type Target = HeaderMap;
 
     fn deref(&self) -> &Self::Target {
         &self.0
@@ -58,19 +77,66 @@ impl DerefMut for LuaHttpHeaders {
     }
 }
 
+impl<'lua> FromLua<'lua> for LuaHttpHeaders {
+    fn from_lua(value: Value<'lua>, lua: &'lua Lua) -> LuaResult<Self> {
+        match value {
+            Value::Nil => Ok(Self::new()),
+            Value::Table(table) => {
+                let mut headers = Self::with_capacity(table.raw_len() as usize);
+                for kv in table.pairs::<String, Value>() {
+                    let (name, value) = kv?;
+                    // Maybe `value` is a list of header values
+                    if let Value::Table(values) = value {
+                        let name = HeaderName::from_bytes(name.as_bytes()).to_lua_err()?;
+                        for value in values.raw_sequence_values::<LuaString>() {
+                            headers.append(
+                                name.clone(),
+                                HeaderValue::from_bytes(value?.as_bytes()).to_lua_err()?,
+                            );
+                        }
+                    } else {
+                        let value = lua.unpack::<LuaString>(value)?;
+                        headers.append(
+                            HeaderName::from_bytes(name.as_bytes()).to_lua_err()?,
+                            HeaderValue::from_bytes(value.as_bytes()).to_lua_err()?,
+                        );
+                    }
+                }
+                Ok(headers)
+            }
+            Value::UserData(ud) => {
+                if let Ok(headers) = ud.take::<Self>() {
+                    Ok(headers)
+                } else {
+                    Err(format!("cannot make headers from wrong userdata").to_lua_err())
+                }
+            }
+            val => {
+                let type_name = val.type_name();
+                let msg = format!("cannot make headers from {type_name}");
+                Err(msg.to_lua_err())
+            }
+        }
+    }
+}
+
+impl From<HeaderMap> for LuaHttpHeaders {
+    #[inline]
+    fn from(v: HeaderMap) -> Self {
+        LuaHttpHeaders(v)
+    }
+}
+
+impl From<LuaHttpHeaders> for HeaderMap {
+    #[inline]
+    fn from(headers: LuaHttpHeaders) -> Self {
+        headers.into_inner()
+    }
+}
+
 impl UserData for LuaHttpHeaders {
-    fn add_methods<'lua, M: mlua::UserDataMethods<'lua, Self>>(methods: &mut M) {
-        methods.add_function("new", |lua, headers: Value| {
-            let mut header_map = HeaderMap::new();
-            match headers {
-                Value::Table(t) => header_map.replace_all(lua, t)?,
-                Value::Nil => {}
-                v => Err(
-                    format!("invalid headers, expected table got {}", v.type_name()).to_lua_err(),
-                )?,
-            };
-            Ok(LuaHttpHeaders(header_map))
-        });
+    fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
+        methods.add_function("new", |lua, arg: Value| LuaHttpHeaders::from_lua(arg, lua));
 
         methods.add_method("get", |lua, this, name: String| {
             LuaHttpHeadersExt::get(&this.0, lua, &name)
@@ -99,10 +165,6 @@ impl UserData for LuaHttpHeaders {
 
         methods.add_method_mut("set", |_, this, (name, value): (String, LuaString)| {
             this.set(&name, value.as_bytes())
-        });
-
-        methods.add_method_mut("replace_all", |lua, this, new_headers| {
-            this.replace_all(lua, new_headers)
         });
 
         methods.add_method("to_table", |lua, this, filter| this.to_table(lua, filter));
@@ -166,12 +228,6 @@ impl UserData for LuaHttpHeaders {
     }
 }
 
-impl From<HeaderMap<HeaderValue>> for LuaHttpHeaders {
-    fn from(v: HeaderMap<HeaderValue>) -> Self {
-        LuaHttpHeaders(v)
-    }
-}
-
 struct LuaHttpHeadersIter {
     names: Vec<HeaderName>,
     next: usize,
@@ -179,7 +235,7 @@ struct LuaHttpHeadersIter {
 
 impl UserData for LuaHttpHeadersIter {}
 
-impl LuaHttpHeadersExt for HeaderMap<HeaderValue> {
+impl LuaHttpHeadersExt for HeaderMap {
     fn get<'lua>(&self, lua: &'lua Lua, name: &str) -> LuaResult<Value<'lua>> {
         if let Some(val) = self.get(name) {
             return lua.create_string(val.as_bytes()).map(Value::String);
@@ -234,28 +290,6 @@ impl LuaHttpHeadersExt for HeaderMap<HeaderValue> {
         Ok(())
     }
 
-    fn replace_all(&mut self, lua: &Lua, headers: Table) -> LuaResult<()> {
-        let mut new_headers = HeaderMap::new();
-        for kv in headers.pairs::<String, Value>() {
-            let (name, value) = kv?;
-            let name = HeaderName::from_bytes(name.as_bytes()).to_lua_err()?;
-
-            // Maybe `value` is a list of header values
-            if let Value::Table(values) = value {
-                for value in values.raw_sequence_values::<LuaString>() {
-                    let value = HeaderValue::from_bytes(value?.as_bytes()).to_lua_err()?;
-                    new_headers.append(name.clone(), value);
-                }
-            } else {
-                let value = lua.unpack::<LuaString>(value)?;
-                let value = HeaderValue::from_bytes(value.as_bytes()).to_lua_err()?;
-                new_headers.append(name, value);
-            }
-        }
-        *self = new_headers;
-        Ok(())
-    }
-
     fn to_table<'lua>(&self, lua: &'lua Lua, names_filter: Value<'lua>) -> LuaResult<Table<'lua>> {
         let names_filter = match names_filter {
             Value::Nil => None,
@@ -264,9 +298,11 @@ impl LuaHttpHeadersExt for HeaderMap<HeaderValue> {
                     .map(|s| s.and_then(|s| HeaderName::from_bytes(s.as_bytes()).to_lua_err()))
                     .collect::<LuaResult<HashSet<_>>>()?,
             ),
-            v => Err(
-                format!("invalid names filter, expected table got {}", v.type_name()).to_lua_err(),
-            )?,
+            val => {
+                let type_name = val.type_name();
+                let reason = format!("invalid names filter: expected table, got {type_name}");
+                Err(reason.to_lua_err())?
+            }
         };
 
         let mut headers = HashMap::new();
@@ -411,13 +447,6 @@ mod tests {
             t = headers:to_table({"foo"})
             assert(t.test == nil)
             assert(table.concat(t.foo) == "bax")
-
-            // Test replace_all
-            headers:replace_all({
-                foo = {"bar", "bar"},
-                qaz = "wsx",
-            })
-            assert(table.concat(headers.foo) == "barbar")
         })
         .exec()?;
 

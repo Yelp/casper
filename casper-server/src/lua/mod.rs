@@ -1,8 +1,13 @@
 pub use {
-    self::http::{LuaRequest, LuaResponse},
+    self::http::{LuaBody, LuaRequest, LuaResponse},
     self::regex::Regex,
     storage::LuaStorage,
 };
+
+pub(crate) use traits::{LuaExt, WeakLuaExt};
+
+#[macro_use]
+mod macros;
 
 pub mod config;
 pub mod core;
@@ -17,3 +22,5 @@ pub mod storage;
 pub mod tasks;
 pub mod udp;
 pub mod utils;
+
+pub(crate) mod traits;

@@ -1,55 +1,39 @@
 use std::ops::{Deref, DerefMut};
 
-use hyper::{Body, Response, StatusCode};
+use http::{Response, StatusCode};
+use hyper::Body;
 use mlua::{
-    ExternalError, ExternalResult, String as LuaString, Table, UserData, UserDataFields,
-    UserDataMethods, Value,
+    ExternalError, ExternalResult, FromLua, Lua, Result as LuaResult, String as LuaString, Table,
+    UserData, UserDataFields, UserDataMethods, Value,
 };
 
-use super::{LuaHttpHeaders, LuaHttpHeadersExt};
+use super::{EitherBody, LuaBody, LuaHttpHeaders, LuaHttpHeadersExt};
 
 pub struct LuaResponse {
-    response: Response<Body>,
+    response: Response<EitherBody>,
     pub is_proxied: bool,
     pub is_stored: bool,
 }
 
 impl LuaResponse {
     #[inline]
-    pub fn new(response: Response<Body>) -> Self {
+    pub fn new(body: LuaBody) -> Self {
         LuaResponse {
-            response,
+            response: Response::new(EitherBody::Body(body)),
             is_proxied: false,
             is_stored: false,
         }
     }
 
+    /// Consumes the response, returning the wrapped hyper Response
     #[inline]
     pub fn into_inner(self) -> Response<Body> {
-        self.response
-    }
-
-    #[cfg(test)]
-    pub async fn clone_async(&mut self) -> hyper::Result<Self> {
-        let bytes = hyper::body::to_bytes(self.body_mut()).await?;
-        *self.body_mut() = Body::from(bytes.clone());
-
-        let mut resp_builder = Response::builder().status(self.status());
-        *resp_builder.headers_mut().expect("invalid response") = self.headers().clone();
-
-        let mut resp = resp_builder
-            .body(Body::from(bytes))
-            .map(LuaResponse::new)
-            .expect("cannot build response");
-        resp.is_stored = self.is_stored;
-        resp.is_proxied = self.is_proxied;
-
-        Ok(resp)
+        self.response.map(|body| body.into())
     }
 }
 
 impl Deref for LuaResponse {
-    type Target = Response<Body>;
+    type Target = Response<EitherBody>;
 
     fn deref(&self) -> &Self::Target {
         &self.response
@@ -62,6 +46,60 @@ impl DerefMut for LuaResponse {
     }
 }
 
+impl From<Response<Body>> for LuaResponse {
+    #[inline]
+    fn from(response: Response<Body>) -> Self {
+        LuaResponse {
+            response: response.map(|body| {
+                EitherBody::Body(LuaBody::Hyper {
+                    timeout: None,
+                    body,
+                })
+            }),
+            is_proxied: false,
+            is_stored: false,
+        }
+    }
+}
+
+impl From<LuaResponse> for Response<Body> {
+    #[inline]
+    fn from(response: LuaResponse) -> Self {
+        response.into_inner()
+    }
+}
+
+impl<'lua> FromLua<'lua> for LuaResponse {
+    fn from_lua(value: Value<'lua>, lua: &'lua Lua) -> LuaResult<Self> {
+        let mut response = LuaResponse::new(LuaBody::Empty);
+
+        let params = match lua.unpack::<Option<Table>>(value)? {
+            Some(params) => params,
+            None => return Ok(response),
+        };
+
+        if let Ok(Some(status)) = params.raw_get::<_, Option<u16>>("status") {
+            *response.status_mut() = StatusCode::from_u16(status)
+                .map_err(|err| err.to_string())
+                .to_lua_err()?;
+        }
+
+        let headers = params
+            .raw_get::<_, LuaHttpHeaders>("headers")
+            .map_err(|err| format!("invalid headers: {err}"))
+            .to_lua_err()?;
+        *response.headers_mut() = headers.into();
+
+        let body = params
+            .raw_get::<_, LuaBody>("body")
+            .map_err(|err| format!("invalid body: {err}"))
+            .to_lua_err()?;
+        *response.body_mut() = EitherBody::Body(body);
+
+        Ok(response)
+    }
+}
+
 impl UserData for LuaResponse {
     fn add_fields<'lua, F: UserDataFields<'lua, Self>>(fields: &mut F) {
         fields.add_field_method_get("is_proxied", |_, this| Ok(this.is_proxied));
@@ -69,65 +107,28 @@ impl UserData for LuaResponse {
 
         fields.add_field_method_get("status", |_, this| Ok(this.status().as_u16()));
         fields.add_field_method_set("status", |_, this, status: u16| {
-            *this.status_mut() = StatusCode::from_u16(status).to_lua_err()?;
+            *this.status_mut() = StatusCode::from_u16(status)
+                .map_err(|err| err.to_string())
+                .to_lua_err()?;
             Ok(())
+        });
+
+        fields.add_field_function_get("body", |lua, this| {
+            let mut this = this.borrow_mut::<Self>()?;
+            this.body_mut().as_userdata(lua)
         });
     }
 
     fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
         // Static constructor
         methods.add_function("new", |lua, (arg, body): (Value, Value)| {
-            let resp = match arg {
-                Value::Integer(_) => {
-                    let status: u16 = lua.unpack(arg)?;
-                    let res = Response::builder().status(status);
-                    match body {
-                        Value::Nil => res.body(Body::empty()),
-                        Value::String(b) => res.body(Body::from(b.as_bytes().to_vec())),
-                        _ => {
-                            let err = format!("invalid body type: {}", body.type_name());
-                            return Err(err.to_lua_err());
-                        }
-                    }
-                }
-                Value::Table(params) => {
-                    let mut res = Response::builder();
-
-                    // Set status
-                    if let Some(status) = params.raw_get::<_, Option<u16>>("status")? {
-                        res = res.status(status);
-                    }
-
-                    // Append headers
-                    if let Some(headers) = params.raw_get::<_, Option<Table>>("headers")? {
-                        for kv in headers.pairs::<String, Value>() {
-                            let (name, value) = kv?;
-                            // Maybe `value` is a list of header values
-                            if let Value::Table(values) = value {
-                                for value in values.raw_sequence_values::<LuaString>() {
-                                    res = res.header(name.clone(), value?.as_bytes());
-                                }
-                            } else {
-                                let value = lua.unpack::<LuaString>(value)?;
-                                res = res.header(name, value.as_bytes());
-                            }
-                        }
-                    }
-
-                    // Set body
-                    if let Some(body) = params.raw_get::<_, Option<LuaString>>("body")? {
-                        res.body(Body::from(body.as_bytes().to_vec()))
-                    } else {
-                        res.body(Body::empty())
-                    }
-                }
-                _ => {
-                    let err = format!("invalid arg type: {}", arg.type_name());
-                    return Err(err.to_lua_err());
-                }
-            }
-            .to_lua_err()?;
-            Ok(LuaResponse::new(resp))
+            let params = match arg {
+                Value::Integer(status) => Value::Table(
+                    lua.create_table_from([("status", Value::Integer(status)), ("body", body)])?,
+                ),
+                val => val,
+            };
+            LuaResponse::from_lua(params, lua)
         });
 
         methods.add_method("header", |lua, this, name: String| {
@@ -171,104 +172,105 @@ impl UserData for LuaResponse {
             Ok(LuaHttpHeaders::from(this.headers().clone()))
         });
 
-        methods.add_method_mut("set_headers", |lua, this, headers: Table| {
-            this.headers_mut().replace_all(lua, headers)
+        methods.add_method_mut("set_headers", |lua, this, value: Value| {
+            let headers = match value {
+                Value::Nil => Err(format!("headers must be non-nil").to_lua_err()),
+                _ => LuaHttpHeaders::from_lua(value, lua)
+                    .map_err(|err| format!("invalid headers: {err}"))
+                    .to_lua_err(),
+            };
+            *this.headers_mut() = headers?.into();
+            Ok(())
         });
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use http::response;
-    use hyper::body;
+    use std::rc::Rc;
+
     use mlua::{chunk, Lua, Result};
 
-    #[tokio::test]
-    async fn test_clone_response() {
-        let mut resp_1 = LuaResponse::new(
-            response::Builder::new()
-                .status(200)
-                .body(Body::from("test body"))
-                .unwrap(),
-        );
-        let resp_2 = resp_1.clone_async().await.unwrap();
-
-        // Check the first response body still exists and matches the original value
-        let body_1 = String::from_utf8(
-            body::to_bytes(resp_1.response.into_body())
-                .await
-                .unwrap()
-                .to_vec(),
-        )
-        .unwrap();
-        assert_eq!(body_1, "test body");
-
-        // Check the second response body matches the first
-        let body_2 = String::from_utf8(
-            body::to_bytes(resp_2.response.into_body())
-                .await
-                .unwrap()
-                .to_vec(),
-        )
-        .unwrap();
-        assert_eq!(body_1, body_2);
-    }
+    use super::*;
 
     #[test]
     fn test_response() -> Result<()> {
-        let lua = Lua::new();
-        lua.globals()
-            .set("Response", lua.create_proxy::<super::LuaResponse>()?)?;
+        let lua = Rc::new(Lua::new());
+        lua.set_app_data(Rc::downgrade(&lua));
 
+        lua.globals()
+            .set("Response", lua.create_proxy::<LuaResponse>()?)?;
+
+        // Check default response params
         lua.load(chunk! {
-            local resp = Response.new(201, "test body")
+            local resp = Response.new()
             assert(resp.is_proxied == false)
             assert(resp.is_stored == false)
-
-            assert(resp.status == 201)
-            resp.status = 202
-            assert(resp.status == 202)
+            assert(resp.status == 200)
+            assert(resp.body:read() == nil)
         })
-        .exec()?;
+        .exec()
+        .unwrap();
 
-        // Header tests
+        // Construct simple response
+        lua.load(chunk! {
+            local resp = Response.new(400, "bad response")
+            assert(resp.status == 400)
+            assert(resp.body:read() == "bad response")
+        })
+        .exec()
+        .unwrap();
+
+        // Construct complex response
         lua.load(chunk! {
             local resp = Response.new({
-                status = 200,
+                status = 201,
+                body = "hello, world",
                 headers = {
-                    ["x-test"] = {"test1","test2"},
-                    ["x-test-2"] = "test2",
+                    ["content-type"] = "text/plain",
                 },
-                body = "test body",
             })
-            // Header get, count and match
-            assert(resp:header("X-Test") == "test1")
-            assert(resp:headers()["X-Test-2"][1] == "test2")
-            assert(resp:header_all("x-test")[2] == "test2")
-            assert(resp:header_cnt("x-test") == 2)
-            assert(resp:header_match("x-test", ".*") == true)
-
-            // Adding, setting and deleting headers
-            assert(resp:header("X-Test-3") == nil)
-
-            resp:add_header("X-Test-3", "new header")
-            assert(resp:header("X-Test-3") == "new header")
-
-            resp:set_header("X-Test-3", "other header")
-            assert(resp:header("X-Test-3") == "other header")
-
-            resp:del_header("X-Test-3")
-            assert(resp:header("X-Test-3") == nil)
-
-            new_headers = {
-                ["X-Test-1"] = "new_header",
-            }
-            resp:set_headers(new_headers)
-            assert(resp:header("X-Test-1") == "new_header")
-            assert(resp:header("X-Test-3") == nil)
+            assert(resp.status == 201)
+            assert(resp.body:read() == "hello, world")
         })
-        .exec()?;
+        .exec()
+        .unwrap();
+
+        // Check headers manipulation
+        lua.load(chunk! {
+            local resp = Response.new({
+                headers = {
+                    ["server"] = "test server",
+                    foo = {"bar", "baz"},
+                },
+            })
+            assert(resp:header("Server") == "test server")
+            assert(resp:header("foo") == "bar")
+            assert(table.concat(resp:header_all("foo"), ",") == "bar,baz")
+            assert(resp:header_cnt("foo") == 2)
+            assert(resp:header_cnt("none") == 0)
+            assert(resp:header_match("foo", "ba"))
+            assert(not resp:header_match("foo", "abc"))
+
+            resp:add_header("foo", "test")
+            assert(resp:header_cnt("foo") == 3)
+
+            resp:set_header("abc", "cde")
+            assert(resp:header("abc") == "cde")
+
+            resp:del_header("foo")
+            assert(resp:header("foo") == nil)
+
+            resp:set_headers({
+                ["x-new"] = "new"
+            })
+            assert(resp:header("x-new") == "new")
+            assert(resp:header("abc") == nil)
+
+            assert(type(resp:headers()) == "userdata")
+        })
+        .exec()
+        .unwrap();
 
         Ok(())
     }
