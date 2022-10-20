@@ -339,6 +339,11 @@ impl UserData for LuaRequest {
             *this.headers_mut() = headers?.into();
             Ok(())
         });
+
+        methods.add_method_mut("set_body", |_, this, new_body| {
+            *this.body_mut() = EitherBody::Body(new_body);
+            Ok(())
+        });
     }
 }
 
@@ -457,6 +462,15 @@ mod tests {
             )
             .await
             .unwrap();
+
+        // Check rewriting body
+        lua.load(chunk! {
+            local req = Request.new({body = "hello"})
+            req:set_body("world")
+            assert(req.body:read() == "world")
+        })
+        .exec()
+        .unwrap();
 
         Ok(())
     }

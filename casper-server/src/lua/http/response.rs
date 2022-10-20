@@ -207,6 +207,11 @@ impl UserData for LuaResponse {
             *this.headers_mut() = headers?.into();
             Ok(())
         });
+
+        methods.add_method_mut("set_body", |_, this, new_body| {
+            *this.body_mut() = EitherBody::Body(new_body);
+            Ok(())
+        });
     }
 }
 
@@ -324,6 +329,15 @@ mod tests {
             )
             .await
             .unwrap();
+
+        // Check rewriting body
+        lua.load(chunk! {
+            local resp = Response.new(200, "hello")
+            resp:set_body("world")
+            assert(resp.body:read() == "world")
+        })
+        .exec()
+        .unwrap();
 
         Ok(())
     }
