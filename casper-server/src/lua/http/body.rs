@@ -16,6 +16,7 @@ use tracing::error;
 use super::super::{LuaExt, WeakLuaExt};
 
 // TODO: Limit number of fetched bytes
+// TODO: Trailers support
 
 pub enum LuaBody {
     Empty,
@@ -199,6 +200,10 @@ impl<'lua> FromLua<'lua> for LuaBody {
                 // TODO: spawn task via worker?
                 tokio::task::spawn_local(async move {
                     let func = lua.registry_value::<Function>(&func_key).unwrap();
+                    // Wait fo sender to be ready
+                    if let Err(_) = futures::future::poll_fn(|cx| sender.poll_ready(cx)).await {
+                        return;
+                    }
                     loop {
                         match func.call::<_, Option<LuaString>>(()) {
                             Ok(Some(chunk)) => {
