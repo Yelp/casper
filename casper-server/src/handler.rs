@@ -1,14 +1,12 @@
-use std::collections::HashSet;
 use std::rc::Rc;
 use std::time::Instant;
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use hyper::{header, Body, Response};
 use mlua::{Function, Value};
 use scopeguard::defer;
-use tracing::warn;
 
-use crate::http::{proxy_to_downstream, ProxyError};
+use crate::http::{proxy_to_upstream, ProxyError};
 use crate::lua::{LuaRequest, LuaResponse};
 use crate::types::LuaContext;
 use crate::worker::WorkerContext;
@@ -20,7 +18,6 @@ pub(crate) async fn handler(
     lua_ctx: LuaContext,
 ) -> Result<LuaResponse> {
     let lua = Rc::clone(&worker_ctx.lua);
-    let middleware_list = &worker_ctx.middleware;
 
     // Get Lua context table
     let ctx = lua_ctx.get(&lua);
@@ -29,15 +26,15 @@ pub(crate) async fn handler(
     let mut early_resp = None;
 
     // Process a chain of Lua's `on_request` actions
-    let mut process_level = middleware_list.len();
-    let mut skip_middleware = HashSet::new();
-    for (i, on_request) in middleware_list
+    let mut process_level = worker_ctx.middleware.len();
+    for (i, middleware, on_request) in worker_ctx
+        .middleware
         .iter()
         .enumerate()
-        .filter_map(|(i, it)| it.on_request.as_ref().map(|r| (i, r)))
+        .filter_map(|(i, mw)| mw.on_request.as_ref().map(|r| (i, mw, r)))
     {
         let start = Instant::now();
-        let name = middleware_list[i].name.clone();
+        let name = middleware.name.clone();
         defer! {
             middleware_histogram_rec!(start, "name" => name.clone(), "phase" => "on_request");
         }
@@ -48,39 +45,42 @@ pub(crate) async fn handler(
             .await
         {
             // Early Response?
-            Ok(Value::UserData(resp)) => {
-                if resp.is::<LuaResponse>() {
-                    early_resp = Some(resp);
-                    // Skip next middleware
-                    process_level = i + 1;
-                    break;
-                }
-            }
-            Ok(_) => {}
-            Err(err) => {
-                // Skip faulty middleware and stop processing
-                warn!("middleware '{name}' on-request error: {:?}", err);
-                process_level = i;
+            Ok(Value::UserData(resp)) if resp.is::<LuaResponse>() => {
+                early_resp = Some(resp);
+                // Skip next middleware
+                process_level = i + 1;
                 break;
+            }
+            Ok(Value::Nil) => {}
+            Ok(r) => {
+                middleware_error_counter_add!(1, "name" => name.clone(), "phase" => "on_request");
+                return Err(anyhow!(
+                    "middleware '{name}'::on-request invalid return type: {}",
+                    r.type_name()
+                ));
+            }
+            Err(err) => {
+                middleware_error_counter_add!(1, "name" => name.clone(), "phase" => "on_request");
+                return Err(anyhow!("middleware '{name}'::on-request error: {err:?}"));
             }
         }
     }
 
     // If we got early Response, use it
-    // Otherwise proxy to a downstream service
+    // Otherwise proxy to an upstream service
     let lua_resp = match early_resp {
         Some(resp) => resp,
         None => {
             let req = lua_req.take::<LuaRequest>()?;
             let client = worker_ctx.http_client.clone();
 
-            let lua_resp = match proxy_to_downstream(client, req).await {
+            let lua_resp = match proxy_to_upstream(client, req).await {
                 Ok(resp) => resp,
                 Err(err) if matches!(err, ProxyError::Uri(..)) => {
                     let resp = Response::builder()
                         .status(500)
                         .header(header::CONTENT_TYPE, "text/plan")
-                        .body(Body::from(format!("invalid destination: {err}")))?;
+                        .body(Body::from(format!("invalid upstream: {err}")))?;
                     LuaResponse::from(resp)
                 }
                 Err(err) if matches!(err, ProxyError::Timeout(..)) => {
@@ -105,26 +105,26 @@ pub(crate) async fn handler(
 
     // Process a chain of Lua's `on_response` actions up to the `process_level`
     // We need to do this in reverse order
-    for (i, on_response) in middleware_list
+    for (middleware, on_response) in worker_ctx
+        .middleware
         .iter()
-        .enumerate()
         .take(process_level)
         .rev()
-        .filter_map(|(i, it)| it.on_response.as_ref().map(|r| (i, r)))
+        .filter_map(|mw| mw.on_response.as_ref().map(|r| (mw, r)))
     {
         let start = Instant::now();
-        let name = middleware_list[i].name.clone();
+        let name = middleware.name.clone();
         defer! {
             middleware_histogram_rec!(start, "name" => name.clone(), "phase" => "on_response");
         }
 
         let on_response: Function = lua.registry_value(on_response)?;
         if let Err(err) = on_response
-            .call_async::<_, Value>((lua_resp.clone(), ctx.clone()))
+            .call_async::<_, ()>((lua_resp.clone(), ctx.clone()))
             .await
         {
-            warn!("middleware '{name}' on-response error: {:?}", err);
-            skip_middleware.insert(i);
+            middleware_error_counter_add!(1, "name" => name.clone(), "phase" => "on_response");
+            return Err(anyhow!("middleware '{name}'::on-response error: {err:?}"));
         }
     }
 

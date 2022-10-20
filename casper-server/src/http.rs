@@ -33,7 +33,7 @@ pub fn filter_hop_headers(headers: &mut HeaderMap) {
     }
 }
 
-pub async fn proxy_to_downstream<C>(
+pub async fn proxy_to_upstream<C>(
     client: Client<C>,
     req: LuaRequest,
 ) -> Result<LuaResponse, ProxyError>
@@ -65,7 +65,7 @@ where
 
     filter_hop_headers(req.headers_mut());
 
-    // Proxy to a downstream service with timeout
+    // Proxy to an upstream service with timeout
     let mut resp = match timeout {
         Some(timeout) => tokio::time::timeout(timeout, client.request(req)).await??,
         None => client.request(req).await?,

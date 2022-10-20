@@ -54,6 +54,7 @@ pub struct OpenTelemetryMetrics {
     pub storage_histogram: Histogram<f64>,
 
     pub middleware_histogram: Histogram<f64>,
+    pub middleware_error_counter: Counter<u64>,
 
     pub lua_used_memory: Arc<RwLock<Vec<AtomicU64>>>,
     pub lua_used_memory_gauge: ObservableGauge<u64>,
@@ -144,6 +145,10 @@ impl OpenTelemetryMetrics {
                 .f64_histogram("middleware_request_duration_seconds")
                 .with_description("Middleware only request latency in seconds.")
                 .init(),
+            middleware_error_counter: meter
+                .u64_counter("middleware_errors_total")
+                .with_description("Total number of errors thrown by middleware.")
+                .init(),
 
             lua_used_memory: Arc::new(RwLock::default()),
             lua_used_memory_gauge: meter
@@ -231,6 +236,18 @@ macro_rules! middleware_histogram_rec {
         let cx = ::opentelemetry::Context::current();
         crate::metrics::METRICS.middleware_histogram.record(&cx,
             $start.elapsed().as_secs_f64(),
+            &[
+                $(::opentelemetry::KeyValue::new($key, $val),)*
+            ],
+        )
+    };
+}
+
+macro_rules! middleware_error_counter_add {
+    ($increment:expr, $($key:expr => $val:expr),*) => {
+        let cx = ::opentelemetry::Context::current();
+        crate::metrics::METRICS.middleware_error_counter.add(&cx,
+            $increment,
             &[
                 $(::opentelemetry::KeyValue::new($key, $val),)*
             ],
