@@ -18,7 +18,7 @@ use super::{EitherBody, LuaBody, LuaHttpHeaders, LuaHttpHeadersExt};
 pub struct LuaRequest {
     request: Request<EitherBody>,
     remote_addr: Option<SocketAddr>,
-    destination: Option<Uri>,
+    upstream: Option<Uri>,
     timeout: Option<Duration>,
 }
 
@@ -28,15 +28,15 @@ impl LuaRequest {
         LuaRequest {
             request: Request::new(EitherBody::Body(body)),
             remote_addr: None,
-            destination: None,
+            upstream: None,
             timeout: None,
         }
     }
 
-    /// Returns request destination
+    /// Returns request next hop
     #[inline]
-    pub fn destination(&self) -> Option<Uri> {
-        self.destination.clone()
+    pub fn upstream(&self) -> Option<Uri> {
+        self.upstream.clone()
     }
 
     /// Returns timeout for outgoing request
@@ -101,7 +101,7 @@ impl LuaRequest {
         });
         *request.body_mut() = EitherBody::Body(body);
         request.remote_addr = self.remote_addr;
-        request.destination = self.destination.clone();
+        request.upstream = self.upstream.clone();
         request.timeout = self.timeout;
 
         Ok(request)
@@ -139,7 +139,7 @@ impl From<Request<Body>> for LuaRequest {
                 })
             }),
             remote_addr: None,
-            destination: None,
+            upstream: None,
             timeout: None,
         }
     }
@@ -241,9 +241,9 @@ impl UserData for LuaRequest {
         });
 
         methods.add_method_mut(
-            "set_destination",
-            |_, this, (dst, options): (String, Option<Table>)| {
-                this.destination = Some(dst.parse().to_lua_err()?);
+            "set_upstream",
+            |_, this, (uri, options): (String, Option<Table>)| {
+                this.upstream = Some(uri.parse().to_lua_err()?);
                 if let Some(options) = options {
                     if let Ok(timeout) = options.raw_get::<_, f64>("timeout") {
                         if timeout > 0. {

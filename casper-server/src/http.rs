@@ -19,7 +19,7 @@ const HOP_BY_HOP_HEADERS: [HeaderName; 8] = [
 
 #[derive(thiserror::Error, Debug)]
 pub enum ProxyError {
-    #[error("invalid destination: {0}")]
+    #[error("invalid upstream: {0}")]
     Uri(#[from] InvalidUriParts),
     #[error(transparent)]
     Timeout(#[from] tokio::time::error::Elapsed),
@@ -41,19 +41,19 @@ where
     C: Connect + Clone + Send + Sync + 'static,
 {
     let timeout = req.timeout();
-    let destination = req.destination();
+    let upstream = req.upstream();
     let mut req = req.into_inner();
 
-    // Set destination to forward request
+    // Set upstream to forward request
     let mut parts = req.uri().clone().into_parts();
-    if let Some(dst_parts) = destination.map(|dst| dst.into_parts()) {
-        if let Some(scheme) = dst_parts.scheme {
+    if let Some(ups_parts) = upstream.map(|uri| uri.into_parts()) {
+        if let Some(scheme) = ups_parts.scheme {
             parts.scheme = Some(scheme);
         }
-        if let Some(authority) = dst_parts.authority {
+        if let Some(authority) = ups_parts.authority {
             parts.authority = Some(authority);
         }
-        if let Some(path_and_query) = dst_parts.path_and_query {
+        if let Some(path_and_query) = ups_parts.path_and_query {
             parts.path_and_query = Some(path_and_query);
         }
     }
