@@ -8,7 +8,7 @@ use http::uri::PathAndQuery;
 use http::{Method, Request, Uri, Version};
 use hyper::Body;
 use mlua::{
-    ExternalError, ExternalResult, FromLua, Lua, LuaSerdeExt, Result as LuaResult,
+    AnyUserData, ExternalError, ExternalResult, FromLua, Lua, LuaSerdeExt, Result as LuaResult,
     String as LuaString, Table, ToLua, UserData, UserDataFields, UserDataMethods, Value,
 };
 use serde_json::Value as JsonValue;
@@ -83,6 +83,28 @@ impl LuaRequest {
         parts.path_and_query = path_and_query.to_lua_err()?;
         *self.uri_mut() = Uri::from_parts(parts).to_lua_err()?;
         Ok(())
+    }
+
+    /// Clones the request including buffering body
+    async fn clone(&mut self) -> LuaResult<Self> {
+        // Try to buffer body first
+        let body = self.body_mut().buffer().await?;
+        let body = body.map(LuaBody::Bytes).unwrap_or(LuaBody::Empty);
+
+        let mut request = LuaRequest::from({
+            let mut req = Request::new(Body::empty());
+            *req.uri_mut() = self.uri().clone();
+            *req.version_mut() = self.version();
+            *req.method_mut() = self.method().clone();
+            *req.headers_mut() = self.headers().clone();
+            req
+        });
+        *request.body_mut() = EitherBody::Body(body);
+        request.remote_addr = self.remote_addr;
+        request.destination = self.destination.clone();
+        request.timeout = self.timeout;
+
+        Ok(request)
     }
 
     /// Consumes the request, returning the wrapped hyper Request
@@ -213,6 +235,11 @@ impl UserData for LuaRequest {
             LuaRequest::from_lua(params, lua)
         });
 
+        methods.add_async_function("clone", |_, this: AnyUserData| async move {
+            let mut this = this.borrow_mut::<Self>()?;
+            this.clone().await
+        });
+
         methods.add_method_mut(
             "set_destination",
             |_, this, (dst, options): (String, Option<Table>)| {
@@ -323,8 +350,8 @@ mod tests {
 
     use super::*;
 
-    #[test]
-    fn test_request() -> Result<()> {
+    #[tokio::test]
+    async fn test_request() -> Result<()> {
         let lua = Rc::new(Lua::new());
         lua.set_app_data(Rc::downgrade(&lua));
 
@@ -402,6 +429,34 @@ mod tests {
         })
         .exec()
         .unwrap();
+
+        let local = tokio::task::LocalSet::new();
+        local
+            .run_until(
+                // Check cloning Request
+                lua.load(chunk! {
+                    local i = 0
+                    local req = Request.new({
+                        uri = "http://0.1.2.3/",
+                        headers = {
+                            ["user-agent"] = "test ua",
+                        },
+                        body = function()
+                            if i == 0 then
+                                i += 1
+                                return "hello, world"
+                            end
+                        end,
+                    })
+                    local req2 = req:clone()
+                    assert(req2.uri == "http://0.1.2.3/")
+                    assert(req2:header("user-agent") == "test ua")
+                    assert(req2.body:data() == "hello, world")
+                })
+                .exec_async(),
+            )
+            .await
+            .unwrap();
 
         Ok(())
     }

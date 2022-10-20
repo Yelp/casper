@@ -3,8 +3,8 @@ use std::ops::{Deref, DerefMut};
 use http::{Response, StatusCode};
 use hyper::Body;
 use mlua::{
-    ExternalError, ExternalResult, FromLua, Lua, Result as LuaResult, String as LuaString, Table,
-    UserData, UserDataFields, UserDataMethods, Value,
+    AnyUserData, ExternalError, ExternalResult, FromLua, Lua, Result as LuaResult,
+    String as LuaString, Table, UserData, UserDataFields, UserDataMethods, Value,
 };
 
 use super::{EitherBody, LuaBody, LuaHttpHeaders, LuaHttpHeadersExt};
@@ -23,6 +23,26 @@ impl LuaResponse {
             is_proxied: false,
             is_stored: false,
         }
+    }
+
+    /// Clones the response including buffering body
+    async fn clone(&mut self) -> LuaResult<Self> {
+        // Try to buffer body first
+        let body = self.body_mut().buffer().await?;
+        let body = body.map(LuaBody::Bytes).unwrap_or(LuaBody::Empty);
+
+        let mut response = LuaResponse::from({
+            let mut resp = Response::new(Body::empty());
+            *resp.status_mut() = self.status();
+            *resp.version_mut() = self.version();
+            *resp.headers_mut() = self.headers().clone();
+            resp
+        });
+        *response.body_mut() = EitherBody::Body(body);
+        response.is_proxied = self.is_proxied;
+        response.is_stored = self.is_stored;
+
+        Ok(response)
     }
 
     /// Consumes the response, returning the wrapped hyper Response
@@ -131,6 +151,11 @@ impl UserData for LuaResponse {
             LuaResponse::from_lua(params, lua)
         });
 
+        methods.add_async_function("clone", |_, this: AnyUserData| async move {
+            let mut this = this.borrow_mut::<Self>()?;
+            this.clone().await
+        });
+
         methods.add_method("header", |lua, this, name: String| {
             LuaHttpHeadersExt::get(this.headers(), lua, &name)
         });
@@ -193,8 +218,8 @@ mod tests {
 
     use super::*;
 
-    #[test]
-    fn test_response() -> Result<()> {
+    #[tokio::test]
+    async fn test_response() -> Result<()> {
         let lua = Rc::new(Lua::new());
         lua.set_app_data(Rc::downgrade(&lua));
 
@@ -271,6 +296,34 @@ mod tests {
         })
         .exec()
         .unwrap();
+
+        let local = tokio::task::LocalSet::new();
+        local
+            .run_until(
+                // Check cloning Response
+                lua.load(chunk! {
+                    local i = 0
+                    local resp = Response.new({
+                        status = 202,
+                        headers = {
+                            foo = "bar",
+                        },
+                        body = function()
+                            if i == 0 then
+                                i += 1
+                                return "hello, world"
+                            end
+                        end,
+                    })
+                    local resp2 = resp:clone()
+                    assert(resp2.status == 202)
+                    assert(resp2:header("foo") == "bar")
+                    assert(resp2.body:data() == "hello, world")
+                })
+                .exec_async(),
+            )
+            .await
+            .unwrap();
 
         Ok(())
     }

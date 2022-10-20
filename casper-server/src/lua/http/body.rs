@@ -35,7 +35,7 @@ impl LuaBody {
     }
 
     /// Buffers the body into memory and returns the buffered data.
-    pub async fn buffer(&mut self) -> Result<Option<Bytes>, anyhow::Error> {
+    pub async fn buffer(&mut self) -> LuaResult<Option<Bytes>> {
         match self {
             LuaBody::Empty => Ok(None),
             LuaBody::Bytes(bytes) => Ok(Some(bytes.clone())),
@@ -51,11 +51,11 @@ impl LuaBody {
                     }
                     Ok(Err(err)) => {
                         *self = LuaBody::Empty;
-                        Err(err.into())
+                        Err(err.to_lua_err())
                     }
                     Err(err) => {
                         *self = LuaBody::Empty;
-                        Err(err.into())
+                        Err(err.to_lua_err())
                     }
                 }
             }
@@ -86,7 +86,7 @@ impl EitherBody {
         }
     }
 
-    pub(crate) async fn buffer(&mut self) -> Result<Option<Bytes>, anyhow::Error> {
+    pub(crate) async fn buffer(&mut self) -> LuaResult<Option<Bytes>> {
         match self {
             EitherBody::Body(body) => body.buffer().await,
             EitherBody::Registry(lua, key) => {
