@@ -4,17 +4,19 @@ use std::time::Duration;
 
 use mlua::{Lua, Result as LuaResult, Table};
 
-use super::LuaResponse;
+use super::{LuaRequest, LuaResponse};
 
 pub fn create_module(lua: &Lua) -> LuaResult<Table> {
     let core = lua.create_table()?;
 
+    core.set("Request", lua.create_proxy::<LuaRequest>()?)?;
     core.set("Response", lua.create_proxy::<LuaResponse>()?)?;
 
     // Modules
     core.set("config", super::config::create_module(lua)?)?;
     core.set("datetime", super::datetime::create_module(lua)?)?;
     core.set("fs", super::fs::create_module(lua)?)?;
+    core.set("http", super::http::create_module(lua)?)?;
     core.set("json", super::json::create_module(lua)?)?;
     core.set("log", super::log::create_module(lua)?)?;
     core.set("metrics", super::metrics::create_module(lua)?)?;
