@@ -265,7 +265,7 @@ impl RedisBackend {
                 let sk_item = SurrogateKeyItem {
                     timestamp: current_timestamp(),
                 };
-                let sk_item_enc = flexbuffers::to_vec(&sk_item)?;
+                let sk_item_enc = flexbuffers::to_vec(sk_item)?;
 
                 // Update internal cache
                 if self.config.internal_cache_size > 0 {
@@ -364,7 +364,7 @@ impl RedisBackend {
                     let sk_item = SurrogateKeyItem {
                         timestamp: timestamp - 1,
                     };
-                    let sk_item_enc = flexbuffers::to_vec(&sk_item)?;
+                    let sk_item_enc = flexbuffers::to_vec(sk_item)?;
 
                     // Store new surrogate key atomically (NX option)
                     let is_executed: RedisValue = self

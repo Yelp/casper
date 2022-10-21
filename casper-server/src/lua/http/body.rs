@@ -87,13 +87,14 @@ impl EitherBody {
         }
     }
 
+    #[allow(clippy::await_holding_refcell_ref)]
     pub(crate) async fn buffer(&mut self) -> LuaResult<Option<Bytes>> {
         match self {
             EitherBody::Body(body) => body.buffer().await,
             EitherBody::Registry(lua, key) => {
                 let lua = lua.to_strong();
                 let ud = lua
-                    .registry_value::<AnyUserData>(&key)
+                    .registry_value::<AnyUserData>(key)
                     .expect("Failed to get body from Lua Registry");
                 let mut body = ud
                     .borrow_mut::<LuaBody>()
@@ -201,7 +202,8 @@ impl<'lua> FromLua<'lua> for LuaBody {
                 tokio::task::spawn_local(async move {
                     let func = lua.registry_value::<Function>(&func_key).unwrap();
                     // Wait fo sender to be ready
-                    if let Err(_) = futures::future::poll_fn(|cx| sender.poll_ready(cx)).await {
+                    let ready = futures::future::poll_fn(|cx| sender.poll_ready(cx)).await;
+                    if ready.is_err() {
                         return;
                     }
                     loop {
@@ -228,17 +230,18 @@ impl<'lua> FromLua<'lua> for LuaBody {
                 if let Ok(body) = ud.take::<Self>() {
                     Ok(body)
                 } else {
-                    Err(format!("cannot make body from wrong userdata").to_lua_err())
+                    Err("cannot make body from wrong userdata".to_lua_err())
                 }
             }
             val => {
                 let err = format!("cannot make body from {}", val.type_name());
-                return Err(err.to_lua_err());
+                Err(err.to_lua_err())
             }
         }
     }
 }
 
+#[allow(clippy::await_holding_refcell_ref)]
 impl UserData for LuaBody {
     fn add_methods<'lua, M: mlua::UserDataMethods<'lua, Self>>(methods: &mut M) {
         // Static constructor

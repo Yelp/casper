@@ -187,7 +187,7 @@ impl<'lua> FromLua<'lua> for LuaRequest {
                 b"1.0" => Version::HTTP_10,
                 b"1.1" => Version::HTTP_11,
                 b"2" | b"2.0" => Version::HTTP_2,
-                _ => return Err(format!("invalid HTTP version")).to_lua_err(),
+                _ => return Err("invalid HTTP version").to_lua_err(),
             };
         }
 
@@ -213,6 +213,7 @@ impl<'lua> FromLua<'lua> for LuaRequest {
     }
 }
 
+#[allow(clippy::await_holding_refcell_ref)]
 impl UserData for LuaRequest {
     fn add_fields<'lua, F: UserDataFields<'lua, Self>>(fields: &mut F) {
         fields.add_field_method_get("method", |lua, this| this.method().as_str().to_lua(lua));
@@ -343,7 +344,7 @@ impl UserData for LuaRequest {
 
         methods.add_method_mut("set_headers", |lua, this, value: Value| {
             let headers = match value {
-                Value::Nil => Err(format!("headers must be non-nil").to_lua_err()),
+                Value::Nil => Err("headers must be non-nil".to_lua_err()),
                 _ => LuaHttpHeaders::from_lua(value, lua)
                     .map_err(|err| format!("invalid headers: {err}"))
                     .to_lua_err(),

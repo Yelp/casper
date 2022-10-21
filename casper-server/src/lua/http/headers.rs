@@ -108,7 +108,7 @@ impl<'lua> FromLua<'lua> for LuaHttpHeaders {
                 if let Ok(headers) = ud.take::<Self>() {
                     Ok(headers)
                 } else {
-                    Err(format!("cannot make headers from wrong userdata").to_lua_err())
+                    Err("cannot make headers from wrong userdata".to_lua_err())
                 }
             }
             val => {

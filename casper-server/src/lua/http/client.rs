@@ -55,6 +55,7 @@ impl<'lua> FromLua<'lua> for LuaHttpClient {
     }
 }
 
+#[allow(clippy::await_holding_refcell_ref)]
 impl UserData for LuaHttpClient {
     fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
         methods.add_function("new", |_lua, _params: Value| {

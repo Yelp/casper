@@ -133,6 +133,7 @@ impl<'lua> FromLua<'lua> for LuaResponse {
     }
 }
 
+#[allow(clippy::await_holding_refcell_ref)]
 impl UserData for LuaResponse {
     fn add_fields<'lua, F: UserDataFields<'lua, Self>>(fields: &mut F) {
         fields.add_field_method_get("is_proxied", |_, this| Ok(this.is_proxied));
@@ -212,7 +213,7 @@ impl UserData for LuaResponse {
 
         methods.add_method_mut("set_headers", |lua, this, value: Value| {
             let headers = match value {
-                Value::Nil => Err(format!("headers must be non-nil").to_lua_err()),
+                Value::Nil => Err("headers must be non-nil".to_lua_err()),
                 _ => LuaHttpHeaders::from_lua(value, lua)
                     .map_err(|err| format!("invalid headers: {err}"))
                     .to_lua_err(),
