@@ -1,3 +1,4 @@
+use std::mem;
 use std::ops::{Deref, DerefMut};
 
 use http::{Response, StatusCode};
@@ -79,6 +80,18 @@ impl From<Response<Body>> for LuaResponse {
             is_proxied: false,
             is_stored: false,
         }
+    }
+}
+
+impl From<reqwest::Response> for LuaResponse {
+    #[inline]
+    fn from(mut response: reqwest::Response) -> Self {
+        let status = response.status();
+        let headers = mem::take(response.headers_mut());
+        let mut response = Response::new(Body::wrap_stream(response.bytes_stream()));
+        *response.status_mut() = status;
+        *response.headers_mut() = headers;
+        Self::from(response)
     }
 }
 

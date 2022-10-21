@@ -152,6 +152,18 @@ impl From<LuaRequest> for Request<Body> {
     }
 }
 
+impl TryFrom<LuaRequest> for reqwest::Request {
+    type Error = reqwest::Error;
+
+    #[inline]
+    fn try_from(request: LuaRequest) -> Result<Self, Self::Error> {
+        let timeout = request.timeout;
+        let mut request: Self = request.into_inner().try_into()?;
+        *request.timeout_mut() = timeout;
+        Ok(request)
+    }
+}
+
 impl<'lua> FromLua<'lua> for LuaRequest {
     fn from_lua(value: Value<'lua>, lua: &'lua Lua) -> LuaResult<Self> {
         let mut request = LuaRequest::new(LuaBody::Empty);

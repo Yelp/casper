@@ -7,6 +7,7 @@ pub use response::LuaResponse;
 use body::EitherBody;
 
 mod body;
+mod client;
 mod headers;
 mod request;
 mod response;
