@@ -14,6 +14,8 @@ use mlua::{
 use serde_json::Value as JsonValue;
 
 use super::{EitherBody, LuaBody, LuaHttpHeaders, LuaHttpHeadersExt};
+use crate::http::proxy_to_upstream;
+use crate::types::SimpleHttpClient;
 
 pub struct LuaRequest {
     request: Request<EitherBody>,
@@ -356,6 +358,14 @@ impl UserData for LuaRequest {
         methods.add_method_mut("set_body", |_, this, new_body| {
             *this.body_mut() = EitherBody::Body(new_body);
             Ok(())
+        });
+
+        methods.add_async_function("proxy_to_upstream", |lua, this: AnyUserData| async move {
+            let client = lua
+                .app_data_ref::<SimpleHttpClient>()
+                .expect("Failed to get http client");
+            let req = this.take::<LuaRequest>()?;
+            proxy_to_upstream(&client, req).await
         });
     }
 }

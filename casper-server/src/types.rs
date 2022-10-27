@@ -2,6 +2,8 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::ops::Deref;
 use std::sync::Arc;
 
+use hyper::client::{Client as HttpClient, HttpConnector};
+use hyper_tls::HttpsConnector;
 use mlua::{Lua, RegistryKey, Table};
 
 #[derive(Clone, Copy)]
@@ -40,5 +42,33 @@ impl LuaContext {
     pub(crate) fn get<'lua>(&self, lua: &'lua Lua) -> Table<'lua> {
         lua.registry_value::<Table>(&self.0)
             .expect("Unable to get Lua context table from the registry")
+    }
+}
+
+type WrappedHttpClient = HttpClient<HttpsConnector<HttpConnector>>;
+
+#[derive(Clone, Debug)]
+pub struct SimpleHttpClient(WrappedHttpClient);
+
+impl SimpleHttpClient {
+    pub fn new() -> Self {
+        let https_connector = HttpsConnector::new();
+        Self(HttpClient::builder().build(https_connector))
+    }
+}
+
+impl Deref for SimpleHttpClient {
+    type Target = WrappedHttpClient;
+
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl From<WrappedHttpClient> for SimpleHttpClient {
+    #[inline]
+    fn from(client: WrappedHttpClient) -> Self {
+        Self(client)
     }
 }

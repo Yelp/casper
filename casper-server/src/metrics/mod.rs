@@ -56,6 +56,8 @@ pub struct OpenTelemetryMetrics {
     pub middleware_histogram: Histogram<f64>,
     pub middleware_error_counter: Counter<u64>,
 
+    pub handler_error_counter: Counter<u64>,
+
     pub lua_used_memory: Arc<RwLock<Vec<AtomicU64>>>,
     pub lua_used_memory_gauge: ObservableGauge<u64>,
 
@@ -148,6 +150,11 @@ impl OpenTelemetryMetrics {
             middleware_error_counter: meter
                 .u64_counter("middleware_errors_total")
                 .with_description("Total number of errors thrown by middleware.")
+                .init(),
+
+            handler_error_counter: meter
+                .u64_counter("handler_errors_total")
+                .with_description("Total number of errors thrown by handler.")
                 .init(),
 
             lua_used_memory: Arc::new(RwLock::default()),
@@ -247,6 +254,21 @@ macro_rules! middleware_error_counter_add {
     ($increment:expr, $($key:expr => $val:expr),*) => {
         let cx = ::opentelemetry::Context::current();
         crate::metrics::METRICS.middleware_error_counter.add(&cx,
+            $increment,
+            &[
+                $(::opentelemetry::KeyValue::new($key, $val),)*
+            ],
+        )
+    };
+}
+
+macro_rules! handler_error_counter_add {
+    ($increment:expr) => {
+        handler_error_counter_add!($increment,)
+    };
+    ($increment:expr, $($key:expr => $val:expr),*) => {
+        let cx = ::opentelemetry::Context::current();
+        crate::metrics::METRICS.handler_error_counter.add(&cx,
             $increment,
             &[
                 $(::opentelemetry::KeyValue::new($key, $val),)*

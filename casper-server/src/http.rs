@@ -1,7 +1,8 @@
+use http::header::{self, HeaderMap, HeaderName};
 use http::uri::{InvalidUriParts, Scheme};
 use hyper::client::connect::Connect;
-use hyper::header::{self, HeaderMap, HeaderName};
-use hyper::{Client, Uri};
+use hyper::{Body, Client, Response, Uri};
+use mlua::{ExternalResult, Result as LuaResult};
 
 use crate::lua::{LuaRequest, LuaResponse};
 
@@ -33,10 +34,7 @@ pub fn filter_hop_headers(headers: &mut HeaderMap) {
     }
 }
 
-pub async fn proxy_to_upstream<C>(
-    client: Client<C>,
-    req: LuaRequest,
-) -> Result<LuaResponse, ProxyError>
+async fn send_to_upstream<C>(client: &Client<C>, req: LuaRequest) -> Result<LuaResponse, ProxyError>
 where
     C: Connect + Clone + Send + Sync + 'static,
 {
@@ -77,4 +75,30 @@ where
     resp.is_proxied = true;
 
     Ok(resp)
+}
+
+pub async fn proxy_to_upstream<C>(client: &Client<C>, req: LuaRequest) -> LuaResult<LuaResponse>
+where
+    C: Connect + Clone + Send + Sync + 'static,
+{
+    match send_to_upstream(client, req).await {
+        Ok(resp) => Ok(resp),
+        err @ Err(ProxyError::Uri(..)) => err.to_lua_err(),
+        err @ Err(ProxyError::Timeout(..)) => {
+            let resp = Response::builder()
+                .status(504)
+                .header(header::CONTENT_TYPE, "text/plan")
+                .body(Body::from(err.err().unwrap().to_string()))
+                .to_lua_err()?;
+            Ok(LuaResponse::from(resp))
+        }
+        Err(err) => {
+            let resp = Response::builder()
+                .status(502)
+                .header(header::CONTENT_TYPE, "text/plan")
+                .body(Body::from(err.to_string()))
+                .to_lua_err()?;
+            Ok(LuaResponse::from(resp))
+        }
+    }
 }

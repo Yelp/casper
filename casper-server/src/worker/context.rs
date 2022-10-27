@@ -5,14 +5,13 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
-use hyper::client::{Client as HttpClient, HttpConnector};
-use hyper_tls::HttpsConnector;
 use mlua::{Function, Lua, LuaOptions, RegistryKey, StdLib as LuaStdLib, Table};
 use tokio::task::JoinHandle;
 
 use crate::config::Config;
 use crate::lua::{self, LuaStorage};
 use crate::storage::{Backend, Storage};
+use crate::types::SimpleHttpClient;
 
 use super::LocalWorkerHandle;
 
@@ -25,7 +24,7 @@ pub struct WorkerContext(Rc<WorkerContextInner>);
 #[derive(Default)]
 pub struct WorkerContextBuilder {
     config: Arc<Config>,
-    http_client: Option<HttpClient<HttpsConnector<HttpConnector>>>,
+    http_client: Option<SimpleHttpClient>,
     storage_backends: Vec<Backend>,
 }
 
@@ -42,11 +41,12 @@ pub struct WorkerContextInner {
 
     pub lua: Rc<Lua>,
     pub middleware: Vec<Middleware>,
+    pub handler: Option<RegistryKey>,
     pub access_log: Option<RegistryKey>,
     pub error_log: Option<RegistryKey>,
 
     // HTTP Client
-    pub http_client: HttpClient<HttpsConnector<HttpConnector>>,
+    pub http_client: SimpleHttpClient,
     // Storage backends
     storage_backends: Vec<Backend>,
 }
@@ -75,7 +75,7 @@ impl WorkerContextBuilder {
         self
     }
 
-    pub fn with_http_client(mut self, client: HttpClient<HttpsConnector<HttpConnector>>) -> Self {
+    pub fn with_http_client(mut self, client: SimpleHttpClient) -> Self {
         self.http_client = Some(client);
         self
     }
@@ -86,10 +86,7 @@ impl WorkerContextBuilder {
     }
 
     pub fn build(self, handle: LocalWorkerHandle<WorkerContext>) -> Result<WorkerContext> {
-        let http_client = self.http_client.unwrap_or_else(|| {
-            let https_connector = HttpsConnector::new();
-            HttpClient::builder().build(https_connector)
-        });
+        let http_client = self.http_client.unwrap_or_else(SimpleHttpClient::new);
         let storage_backends = self.storage_backends;
 
         WorkerContextInner::new(handle, self.config, http_client, storage_backends)
@@ -107,7 +104,7 @@ impl WorkerContextInner {
     fn new(
         handle: LocalWorkerHandle<WorkerContext>,
         config: Arc<Config>,
-        http_client: HttpClient<HttpsConnector<HttpConnector>>,
+        http_client: SimpleHttpClient,
         storage_backends: Vec<Backend>,
     ) -> Result<Self> {
         let lua_options = LuaOptions::new().thread_cache_size(LUA_THREAD_CACHE_SIZE);
@@ -120,6 +117,7 @@ impl WorkerContextInner {
             config,
             lua,
             middleware: Vec::new(),
+            handler: None,
             access_log: None,
             error_log: None,
             handle,
@@ -168,6 +166,12 @@ impl WorkerContextInner {
                     .map(|x| lua.create_registry_value(x))
                     .transpose()?,
             });
+        }
+
+        // Load main handler
+        if let Some(handler) = &self.config.http.handler {
+            let handler: Option<Function> = lua.load(&handler.code).eval()?;
+            self.handler = handler.map(|x| lua.create_registry_value(x)).transpose()?;
         }
 
         // Load access logger

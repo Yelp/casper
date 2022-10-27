@@ -32,8 +32,9 @@ pub struct MainConfig {
 #[derive(Debug, Deserialize, Default)]
 pub struct HttpConfig {
     pub middleware: Vec<Middleware>,
-    pub access_log: Option<AccessLog>,
-    pub error_log: Option<ErrorLog>,
+    pub handler: Option<LuaCode>,
+    pub access_log: Option<LuaCode>,
+    pub error_log: Option<LuaCode>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -43,12 +44,7 @@ pub struct Middleware {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct AccessLog {
-    pub code: String,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct ErrorLog {
+pub struct LuaCode {
     pub code: String,
 }
 

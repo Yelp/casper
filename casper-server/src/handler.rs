@@ -1,13 +1,11 @@
-use std::rc::Rc;
 use std::time::Instant;
 
 use anyhow::{anyhow, Result};
-use hyper::{header, Body, Response};
+use http::StatusCode;
 use mlua::{Function, Value};
 use scopeguard::defer;
 
-use crate::http::{proxy_to_upstream, ProxyError};
-use crate::lua::{LuaRequest, LuaResponse};
+use crate::lua::{LuaBody, LuaRequest, LuaResponse};
 use crate::types::LuaContext;
 use crate::worker::WorkerContext;
 
@@ -17,7 +15,7 @@ pub(crate) async fn handler(
     req: LuaRequest,
     lua_ctx: LuaContext,
 ) -> Result<LuaResponse> {
-    let lua = Rc::clone(&worker_ctx.lua);
+    let lua = worker_ctx.lua.clone();
 
     // Get Lua context table
     let ctx = lua_ctx.get(&lua);
@@ -55,7 +53,7 @@ pub(crate) async fn handler(
             Ok(r) => {
                 middleware_error_counter_add!(1, "name" => name.clone(), "phase" => "on_request");
                 return Err(anyhow!(
-                    "middleware '{name}'::on-request invalid return type: {}",
+                    "middleware '{name}'::on-request error: invalid return type '{}'",
                     r.type_name()
                 ));
             }
@@ -67,39 +65,30 @@ pub(crate) async fn handler(
     }
 
     // If we got early Response, use it
-    // Otherwise proxy to an upstream service
-    let lua_resp = match early_resp {
-        Some(resp) => resp,
-        None => {
-            let req = lua_req.take::<LuaRequest>()?;
-            let client = worker_ctx.http_client.clone();
-
-            let lua_resp = match proxy_to_upstream(client, req).await {
-                Ok(resp) => resp,
-                Err(err) if matches!(err, ProxyError::Uri(..)) => {
-                    let resp = Response::builder()
-                        .status(500)
-                        .header(header::CONTENT_TYPE, "text/plan")
-                        .body(Body::from(format!("invalid upstream: {err}")))?;
-                    LuaResponse::from(resp)
-                }
-                Err(err) if matches!(err, ProxyError::Timeout(..)) => {
-                    let resp = Response::builder()
-                        .status(504)
-                        .header(header::CONTENT_TYPE, "text/plan")
-                        .body(Body::from(err.to_string()))?;
-                    LuaResponse::from(resp)
+    // Otherwise call handler function
+    let lua_resp = match (early_resp, &worker_ctx.handler) {
+        (Some(resp), _) => resp,
+        (None, Some(handler_key)) => {
+            let handler: Function = lua.registry_value(handler_key)?;
+            match handler.call_async((lua_req, ctx.clone())).await {
+                Ok(Value::UserData(resp)) if resp.is::<LuaResponse>() => resp,
+                Ok(r) => {
+                    handler_error_counter_add!(1);
+                    return Err(anyhow!(
+                        "handler error: invalid return type '{}'",
+                        r.type_name()
+                    ));
                 }
                 Err(err) => {
-                    let resp = Response::builder()
-                        .status(502)
-                        .header(header::CONTENT_TYPE, "text/plan")
-                        .body(Body::from(err.to_string()))?;
-                    LuaResponse::from(resp)
+                    handler_error_counter_add!(1);
+                    return Err(anyhow!("handler error: {err:?}"));
                 }
-            };
-
-            lua.create_userdata(lua_resp)?
+            }
+        }
+        (None, None) => {
+            let mut resp = LuaResponse::new(LuaBody::Bytes("Not Found".into()));
+            *resp.status_mut() = StatusCode::NOT_FOUND;
+            lua.create_userdata(resp)?
         }
     };
 

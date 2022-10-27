@@ -23,7 +23,7 @@ use crate::lua::tasks;
 use crate::metrics::MetricsLayer;
 use crate::service::Svc;
 use crate::storage::Storage;
-use crate::types::RemoteAddr;
+use crate::types::{RemoteAddr, SimpleHttpClient};
 use crate::worker::{WorkerContext, WorkerPoolHandle};
 
 #[macro_use]
@@ -59,10 +59,12 @@ async fn main_inner() -> anyhow::Result<()> {
     }
 
     // Construct HTTP client shared between workers
-    let https_connector = HttpsConnector::new();
-    let http_client = HttpClient::builder()
-        .http1_preserve_header_case(true)
-        .build(https_connector);
+    let http_client = SimpleHttpClient::from({
+        let connector = HttpsConnector::new();
+        HttpClient::builder()
+            .http1_preserve_header_case(true)
+            .build(connector)
+    });
 
     // Construct storage backends defined in the config
     let mut storage_backends = Vec::new();
@@ -95,9 +97,12 @@ async fn main_inner() -> anyhow::Result<()> {
             async move {
                 let context = WorkerContext::builder()
                     .with_config(config)
-                    .with_http_client(http_client)
+                    .with_http_client(http_client.clone())
                     .with_storage_backends(storage_backends)
                     .build(handle)?;
+
+                // Attach SimpleHttpClient to Lua
+                context.lua.set_app_data::<SimpleHttpClient>(http_client);
 
                 // Launch Lua task processor
                 tasks::spawn_tasks(Rc::clone(&context.lua));
