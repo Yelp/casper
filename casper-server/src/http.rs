@@ -1,5 +1,5 @@
 use http::header::{self, HeaderMap, HeaderName};
-use http::uri::{InvalidUriParts, Scheme};
+use http::uri::{InvalidUri, InvalidUriParts, Scheme};
 use hyper::client::connect::Connect;
 use hyper::{Body, Client, Response, Uri};
 use mlua::{ExternalResult, Result as LuaResult};
@@ -28,10 +28,43 @@ pub enum ProxyError {
     Http(#[from] hyper::Error),
 }
 
+#[derive(thiserror::Error, Debug)]
+pub enum UriError {
+    #[error(transparent)]
+    Uri(#[from] InvalidUri),
+    #[error(transparent)]
+    UriParts(#[from] InvalidUriParts),
+}
+
 pub fn filter_hop_headers(headers: &mut HeaderMap) {
     for header in HOP_BY_HOP_HEADERS {
         headers.remove(header);
     }
+}
+
+fn merge_uri(src: Uri, dst: &str) -> Result<Uri, UriError> {
+    let mut parts = src.into_parts();
+    let dst_uri = dst.parse::<Uri>()?;
+    let dst_uri_parts = dst_uri.into_parts();
+
+    // Use scheme from dst or set it to `http` is not set
+    if let Some(scheme) = dst_uri_parts.scheme {
+        parts.scheme = Some(scheme);
+    }
+    parts.scheme = parts.scheme.or(Some(Scheme::HTTP));
+
+    if let Some(authority) = dst_uri_parts.authority {
+        parts.authority = Some(authority);
+    }
+
+    if let Some(path_and_query) = dst_uri_parts.path_and_query {
+        // Ignore path component is the dst uri does not has it
+        if path_and_query.as_str() != "/" || dst.trim_end().ends_with("/") {
+            parts.path_and_query = Some(path_and_query);
+        }
+    }
+
+    Ok(Uri::from_parts(parts)?)
 }
 
 async fn send_to_upstream<C>(client: &Client<C>, req: LuaRequest) -> Result<LuaResponse, ProxyError>
@@ -39,27 +72,7 @@ where
     C: Connect + Clone + Send + Sync + 'static,
 {
     let timeout = req.timeout();
-    let upstream = req.upstream();
     let mut req = req.into_inner();
-
-    // Set upstream to forward request
-    let mut parts = req.uri().clone().into_parts();
-    if let Some(ups_parts) = upstream.map(|uri| uri.into_parts()) {
-        if let Some(scheme) = ups_parts.scheme {
-            parts.scheme = Some(scheme);
-        }
-        if let Some(authority) = ups_parts.authority {
-            parts.authority = Some(authority);
-        }
-        if let Some(path_and_query) = ups_parts.path_and_query {
-            parts.path_and_query = Some(path_and_query);
-        }
-    }
-    // Set scheme to http if not set
-    if parts.scheme.is_none() {
-        parts.scheme = Some(Scheme::HTTP);
-    }
-    *req.uri_mut() = Uri::from_parts(parts)?;
 
     filter_hop_headers(req.headers_mut());
 
@@ -77,10 +90,20 @@ where
     Ok(resp)
 }
 
-pub async fn proxy_to_upstream<C>(client: &Client<C>, req: LuaRequest) -> LuaResult<LuaResponse>
+pub async fn proxy_to_upstream<C>(
+    client: &Client<C>,
+    mut req: LuaRequest,
+    upstream: Option<&str>,
+) -> LuaResult<LuaResponse>
 where
     C: Connect + Clone + Send + Sync + 'static,
 {
+    // Merge request uri with the upstream uri
+    if let Some(upstream) = upstream {
+        let new_uri = merge_uri(req.uri().clone(), upstream).to_lua_err()?;
+        *req.uri_mut() = new_uri;
+    }
+
     match send_to_upstream(client, req).await {
         Ok(resp) => Ok(resp),
         err @ Err(ProxyError::Uri(..)) => err.to_lua_err(),

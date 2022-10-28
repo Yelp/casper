@@ -20,7 +20,6 @@ use crate::types::SimpleHttpClient;
 pub struct LuaRequest {
     request: Request<EitherBody>,
     remote_addr: Option<SocketAddr>,
-    upstream: Option<Uri>,
     timeout: Option<Duration>,
 }
 
@@ -30,15 +29,8 @@ impl LuaRequest {
         LuaRequest {
             request: Request::new(EitherBody::Body(body)),
             remote_addr: None,
-            upstream: None,
             timeout: None,
         }
-    }
-
-    /// Returns request next hop
-    #[inline]
-    pub fn upstream(&self) -> Option<Uri> {
-        self.upstream.clone()
     }
 
     /// Returns timeout for outgoing request
@@ -103,7 +95,6 @@ impl LuaRequest {
         });
         *request.body_mut() = EitherBody::Body(body);
         request.remote_addr = self.remote_addr;
-        request.upstream = self.upstream.clone();
         request.timeout = self.timeout;
 
         Ok(request)
@@ -141,7 +132,6 @@ impl From<Request<Body>> for LuaRequest {
                 })
             }),
             remote_addr: None,
-            upstream: None,
             timeout: None,
         }
     }
@@ -255,21 +245,6 @@ impl UserData for LuaRequest {
             this.clone().await
         });
 
-        methods.add_method_mut(
-            "set_upstream",
-            |_, this, (uri, options): (String, Option<Table>)| {
-                this.upstream = Some(uri.parse().to_lua_err()?);
-                if let Some(options) = options {
-                    if let Ok(timeout) = options.raw_get::<_, f64>("timeout") {
-                        if timeout > 0. {
-                            this.timeout = Some(Duration::from_secs_f64(timeout));
-                        }
-                    }
-                }
-                Ok(())
-            },
-        );
-
         methods.add_method("timeout", |_, this, ()| {
             Ok(this.timeout.map(|d| d.as_secs_f64()))
         });
@@ -360,13 +335,17 @@ impl UserData for LuaRequest {
             Ok(())
         });
 
-        methods.add_async_function("proxy_to_upstream", |lua, this: AnyUserData| async move {
-            let client = lua
-                .app_data_ref::<SimpleHttpClient>()
-                .expect("Failed to get http client");
-            let req = this.take::<LuaRequest>()?;
-            proxy_to_upstream(&client, req).await
-        });
+        methods.add_async_function(
+            "proxy_to_upstream",
+            |lua, (this, upstream): (AnyUserData, Option<String>)| async move {
+                // Merge request uri with the upstream uri
+                let req = this.take::<LuaRequest>()?;
+                let client = lua
+                    .app_data_ref::<SimpleHttpClient>()
+                    .expect("Failed to get http client");
+                proxy_to_upstream(&client, req, upstream.as_deref()).await
+            },
+        );
     }
 }
 
@@ -375,6 +354,8 @@ mod tests {
     use std::rc::Rc;
 
     use mlua::{chunk, Lua, Result};
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
 
     use super::*;
 
@@ -493,6 +474,43 @@ mod tests {
             assert(req.body:read() == "world")
         })
         .exec()
+        .unwrap();
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_proxy_to_upstream() -> Result<()> {
+        let lua = Rc::new(Lua::new());
+        lua.set_app_data(Rc::downgrade(&lua));
+
+        lua.globals()
+            .set("Request", lua.create_proxy::<LuaRequest>()?)?;
+
+        // Attach HTTP client
+        lua.set_app_data(SimpleHttpClient::new());
+
+        let mock_server = MockServer::start().await;
+        let upstream = mock_server.uri();
+        Mock::given(method("GET"))
+            .and(path("/status"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .append_header("x-test", "abc")
+                    .set_body_string("hello, world!"),
+            )
+            .mount(&mock_server)
+            .await;
+
+        lua.load(chunk! {
+            local req = Request.new({uri = "/status"})
+            local resp = req:proxy_to_upstream($upstream)
+            assert(resp.status == 200)
+            assert(resp:header("x-test") == "abc")
+            assert(resp.body:data() == "hello, world!")
+        })
+        .exec_async()
+        .await
         .unwrap();
 
         Ok(())
