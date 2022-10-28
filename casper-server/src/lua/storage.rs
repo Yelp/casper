@@ -36,11 +36,11 @@ where
     T: Storage<Body = Body> + 'static,
     <T as Storage>::Error: Into<Box<dyn StdError + Send + Sync>>,
 {
+    #[allow(clippy::await_holding_refcell_ref)]
     fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
         //
         // Get
         //
-        #[allow(clippy::await_holding_refcell_ref)]
         methods.add_async_function(
             "get_response",
             |lua, (this, key): (AnyUserData, Value)| async move {
@@ -102,7 +102,6 @@ where
         //
         // Delete
         //
-        #[allow(clippy::await_holding_refcell_ref)]
         methods.add_async_function(
             "delete_response",
             |lua, (this, key): (AnyUserData, Value)| async move {
@@ -120,7 +119,6 @@ where
             },
         );
 
-        #[allow(clippy::await_holding_refcell_ref)]
         methods.add_async_function(
             "delete_responses",
             |lua, (this, keys): (AnyUserData, Table)| async move {
@@ -163,7 +161,6 @@ where
         //
         // Store
         //
-        #[allow(clippy::await_holding_refcell_ref)]
         methods.add_async_function(
             "store_response",
             |lua, (this, item): (AnyUserData, Table)| async move {

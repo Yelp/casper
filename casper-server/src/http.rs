@@ -59,7 +59,7 @@ fn merge_uri(src: Uri, dst: &str) -> Result<Uri, UriError> {
 
     if let Some(path_and_query) = dst_uri_parts.path_and_query {
         // Ignore path component is the dst uri does not has it
-        if path_and_query.as_str() != "/" || dst.trim_end().ends_with("/") {
+        if path_and_query.as_str() != "/" || dst.trim_end().ends_with('/') {
             parts.path_and_query = Some(path_and_query);
         }
     }
