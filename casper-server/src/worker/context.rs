@@ -28,7 +28,7 @@ pub struct WorkerContextBuilder {
     storage_backends: Vec<Backend>,
 }
 
-pub struct Middleware {
+pub struct Filter {
     pub name: String,
     pub on_request: Option<RegistryKey>,
     pub on_response: Option<RegistryKey>,
@@ -40,7 +40,7 @@ pub struct WorkerContextInner {
     handle: LocalWorkerHandle<WorkerContext>,
 
     pub lua: Rc<Lua>,
-    pub middleware: Vec<Middleware>,
+    pub filters: Vec<Filter>,
     pub handler: Option<RegistryKey>,
     pub access_log: Option<RegistryKey>,
     pub error_log: Option<RegistryKey>,
@@ -116,7 +116,7 @@ impl WorkerContextInner {
             id: handle.id(),
             config,
             lua,
-            middleware: Vec::new(),
+            filters: Vec::new(),
             handler: None,
             access_log: None,
             error_log: None,
@@ -151,14 +151,14 @@ impl WorkerContextInner {
         }
         core.set("storage", storage)?;
 
-        // Load middleware code
-        for middleware in &self.config.http.middleware {
-            let handlers: Table = lua.load(&middleware.code).eval()?;
+        // Load filters code
+        for filter in &self.config.http.filters {
+            let handlers: Table = lua.load(&filter.code).eval()?;
             let on_request: Option<Function> = handlers.get("on_request")?;
             let on_response: Option<Function> = handlers.get("on_response")?;
 
-            self.middleware.push(Middleware {
-                name: middleware.name.clone(),
+            self.filters.push(Filter {
+                name: filter.name.clone(),
                 on_request: on_request
                     .map(|x| lua.create_registry_value(x))
                     .transpose()?,

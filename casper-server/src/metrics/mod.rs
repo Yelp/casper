@@ -53,8 +53,8 @@ pub struct OpenTelemetryMetrics {
     pub storage_counter: Counter<u64>,
     pub storage_histogram: Histogram<f64>,
 
-    pub middleware_histogram: Histogram<f64>,
-    pub middleware_error_counter: Counter<u64>,
+    pub filter_histogram: Histogram<f64>,
+    pub filter_error_counter: Counter<u64>,
 
     pub handler_error_counter: Counter<u64>,
 
@@ -143,13 +143,13 @@ impl OpenTelemetryMetrics {
                 .with_description("The storage backend request latency in seconds.")
                 .init(),
 
-            middleware_histogram: meter
-                .f64_histogram("middleware_request_duration_seconds")
-                .with_description("Middleware only request latency in seconds.")
+            filter_histogram: meter
+                .f64_histogram("filter_request_duration_seconds")
+                .with_description("Filter only request latency in seconds.")
                 .init(),
-            middleware_error_counter: meter
-                .u64_counter("middleware_errors_total")
-                .with_description("Total number of errors thrown by middleware.")
+            filter_error_counter: meter
+                .u64_counter("filter_errors_total")
+                .with_description("Total number of errors thrown by filter.")
                 .init(),
 
             handler_error_counter: meter
@@ -238,10 +238,10 @@ macro_rules! storage_histogram_rec {
     };
 }
 
-macro_rules! middleware_histogram_rec {
+macro_rules! filter_histogram_rec {
     ($start:expr, $($key:expr => $val:expr),*) => {
         let cx = ::opentelemetry::Context::current();
-        crate::metrics::METRICS.middleware_histogram.record(&cx,
+        crate::metrics::METRICS.filter_histogram.record(&cx,
             $start.elapsed().as_secs_f64(),
             &[
                 $(::opentelemetry::KeyValue::new($key, $val),)*
@@ -250,10 +250,10 @@ macro_rules! middleware_histogram_rec {
     };
 }
 
-macro_rules! middleware_error_counter_add {
+macro_rules! filter_error_counter_add {
     ($increment:expr, $($key:expr => $val:expr),*) => {
         let cx = ::opentelemetry::Context::current();
-        crate::metrics::METRICS.middleware_error_counter.add(&cx,
+        crate::metrics::METRICS.filter_error_counter.add(&cx,
             $increment,
             &[
                 $(::opentelemetry::KeyValue::new($key, $val),)*

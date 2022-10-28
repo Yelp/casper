@@ -24,17 +24,17 @@ pub(crate) async fn handler(
     let mut early_resp = None;
 
     // Process a chain of Lua's `on_request` actions
-    let mut process_level = worker_ctx.middleware.len();
-    for (i, middleware, on_request) in worker_ctx
-        .middleware
+    let mut process_level = worker_ctx.filters.len();
+    for (i, filter, on_request) in worker_ctx
+        .filters
         .iter()
         .enumerate()
-        .filter_map(|(i, mw)| mw.on_request.as_ref().map(|r| (i, mw, r)))
+        .filter_map(|(i, flt)| flt.on_request.as_ref().map(|r| (i, flt, r)))
     {
         let start = Instant::now();
-        let name = middleware.name.clone();
+        let name = filter.name.clone();
         defer! {
-            middleware_histogram_rec!(start, "name" => name.clone(), "phase" => "on_request");
+            filter_histogram_rec!(start, "name" => name.clone(), "phase" => "on_request");
         }
 
         let on_request: Function = lua.registry_value(on_request)?;
@@ -45,21 +45,21 @@ pub(crate) async fn handler(
             // Early Response?
             Ok(Value::UserData(resp)) if resp.is::<LuaResponse>() => {
                 early_resp = Some(resp);
-                // Skip next middleware
+                // Skip next filter
                 process_level = i + 1;
                 break;
             }
             Ok(Value::Nil) => {}
             Ok(r) => {
-                middleware_error_counter_add!(1, "name" => name.clone(), "phase" => "on_request");
+                filter_error_counter_add!(1, "name" => name.clone(), "phase" => "on_request");
                 return Err(anyhow!(
-                    "middleware '{name}'::on-request error: invalid return type '{}'",
+                    "filter '{name}'::on-request error: invalid return type '{}'",
                     r.type_name()
                 ));
             }
             Err(err) => {
-                middleware_error_counter_add!(1, "name" => name.clone(), "phase" => "on_request");
-                return Err(anyhow!("middleware '{name}'::on-request error: {err:?}"));
+                filter_error_counter_add!(1, "name" => name.clone(), "phase" => "on_request");
+                return Err(anyhow!("filter '{name}'::on-request error: {err:?}"));
             }
         }
     }
@@ -94,17 +94,17 @@ pub(crate) async fn handler(
 
     // Process a chain of Lua's `on_response` actions up to the `process_level`
     // We need to do this in reverse order
-    for (middleware, on_response) in worker_ctx
-        .middleware
+    for (filter, on_response) in worker_ctx
+        .filters
         .iter()
         .take(process_level)
         .rev()
-        .filter_map(|mw| mw.on_response.as_ref().map(|r| (mw, r)))
+        .filter_map(|flt| flt.on_response.as_ref().map(|r| (flt, r)))
     {
         let start = Instant::now();
-        let name = middleware.name.clone();
+        let name = filter.name.clone();
         defer! {
-            middleware_histogram_rec!(start, "name" => name.clone(), "phase" => "on_response");
+            filter_histogram_rec!(start, "name" => name.clone(), "phase" => "on_response");
         }
 
         let on_response: Function = lua.registry_value(on_response)?;
@@ -112,8 +112,8 @@ pub(crate) async fn handler(
             .call_async::<_, ()>((lua_resp.clone(), ctx.clone()))
             .await
         {
-            middleware_error_counter_add!(1, "name" => name.clone(), "phase" => "on_response");
-            return Err(anyhow!("middleware '{name}'::on-response error: {err:?}"));
+            filter_error_counter_add!(1, "name" => name.clone(), "phase" => "on_response");
+            return Err(anyhow!("filter '{name}'::on-response error: {err:?}"));
         }
     }
 

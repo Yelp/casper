@@ -31,14 +31,14 @@ pub struct MainConfig {
 
 #[derive(Debug, Deserialize, Default)]
 pub struct HttpConfig {
-    pub middleware: Vec<Middleware>,
+    pub filters: Vec<Filter>,
     pub handler: Option<LuaCode>,
     pub access_log: Option<LuaCode>,
     pub error_log: Option<LuaCode>,
 }
 
 #[derive(Debug, Deserialize)]
-pub struct Middleware {
+pub struct Filter {
     pub name: String,
     pub code: String,
 }
