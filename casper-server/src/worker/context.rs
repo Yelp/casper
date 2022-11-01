@@ -151,6 +151,9 @@ impl WorkerContextInner {
         }
         core.set("storage", storage)?;
 
+        // Start task scheduler
+        lua::tasks::start_task_scheduler(lua);
+
         // Load filters code
         for filter in &self.config.http.filters {
             let handlers: Table = lua.load(&filter.code).eval()?;

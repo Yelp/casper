@@ -58,6 +58,11 @@ pub struct OpenTelemetryMetrics {
 
     pub handler_error_counter: Counter<u64>,
 
+    pub active_tasks_counter: ActiveCounter,
+    pub active_tasks_gauge: ObservableGauge<u64>,
+    pub task_histogram: Histogram<f64>,
+    pub task_error_counter: Counter<u64>,
+
     pub lua_used_memory: Arc<RwLock<Vec<AtomicU64>>>,
     pub lua_used_memory_gauge: ObservableGauge<u64>,
 
@@ -96,6 +101,9 @@ impl OpenTelemetryMetrics {
                         .lua_used_memory_gauge
                         .observe(cx, lua_used_memory_total, &[]);
                 }
+
+                let active_tasks = metrics.active_tasks_counter.get();
+                metrics.active_tasks_gauge.observe(cx, active_tasks, &[]);
 
                 if let Some(n) = num_threads::num_threads() {
                     metrics.num_threads_gauge.observe(cx, n.get() as u64, &[]);
@@ -157,6 +165,20 @@ impl OpenTelemetryMetrics {
                 .with_description("Total number of errors thrown by handler.")
                 .init(),
 
+            active_tasks_counter: ActiveCounter::new(0),
+            active_tasks_gauge: meter
+                .u64_observable_gauge("tasks_current")
+                .with_description("Current number of Lua tasks running by the application.")
+                .init(),
+            task_histogram: meter
+                .f64_histogram("task_duration_seconds")
+                .with_description("Task running duration in seconds.")
+                .init(),
+            task_error_counter: meter
+                .u64_counter("task_errors_total")
+                .with_description("Total number of errors thrown by task.")
+                .init(),
+
             lua_used_memory: Arc::new(RwLock::default()),
             lua_used_memory_gauge: meter
                 .u64_observable_gauge("lua_used_memory_bytes")
@@ -203,7 +225,7 @@ macro_rules! requests_counter_inc {
 }
 
 macro_rules! requests_histogram_rec {
-    ($start:expr, $($key:expr => $val:expr),*) => {
+    ($start:expr, $($key:expr => $val:expr),*) => {{
         let cx = ::opentelemetry::Context::current();
         crate::metrics::METRICS.requests_histogram.record(&cx,
             $start.elapsed().as_secs_f64(),
@@ -211,11 +233,11 @@ macro_rules! requests_histogram_rec {
                 $(::opentelemetry::KeyValue::new($key, $val),)*
             ],
         )
-    };
+    }};
 }
 
 macro_rules! storage_counter_add {
-    ($increment:expr, $($key:expr => $val:expr),*) => {
+    ($increment:expr, $($key:expr => $val:expr),*) => {{
         let cx = ::opentelemetry::Context::current();
         crate::metrics::METRICS.storage_counter.add(&cx,
             $increment,
@@ -223,11 +245,11 @@ macro_rules! storage_counter_add {
                 $(::opentelemetry::KeyValue::new($key, $val),)*
             ],
         )
-    };
+    }};
 }
 
 macro_rules! storage_histogram_rec {
-    ($start:expr, $($key:expr => $val:expr),*) => {
+    ($start:expr, $($key:expr => $val:expr),*) => {{
         let cx = ::opentelemetry::Context::current();
         crate::metrics::METRICS.storage_histogram.record(&cx,
             $start.elapsed().as_secs_f64(),
@@ -235,11 +257,11 @@ macro_rules! storage_histogram_rec {
                 $(::opentelemetry::KeyValue::new($key, $val),)*
             ],
         )
-    };
+    }};
 }
 
 macro_rules! filter_histogram_rec {
-    ($start:expr, $($key:expr => $val:expr),*) => {
+    ($start:expr, $($key:expr => $val:expr),*) => {{
         let cx = ::opentelemetry::Context::current();
         crate::metrics::METRICS.filter_histogram.record(&cx,
             $start.elapsed().as_secs_f64(),
@@ -247,11 +269,11 @@ macro_rules! filter_histogram_rec {
                 $(::opentelemetry::KeyValue::new($key, $val),)*
             ],
         )
-    };
+    }};
 }
 
 macro_rules! filter_error_counter_add {
-    ($increment:expr, $($key:expr => $val:expr),*) => {
+    ($increment:expr, $($key:expr => $val:expr),*) => {{
         let cx = ::opentelemetry::Context::current();
         crate::metrics::METRICS.filter_error_counter.add(&cx,
             $increment,
@@ -259,14 +281,14 @@ macro_rules! filter_error_counter_add {
                 $(::opentelemetry::KeyValue::new($key, $val),)*
             ],
         )
-    };
+    }};
 }
 
 macro_rules! handler_error_counter_add {
     ($increment:expr) => {
         handler_error_counter_add!($increment,)
     };
-    ($increment:expr, $($key:expr => $val:expr),*) => {
+    ($increment:expr, $($key:expr => $val:expr),*) => {{
         let cx = ::opentelemetry::Context::current();
         crate::metrics::METRICS.handler_error_counter.add(&cx,
             $increment,
@@ -274,7 +296,43 @@ macro_rules! handler_error_counter_add {
                 $(::opentelemetry::KeyValue::new($key, $val),)*
             ],
         )
+    }};
+}
+
+macro_rules! tasks_counter_inc {
+    () => {
+        crate::metrics::METRICS.active_tasks_counter.inc()
     };
+}
+
+macro_rules! task_histogram_rec {
+    ($start:expr) => {
+        task_histogram_rec!($start,)
+    };
+    ($start:expr, $($key:expr => $val:expr),*) => {{
+        let cx = ::opentelemetry::Context::current();
+        crate::metrics::METRICS.task_histogram.record(&cx,
+            $start.elapsed().as_secs_f64(),
+            &[
+                $(::opentelemetry::KeyValue::new($key, $val),)*
+            ],
+        )
+    }};
+}
+
+macro_rules! task_error_counter_add {
+    ($increment:expr) => {
+        task_error_counter_add!($increment,)
+    };
+    ($increment:expr, $($key:expr => $val:expr),*) => {{
+        let cx = ::opentelemetry::Context::current();
+        crate::metrics::METRICS.task_error_counter.add(&cx,
+            $increment,
+            &[
+                $(::opentelemetry::KeyValue::new($key, $val),)*
+            ],
+        )
+    }};
 }
 
 macro_rules! lua_used_memory_update {

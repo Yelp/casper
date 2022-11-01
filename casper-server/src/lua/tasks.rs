@@ -1,67 +1,162 @@
 use std::rc::Rc;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 
-use mlua::{Function, Lua, RegistryKey, Result, Table, UserData};
+use mlua::{
+    AnyUserData, ExternalError, ExternalResult, Function, Lua, RegistryKey, Result, Table,
+    UserData, Value,
+};
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
+use tokio::sync::oneshot;
+use tokio::task::JoinHandle;
+use tokio::time::Instant;
 use tracing::warn;
 
-// TODO for tasks:
-// Add API to Lua to track running tasks and abort them
-// Support named tasks
-// Support task timeouts
+// TODO: Support task timeout
+// TODO: Support recurring tasks
+
+type TaskJoinHandle = JoinHandle<Result<RegistryKey>>;
 
 #[derive(Debug)]
 struct Task {
-    id: usize,
+    id: u64,
+    name: Option<String>,
     handler: RegistryKey,
+    join_handle_tx: oneshot::Sender<TaskJoinHandle>,
 }
 
-struct TaskHandle(usize);
+struct TaskHandle {
+    id: u64,
+    name: Option<String>,
+    join_handle: Option<TaskJoinHandle>,
+    join_handle_rx: Option<oneshot::Receiver<TaskJoinHandle>>,
+}
 
-struct NextTaskId(AtomicUsize);
+// Global task identifier
+static NEXT_TASK_ID: AtomicU64 = AtomicU64::new(1);
 
+#[allow(clippy::await_holding_refcell_ref)]
 impl UserData for TaskHandle {
     fn add_fields<'lua, F: mlua::UserDataFields<'lua, Self>>(fields: &mut F) {
-        fields.add_field_method_get("id", |_, this| Ok(this.0));
+        fields.add_field_method_get("id", |_, this| Ok(this.id));
+        fields.add_field_method_get("name", |lua, this| lua.pack(this.name.as_deref()));
     }
 
-    // TODO: stop
+    fn add_methods<'lua, M: mlua::UserDataMethods<'lua, Self>>(methods: &mut M) {
+        methods.add_async_function("join", |lua, this: AnyUserData| async move {
+            let mut this = this.take::<Self>()?;
+            if let Some(rx) = this.join_handle_rx.take() {
+                this.join_handle = Some(rx.await.expect("Failed to get task join handle"));
+            }
+            let result = lua_try!(this.join_handle.unwrap().await);
+            let key = lua_try!(result);
+            Ok(Ok(lua.registry_value::<Value>(&key)?))
+        });
+
+        methods.add_async_function("abort", |_, this: AnyUserData| async move {
+            let mut this = this.take::<Self>()?;
+            if let Some(rx) = this.join_handle_rx.take() {
+                this.join_handle = Some(rx.await.expect("Failed to get task join handle"));
+            }
+            this.join_handle.unwrap().abort();
+            Ok(())
+        });
+
+        methods.add_async_function("is_finished", |_, this: AnyUserData| async move {
+            let mut this = this.borrow_mut::<Self>()?;
+            if let Some(rx) = this.join_handle_rx.take() {
+                this.join_handle = Some(rx.await.expect("Failed to get task join handle"));
+            }
+            Ok(this.join_handle.as_ref().unwrap().is_finished())
+        });
+    }
 }
 
-fn register_task(lua: &Lua, task: Function) -> Result<TaskHandle> {
-    let tx = lua
+fn spawn_task(lua: &Lua, arg: Value) -> Result<TaskHandle> {
+    let task_tx = lua
         .app_data_ref::<UnboundedSender<Task>>()
-        .expect("cannot get task sender");
+        .expect("Failed to get task sender");
 
-    let next_task_id = lua
-        .app_data_ref::<NextTaskId>()
-        .expect("cannot get next task id");
+    // Oneshot channel to send join handler
+    let (join_handle_tx, join_handle_rx) = oneshot::channel();
 
-    let task_id = next_task_id.0.fetch_add(1, Ordering::Relaxed);
-    tx.send(Task {
-        id: task_id,
-        handler: lua.create_registry_value(task)?,
+    let mut name = None;
+    let handler = match arg {
+        Value::Function(task_fn) => lua.create_registry_value(task_fn)?,
+        Value::Table(params) => {
+            name = params.get::<_, Option<String>>("name")?;
+            let task_fn = params.get::<_, Function>("handler")?;
+            lua.create_registry_value(task_fn)?
+        }
+        v => {
+            let err = format!(
+                "cannot spawn task: invalid argument type `{}`",
+                v.type_name()
+            );
+            return Err(err.to_lua_err());
+        }
+    };
+
+    let id = NEXT_TASK_ID.fetch_add(1, Ordering::Relaxed);
+    task_tx
+        .send(Task {
+            id,
+            name: name.clone(),
+            handler,
+            join_handle_tx,
+        })
+        .to_lua_err()?;
+
+    Ok(TaskHandle {
+        id,
+        name,
+        join_handle: None,
+        join_handle_rx: Some(join_handle_rx),
     })
-    .expect("cannot send task");
-
-    Ok(TaskHandle(task_id))
 }
 
-pub fn spawn_tasks(lua: Rc<Lua>) {
-    let mut rx = lua
+pub fn start_task_scheduler(lua: &Rc<Lua>) {
+    let mut task_rx = lua
         .remove_app_data::<UnboundedReceiver<Task>>()
-        .expect("cannot get task receiver");
+        .expect("Failed to get task receiver");
 
+    let lua = lua.clone();
     tokio::task::spawn_local(async move {
-        while let Some(task) = rx.recv().await {
+        while let Some(task) = task_rx.recv().await {
             let lua2 = lua.clone();
-            tokio::task::spawn_local(async move {
-                if let Ok(task_fn) = lua2.registry_value::<Function>(&task.handler) {
-                    if let Err(err) = task_fn.call_async::<_, ()>(()).await {
-                        warn!("task #{} error: {:?}", task.id, err);
+            let join_handle = tokio::task::spawn_local(async move {
+                let start = Instant::now();
+                let _task_count_guard = tasks_counter_inc!();
+
+                let task_fn = lua2
+                    .registry_value::<Function>(&task.handler)
+                    .expect("Failed to get task function from Lua registry");
+                let result = task_fn
+                    .call_async::<_, Value>(())
+                    .await
+                    .and_then(|v| lua2.create_registry_value(v));
+
+                // Record task metrics
+                match task.name {
+                    Some(name) => {
+                        task_histogram_rec!(start, "name" => name.clone());
+                        if let Err(ref err) = result {
+                            warn!("task '{name}' error: {err:?}");
+                            task_error_counter_add!(1, "name" => name);
+                        }
                     }
-                }
+                    None => {
+                        task_histogram_rec!(start);
+                        if let Err(ref err) = result {
+                            warn!("task #{} error: {err:?}", task.id);
+                            task_error_counter_add!(1);
+                        }
+                    }
+                };
+
+                result
             });
+            // Receiver can be dropped, it's not an error
+            let _ = task.join_handle_tx.send(join_handle);
         }
     });
 }
@@ -72,8 +167,101 @@ pub fn create_module(lua: &Lua) -> Result<Table> {
     lua.set_app_data(tx);
     lua.set_app_data(rx);
 
-    // Create NextTaskId counter
-    lua.set_app_data(NextTaskId(AtomicUsize::new(0)));
+    lua.create_table_from([("spawn", lua.create_function(spawn_task)?)])
+}
 
-    lua.create_table_from([("register_task", lua.create_function(register_task)?)])
+#[cfg(test)]
+mod tests {
+    use std::rc::Rc;
+    use std::time::Duration;
+
+    use mlua::{chunk, Lua, Result};
+    use tokio::task::LocalSet;
+
+    #[tokio::test]
+    async fn test_tasks() -> Result<()> {
+        let lua = Rc::new(Lua::new());
+        lua.set_app_data(Rc::downgrade(&lua));
+
+        lua.globals().set("tasks", super::create_module(&lua)?)?;
+        lua.globals().set(
+            "sleep",
+            lua.create_async_function(|_, secs| async move {
+                tokio::time::sleep(Duration::from_secs_f32(secs)).await;
+                Ok(())
+            })?,
+        )?;
+
+        let local_set = LocalSet::new();
+        local_set
+            .run_until(async {
+                super::start_task_scheduler(&lua);
+            })
+            .await;
+
+        // Test normal task run and result collection
+        let chunk = chunk! {
+            local handle = tasks.spawn(function()
+                sleep(0.1)
+                return "hello"
+            end)
+            assert(handle.id > 0)
+            assert(handle:join() == "hello")
+        };
+        local_set
+            .run_until(lua.load(chunk).exec_async())
+            .await
+            .unwrap();
+
+        // Test named task
+        let chunk = chunk! {
+            local handle = tasks.spawn({
+                handler = function()
+                    sleep(0.1)
+                    return "hello2"
+                end,
+                name = "test_task",
+            })
+            assert(handle.id > 0)
+            assert(handle.name == "test_task")
+            assert(handle:join() == "hello2")
+        };
+        local_set
+            .run_until(lua.load(chunk).exec_async())
+            .await
+            .unwrap();
+
+        // Test error inside task
+        let chunk = chunk! {
+            local handle = tasks.spawn(function()
+                error("error inside task")
+            end)
+            local ok, err = handle:join()
+            assert(not ok)
+            assert(err:find("error inside task"))
+        };
+        local_set
+            .run_until(lua.load(chunk).exec_async())
+            .await
+            .unwrap();
+
+        // Test aborting task
+        let chunk = chunk! {
+            local result
+            local handle = tasks.spawn(function()
+                sleep(0.1)
+                result = "hello"
+            end)
+            assert(handle:is_finished() == false)
+            handle:abort()
+            sleep(0.2)
+            assert(result == nil)
+        };
+        local_set
+            .run_until(lua.load(chunk).exec_async())
+            .await
+            .unwrap();
+
+        Ok(())
+    }
 }

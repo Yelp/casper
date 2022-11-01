@@ -19,7 +19,6 @@ use tracing_log::LogTracer;
 
 use crate::error::ErrorLayer;
 use crate::log::LogLayer;
-use crate::lua::tasks;
 use crate::metrics::MetricsLayer;
 use crate::service::Svc;
 use crate::storage::Storage;
@@ -103,9 +102,6 @@ async fn main_inner() -> anyhow::Result<()> {
 
                 // Attach SimpleHttpClient to Lua
                 context.lua.set_app_data::<SimpleHttpClient>(http_client);
-
-                // Launch Lua task processor
-                tasks::spawn_tasks(Rc::clone(&context.lua));
 
                 // Track Lua used memory every 10 seconds
                 let lua = Rc::clone(&context.lua);
