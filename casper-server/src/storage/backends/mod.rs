@@ -14,7 +14,7 @@ pub enum Backend {
 }
 
 impl Backend {
-    pub fn new(name: String, config: serde_yaml::Value) -> Result<Self> {
+    pub fn new(name: String, config: serde_json::Value) -> Result<Self> {
         let backend_type = config
             .get("backend")
             .and_then(|v| v.as_str())
@@ -23,14 +23,14 @@ impl Backend {
         let backend = match backend_type {
             "memory" => {
                 let config =
-                    serde_yaml::from_value::<memory::Config>(config).with_context(|| {
+                    serde_json::from_value::<memory::Config>(config).with_context(|| {
                         format!("invalid backend configuration for storage `{name}`")
                     })?;
                 Backend::Memory(MemoryBackend::new(&config, name.clone()))
             }
             "redis" => {
                 let config =
-                    serde_yaml::from_value::<redis::Config>(config).with_context(|| {
+                    serde_json::from_value::<redis::Config>(config).with_context(|| {
                         format!("invalid backend configuration for storage `{name}`")
                     })?;
                 let backend = RedisBackend::new(config, name.clone()).with_context(|| {

@@ -14,7 +14,7 @@ pub struct Config {
     pub main: MainConfig,
     pub http: HttpConfig,
     pub metrics: Option<MetricsConfig>,
-    pub storage: HashMap<String, serde_yaml::Value>,
+    pub storage: HashMap<String, serde_json::Value>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -72,6 +72,7 @@ pub(crate) fn read_config<P: AsRef<Path> + ?Sized>(path: &P) -> Result<Config> {
             let config = lua.from_value::<Config>(chunk.eval::<Value>()?)?;
             Ok(config)
         }
+        Some(name) if name.as_bytes().ends_with(b".json") => Ok(serde_json::from_slice(&data)?),
         _ => Ok(serde_yaml::from_slice(&data)?),
     }
 }
