@@ -19,6 +19,9 @@ pub struct Config {
 
 #[derive(Debug, Deserialize)]
 pub struct MainConfig {
+    #[serde(default)]
+    pub service_name: Option<String>,
+
     #[serde(default = "MainConfig::default_workers")]
     pub workers: usize,
 
@@ -80,6 +83,7 @@ pub(crate) fn read_config<P: AsRef<Path> + ?Sized>(path: &P) -> Result<Config> {
 impl Default for MainConfig {
     fn default() -> Self {
         MainConfig {
+            service_name: None,
             workers: Self::default_workers(),
             pin_workers: false,
             listen: Self::default_listen(),

@@ -1,17 +1,19 @@
 use std::collections::HashMap;
+use std::env;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use once_cell::sync::Lazy;
-use opentelemetry::global;
 use opentelemetry::metrics::{Counter, Histogram, ObservableGauge};
 use opentelemetry::sdk::export::metrics::aggregation;
 use opentelemetry::sdk::metrics::{controllers, processors, selectors};
+use opentelemetry::sdk::Resource;
+use opentelemetry::{global, KeyValue};
 use opentelemetry_prometheus::PrometheusExporter;
 use parking_lot::Mutex;
 use tokio::sync::RwLock;
 
-use crate::config::MetricsConfig;
+use crate::config::{MainConfig, MetricsConfig};
 
 // Re-export
 pub use middleware::MetricsLayer;
@@ -21,21 +23,34 @@ static PROMETHEUS_EXPORTER: Lazy<PrometheusExporter> = Lazy::new(|| {
         0.001, 0.002, 0.003, 0.005, 0.01, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.75, 1.0, 1.5, 2.0, 3.0,
         4.0, 5.0, 10.0,
     ];
-    let controller = controllers::basic(
+
+    let mut controller = controllers::basic(
         processors::factory(
             selectors::simple::histogram(boundaries),
             aggregation::cumulative_temporality_selector(),
         )
         .with_memory(true),
-    )
-    .build();
+    );
+    if let Ok(service_name) = env::var("SERVICE_NAME") {
+        controller =
+            controller.with_resource(Resource::new([KeyValue::new("service.name", service_name)]));
+    }
+    let controller = controller.build();
 
     opentelemetry_prometheus::exporter(controller).init()
 });
 
 pub static METRICS: Lazy<OpenTelemetryMetrics> = Lazy::new(OpenTelemetryMetrics::new);
 
-pub fn init() {
+pub fn init(config: &MainConfig) {
+    // Set env variable with service name if missing
+    if env::var("SERVICE_NAME").is_err() {
+        if let Some(service_name) = &config.service_name {
+            env::set_var("SERVICE_NAME", service_name);
+        }
+    }
+
+    // Init metrics
     let _exporter = Lazy::force(&PROMETHEUS_EXPORTER);
     let _metrics = Lazy::force(&METRICS);
 }

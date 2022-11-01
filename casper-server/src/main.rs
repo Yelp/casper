@@ -52,6 +52,9 @@ async fn main_inner() -> anyhow::Result<()> {
     // Read application configuration
     let config = Arc::new(config::read_config(&args.config)?);
 
+    // Init Metrics subsystem
+    crate::metrics::init(&config.main);
+
     // Register metrics defined in the config
     if let Some(metrics) = config.metrics.clone() {
         metrics::register_custom_metrics(metrics);
@@ -173,9 +176,6 @@ fn main() {
 
     // Convert log records to tracing Events
     let _ = LogTracer::init();
-
-    // Init Metrics subsystem
-    crate::metrics::init();
 
     if let Err(err) = runtime.block_on(main_inner()) {
         error!("{err:?}");
