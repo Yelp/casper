@@ -13,10 +13,12 @@ use mlua::{
 use tokio::time;
 use tracing::error;
 
-use super::super::{LuaExt, WeakLuaExt};
+use super::{
+    super::{LuaExt, WeakLuaExt},
+    LuaHttpHeaders,
+};
 
 // TODO: Limit number of fetched bytes
-// TODO: Trailers support
 
 pub enum LuaBody {
     Empty,
@@ -315,6 +317,27 @@ impl UserData for LuaBody {
             let data = bytes.map(|b| lua.create_string(&b)).transpose()?;
             Ok(Ok(data))
         });
+
+        // Get HTTP trailers
+        methods.add_async_function("trailers", |_lua, ud: AnyUserData| async move {
+            let mut this = ud.borrow_mut::<Self>()?;
+
+            let trailers = match &*this {
+                LuaBody::Hyper {
+                    timeout: Some(timeout),
+                    ..
+                } => {
+                    lua_try!(time::timeout(*timeout, this.trailers()).await)
+                }
+                LuaBody::Hyper { timeout: None, .. } => this.trailers().await,
+                _ => Ok(None),
+            };
+
+            match lua_try!(trailers) {
+                Some(trailers) => Ok(Ok(Some(LuaHttpHeaders::from(trailers)))),
+                None => Ok(Ok(None)),
+            }
+        });
     }
 }
 
@@ -326,6 +349,7 @@ mod tests {
         time::Duration,
     };
 
+    use http::HeaderMap;
     use hyper::Body;
     use mlua::{chunk, Lua, Result as LuaResult};
     use tokio::task::LocalSet;
@@ -595,6 +619,84 @@ mod tests {
             // Reset timeout and try again
             $body:set_timeout(0.010)
             assert(reader() == ", ")
+        })
+        .exec_async()
+        .await
+        .unwrap();
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_trailers() -> LuaResult<()> {
+        let lua = Lua::new();
+
+        let (mut sender, body) = Body::channel();
+        let body = LuaBody::from(body);
+        let mut trailers = HeaderMap::new();
+        trailers.insert("trailer_name", "trailer_value".parse().unwrap());
+
+        tokio::task::spawn(async move {
+            sender.send_trailers(trailers).await.unwrap();
+        });
+
+        lua.load(chunk! {
+            local trailers = $body:trailers()
+            assert(trailers["trailer_name"][1] == "trailer_value")
+        })
+        .exec_async()
+        .await
+        .unwrap();
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_trailers_none() -> LuaResult<()> {
+        let lua = Lua::new();
+
+        let (mut sender, body) = Body::channel();
+        let body = LuaBody::from(body);
+
+        tokio::task::spawn(async move {
+            sender.send_data("hello".into()).await.unwrap();
+        });
+
+        lua.load(chunk! {
+            local trailers = $body:trailers()
+            assert(trailers == nil)
+        })
+        .exec_async()
+        .await
+        .unwrap();
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_trailers_timeout() -> LuaResult<()> {
+        let lua = Lua::new();
+
+        let (mut sender, body) = Body::channel();
+        let body = LuaBody::Hyper {
+            timeout: Some(Duration::from_millis(10)),
+            body,
+        };
+        let mut trailers = HeaderMap::new();
+        trailers.insert("trailer_name", "trailer_value".parse().unwrap());
+
+        tokio::task::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(15)).await;
+            sender.send_trailers(trailers).await.unwrap();
+        });
+
+        lua.load(chunk! {
+            // First attempt should timeout
+            local _, err = $body:trailers()
+            assert(err:find("deadline") ~= nil)
+
+            // Second attempt should succeed
+            local trailers = $body:trailers()
+            assert(trailers["trailer_name"][1] == "trailer_value")
         })
         .exec_async()
         .await
