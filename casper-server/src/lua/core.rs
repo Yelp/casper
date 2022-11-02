@@ -2,7 +2,7 @@ use std::env;
 use std::process;
 use std::time::Duration;
 
-use mlua::{Lua, Result as LuaResult, Table};
+use mlua::{Lua, LuaSerdeExt, Result as LuaResult, Table};
 
 use super::{LuaRequest, LuaResponse};
 
@@ -49,6 +49,10 @@ pub fn create_module(lua: &Lua) -> LuaResult<Table> {
         "getenv",
         lua.create_function(|_, key: String| Ok(env::var(key).ok()))?,
     )?;
+
+    // Other bits
+    core.set("null", lua.null())?;
+    core.set("array_metatable", lua.array_metatable())?;
 
     Ok(core)
 }
