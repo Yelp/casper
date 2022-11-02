@@ -105,8 +105,8 @@ impl<'lua> FromLua<'lua> for LuaHttpHeaders {
                 Ok(headers)
             }
             Value::UserData(ud) => {
-                if let Ok(headers) = ud.take::<Self>() {
-                    Ok(headers)
+                if let Ok(headers) = ud.borrow::<Self>() {
+                    Ok(headers.clone())
                 } else {
                     Err("cannot make headers from wrong userdata".to_lua_err())
                 }
