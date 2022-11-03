@@ -29,6 +29,7 @@ opentelemetry = { version = "0.18", features = ["rt-tokio", "metrics"] }
 opentelemetry-prometheus = "0.11"
 ouroboros = "0.15"
 parking_lot = "0.12"
+percent-encoding = "2.2"
 pin-project-lite = "0.2.8"
 prometheus = "0.13"
 rand = "0.8"

@@ -296,6 +296,7 @@ dependencies = [
  "opentelemetry-prometheus",
  "ouroboros",
  "parking_lot 0.12.1",
+ "percent-encoding",
  "pin-project-lite",
  "prometheus",
  "rand 0.8.5",
