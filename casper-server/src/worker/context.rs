@@ -111,6 +111,8 @@ impl WorkerContextInner {
         let lua = Lua::new_with(LuaStdLib::ALL_SAFE, lua_options)
             .with_context(|| "Failed to create worker Lua instance")?;
         let lua = Rc::new(lua);
+        // Store weak reference to self
+        lua.set_app_data(Rc::downgrade(&lua));
 
         let mut worker_ctx = WorkerContextInner {
             id: handle.id(),
