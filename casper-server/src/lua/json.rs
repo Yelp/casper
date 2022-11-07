@@ -1,12 +1,10 @@
-use mlua::{
-    ExternalResult, Lua, LuaSerdeExt, Result, SerializeOptions, String as LuaString, Table, Value,
-};
+use mlua::{ExternalResult, Lua, LuaSerdeExt, Result, String as LuaString, Table, Value};
 
 fn decode_json<'l>(lua: &'l Lua, data: Option<LuaString>) -> Result<Value<'l>> {
     match data {
         Some(data) => {
             let json: serde_json::Value = serde_json::from_slice(data.as_bytes()).to_lua_err()?;
-            lua.to_value_with(&json, SerializeOptions::new().set_array_metatable(false))
+            lua.to_value(&json)
         }
         None => Ok(Value::Nil),
     }
