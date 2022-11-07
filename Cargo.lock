@@ -1193,9 +1193,8 @@ dependencies = [
 
 [[package]]
 name = "mlua"
-version = "0.8.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "53b6ea067a456d841f7fdd9510368715ee8da5608ddaa43d36c58414add37abf"
+version = "0.8.6"
+source = "git+https://github.com/khvzak/mlua#6807dfa22e5ef787b92461796d6b91360baf00a6"
 dependencies = [
  "bstr",
  "cc",
@@ -1215,8 +1214,7 @@ dependencies = [
 [[package]]
 name = "mlua_derive"
 version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b9214e60d3cf1643013b107330fcd374ccec1e4ba1eef76e7e5da5e8202e71c0"
+source = "git+https://github.com/khvzak/mlua#6807dfa22e5ef787b92461796d6b91360baf00a6"
 dependencies = [
  "itertools",
  "once_cell",

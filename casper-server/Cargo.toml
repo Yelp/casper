@@ -59,7 +59,7 @@ wiremock = "0.5"
 
 [dependencies.mlua]
 features = ["luau", "async", "serialize", "macros"]
-version = "0.8.3"
+git = "https://github.com/khvzak/mlua"
 
 [dependencies.fred]
 default-features = false
