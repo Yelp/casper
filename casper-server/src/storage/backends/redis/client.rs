@@ -394,11 +394,11 @@ impl RedisBackend {
     }
 
     fn get_fetch_timeout(&self) -> Duration {
-        Duration::from_millis(self.config.timeouts.fetch_timeout_ms)
+        Duration::from_secs_f32(self.config.timeouts.fetch_timeout)
     }
 
     fn get_store_timeout(&self) -> Duration {
-        Duration::from_millis(self.config.timeouts.store_timeout_ms)
+        Duration::from_secs_f32(self.config.timeouts.store_timeout)
     }
 }
 

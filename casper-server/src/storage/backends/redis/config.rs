@@ -72,30 +72,30 @@ impl ServerConfig {
 #[derive(Clone, Copy, Debug, Deserialize)]
 pub struct TimeoutConfig {
     /// A limit on the amount of time an application can take to fetch response or next chunk from Redis
-    #[serde(default = "TimeoutConfig::default_fetch_timeout_ms")]
-    pub fetch_timeout_ms: u64,
+    #[serde(default = "TimeoutConfig::default_fetch_timeout")]
+    pub fetch_timeout: f32,
 
     /// A limit on the amount of time an application can take to store response in Redis
-    #[serde(default = "TimeoutConfig::default_store_timeout_ms")]
-    pub store_timeout_ms: u64,
+    #[serde(default = "TimeoutConfig::default_store_timeout")]
+    pub store_timeout: f32,
 }
 
 impl Default for TimeoutConfig {
     fn default() -> Self {
         TimeoutConfig {
-            fetch_timeout_ms: TimeoutConfig::default_fetch_timeout_ms(),
-            store_timeout_ms: TimeoutConfig::default_store_timeout_ms(),
+            fetch_timeout: TimeoutConfig::default_fetch_timeout(),
+            store_timeout: TimeoutConfig::default_store_timeout(),
         }
     }
 }
 
 impl TimeoutConfig {
-    const fn default_fetch_timeout_ms() -> u64 {
-        10000
+    const fn default_fetch_timeout() -> f32 {
+        10.0
     }
 
-    const fn default_store_timeout_ms() -> u64 {
-        10000
+    const fn default_store_timeout() -> f32 {
+        10.0
     }
 }
 
