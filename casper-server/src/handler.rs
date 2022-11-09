@@ -15,6 +15,7 @@ pub(crate) async fn handler(
     req: LuaRequest,
     lua_ctx: LuaContext,
 ) -> Result<LuaResponse> {
+    let req_version = req.version();
     let lua = worker_ctx.lua.clone();
 
     // Get Lua context table
@@ -117,5 +118,9 @@ pub(crate) async fn handler(
         }
     }
 
-    Ok(lua_resp.take::<LuaResponse>()?)
+    let mut resp = lua_resp.take::<LuaResponse>()?;
+    // Set HTTP version to match request
+    *resp.version_mut() = req_version;
+
+    Ok(resp)
 }
