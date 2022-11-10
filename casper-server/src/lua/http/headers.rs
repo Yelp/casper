@@ -260,11 +260,12 @@ impl LuaHttpHeadersExt for HeaderMap {
     }
 
     fn is_match(&self, lua: &Lua, name: &str, pattern: String) -> LuaResult<bool> {
-        let regex = Regex::new(lua, pattern)?;
-        for hdr_val in self.get_all(name) {
-            if let Ok(val) = hdr_val.to_str() {
-                if regex.is_match(val) {
-                    return Ok(true);
+        if let Ok(regex) = Regex::new(lua, pattern) {
+            for hdr_val in self.get_all(name) {
+                if let Ok(val) = hdr_val.to_str() {
+                    if regex.is_match(val) {
+                        return Ok(true);
+                    }
                 }
             }
         }

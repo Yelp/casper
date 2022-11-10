@@ -1,6 +1,6 @@
 use std::ops::Deref;
 
-use mlua::{ExternalResult, Lua, MetaMethod, Result, Table, UserData, UserDataMethods, Value};
+use mlua::{Lua, MetaMethod, Result as LuaResult, Table, UserData, UserDataMethods, Value};
 use moka::unsync::Cache;
 use ouroboros::self_referencing;
 
@@ -18,19 +18,19 @@ impl Deref for Regex {
 }
 
 impl Regex {
-    pub fn new(lua: &Lua, re: String) -> Result<Self> {
+    pub fn new(lua: &Lua, re: String) -> Result<Self, regex::Error> {
         match lua.app_data_mut::<Cache<String, Regex>>() {
             Some(mut cache) => {
                 if let Some(regex) = cache.get(&re) {
                     return Ok(regex.clone());
                 }
-                let regex = regex::Regex::new(&re).map(Self).to_lua_err()?;
+                let regex = regex::Regex::new(&re).map(Self)?;
                 cache.insert(re, regex.clone());
                 Ok(regex)
             }
             None => {
                 let mut cache = Cache::new(REGEX_CACHE_SIZE);
-                let regex = regex::Regex::new(&re).map(Self).to_lua_err()?;
+                let regex = regex::Regex::new(&re).map(Self)?;
                 cache.insert(re, regex.clone());
                 lua.set_app_data::<Cache<String, Regex>>(cache);
                 Ok(regex)
@@ -94,8 +94,10 @@ impl UserData for RegexCaptures {
     }
 }
 
-pub fn create_module(lua: &Lua) -> Result<Table> {
-    lua.create_table_from([("new", lua.create_function(Regex::new)?)])
+pub fn create_module(lua: &Lua) -> LuaResult<Table> {
+    let regex_new = lua.create_function(|lua, re| Ok(Ok(lua_try!(Regex::new(lua, re)))))?;
+
+    lua.create_table_from([("new", regex_new)])
 }
 
 #[cfg(test)]
@@ -119,9 +121,17 @@ mod tests {
             assert(matches["gr1"] == "abc")
             assert(matches[true] == nil) // Bad key
 
+            // Test split
             local re = $regex.new("[,.]")
             local vec = re:split("abc.qwe,rty.asd")
             assert(#vec == 4)
+            vec = re:splitn("abc,bcd,cde", 2)
+            assert(#vec == 2 and vec[1] == "abc" and vec[2] == "bcd,cde")
+
+            // Test invalid regex
+            local re, err = $regex.new("(")
+            assert(re == nil)
+            assert(string.find(err, "regex parse error") ~= nil)
         })
         .exec()?;
 
