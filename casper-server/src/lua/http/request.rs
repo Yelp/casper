@@ -205,7 +205,6 @@ impl<'lua> FromLua<'lua> for LuaRequest {
     }
 }
 
-#[allow(clippy::await_holding_refcell_ref)]
 impl UserData for LuaRequest {
     fn add_fields<'lua, F: UserDataFields<'lua, Self>>(fields: &mut F) {
         fields.add_field_method_get("method", |lua, this| this.method().as_str().to_lua(lua));

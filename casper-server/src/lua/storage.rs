@@ -31,12 +31,12 @@ impl<T: Storage> Deref for LuaStorage<T> {
     }
 }
 
+#[allow(clippy::await_holding_refcell_ref)]
 impl<T> UserData for LuaStorage<T>
 where
     T: Storage<Body = Body> + 'static,
     <T as Storage>::Error: Into<Box<dyn StdError + Send + Sync>>,
 {
-    #[allow(clippy::await_holding_refcell_ref)]
     fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
         //
         // Get

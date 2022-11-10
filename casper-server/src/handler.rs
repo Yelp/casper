@@ -9,7 +9,6 @@ use crate::lua::{LuaBody, LuaRequest, LuaResponse};
 use crate::types::LuaContext;
 use crate::worker::WorkerContext;
 
-#[allow(clippy::await_holding_refcell_ref)]
 pub(crate) async fn handler(
     worker_ctx: WorkerContext,
     req: LuaRequest,
