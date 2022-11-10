@@ -342,7 +342,8 @@ impl UserData for LuaRequest {
                 let req = this.take::<LuaRequest>()?;
                 let client = lua
                     .app_data_ref::<SimpleHttpClient>()
-                    .expect("Failed to get http client");
+                    .expect("Failed to get http client")
+                    .clone();
                 proxy_to_upstream(&client, req, upstream.as_deref()).await
             },
         );

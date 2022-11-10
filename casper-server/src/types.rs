@@ -57,6 +57,12 @@ impl SimpleHttpClient {
     }
 }
 
+impl Default for SimpleHttpClient {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Deref for SimpleHttpClient {
     type Target = WrappedHttpClient;
 
@@ -70,5 +76,12 @@ impl From<WrappedHttpClient> for SimpleHttpClient {
     #[inline]
     fn from(client: WrappedHttpClient) -> Self {
         Self(client)
+    }
+}
+
+impl From<SimpleHttpClient> for WrappedHttpClient {
+    #[inline]
+    fn from(client: SimpleHttpClient) -> Self {
+        client.0
     }
 }
