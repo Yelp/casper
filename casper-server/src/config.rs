@@ -107,5 +107,15 @@ fn configure_lua(lua: &Lua) -> Result<()> {
         "getenv",
         lua.create_function(|_, key: String| Ok(env::var(key).ok()))?,
     )?;
+    globals.set(
+        "setenv",
+        lua.create_function(|_, (key, val): (String, Option<String>)| {
+            match val {
+                Some(val) => env::set_var(key, val),
+                None => env::remove_var(key),
+            };
+            Ok(())
+        })?,
+    )?;
     Ok(())
 }
