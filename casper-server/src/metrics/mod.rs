@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use std::env;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
 
 use once_cell::sync::Lazy;
 use opentelemetry::metrics::{Counter, Histogram, ObservableGauge};
@@ -25,21 +24,22 @@ static PROMETHEUS_EXPORTER: Lazy<PrometheusExporter> = Lazy::new(|| {
         4.0, 5.0, 10.0,
     ];
 
-    let mut controller = controllers::basic(
+    let mut attrs = Vec::new();
+    if let Ok(service_name) = env::var("SERVICE_NAME") {
+        attrs.push(KeyValue::new("service.name", service_name));
+    }
+    if let Ok(service_instance) = env::var("SERVICE_INSTANCE") {
+        attrs.push(KeyValue::new("service.instance", service_instance));
+    }
+    let controller = controllers::basic(
         processors::factory(
             selectors::simple::histogram(boundaries),
             aggregation::cumulative_temporality_selector(),
         )
         .with_memory(true),
-    );
-    if let Ok(service_name) = env::var("SERVICE_NAME") {
-        controller =
-            controller.with_resource(Resource::new([KeyValue::new("service.name", service_name)]));
-    }
-    let controller = controller
-        // TODO: Configure this
-        .with_collect_period(Duration::from_secs(0))
-        .build();
+    )
+    .with_resource(Resource::new(attrs))
+    .build();
 
     opentelemetry_prometheus::exporter(controller).init()
 });
