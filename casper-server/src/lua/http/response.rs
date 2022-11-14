@@ -6,7 +6,7 @@ use http::{Response, StatusCode};
 use hyper::Body;
 use mlua::{
     AnyUserData, ExternalError, ExternalResult, FromLua, Lua, Result as LuaResult,
-    String as LuaString, Table, UserData, UserDataFields, UserDataMethods, Value,
+    String as LuaString, Table, ToLua, UserData, UserDataFields, UserDataMethods, Value,
 };
 use opentelemetry::{Key as OTKey, Value as OTValue};
 
@@ -164,6 +164,10 @@ impl UserData for LuaResponse {
             Ok(())
         });
 
+        fields.add_field_method_get("version", |lua, this| {
+            format!("{:?}", this.version())[5..].to_lua(lua)
+        });
+
         fields.add_field_function_get("body", |lua, this| {
             let mut this = this.borrow_mut::<Self>()?;
             this.body_mut().as_userdata(lua)
@@ -288,6 +292,7 @@ mod tests {
             assert(resp.is_proxied == false)
             assert(resp.is_stored == false)
             assert(resp.status == 200)
+            assert(resp.version == "1.1")
             assert(resp.body:read() == nil)
         })
         .exec()
