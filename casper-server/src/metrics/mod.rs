@@ -235,23 +235,41 @@ macro_rules! connections_counter_inc {
     }};
 }
 
-macro_rules! requests_counter_inc {
-    () => {{
-        let cx = ::opentelemetry::Context::current();
-        crate::metrics::METRICS.requests_counter.add(&cx, 1, &[]);
+macro_rules! active_request_guard {
+    () => {
         crate::metrics::METRICS.active_requests_counter.inc()
+    };
+}
+
+macro_rules! requests_counter_inc {
+    ($attrs_map:expr) => {{
+        let cx = ::opentelemetry::Context::current();
+        let attrs = $attrs_map
+            .iter()
+            .map(|(key, value)| ::opentelemetry::KeyValue {
+                key: key.clone(),
+                value: value.clone(),
+            })
+            .collect::<Vec<_>>();
+        crate::metrics::METRICS.requests_counter.add(&cx, 1, &attrs);
     }};
 }
 
 macro_rules! requests_histogram_rec {
-    ($start:expr, $($key:expr => $val:expr),*) => {{
+    ($start:expr, $attrs_map:expr) => {{
         let cx = ::opentelemetry::Context::current();
-        crate::metrics::METRICS.requests_histogram.record(&cx,
+        let attrs = $attrs_map
+            .iter()
+            .map(|(key, value)| ::opentelemetry::KeyValue {
+                key: key.clone(),
+                value: value.clone(),
+            })
+            .collect::<Vec<_>>();
+        crate::metrics::METRICS.requests_histogram.record(
+            &cx,
             $start.elapsed().as_secs_f64(),
-            &[
-                $(::opentelemetry::KeyValue::new($key, $val),)*
-            ],
-        )
+            &attrs,
+        );
     }};
 }
 

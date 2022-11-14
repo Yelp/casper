@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::mem;
 use std::ops::{Deref, DerefMut};
 
@@ -7,11 +8,13 @@ use mlua::{
     AnyUserData, ExternalError, ExternalResult, FromLua, Lua, Result as LuaResult,
     String as LuaString, Table, UserData, UserDataFields, UserDataMethods, Value,
 };
+use opentelemetry::{Key as OTKey, Value as OTValue};
 
 use super::{EitherBody, LuaBody, LuaHttpHeaders, LuaHttpHeadersExt};
 
 pub struct LuaResponse {
     response: Response<EitherBody>,
+    labels: Option<HashMap<OTKey, OTValue>>, // For metrics
     pub is_proxied: bool,
     pub is_stored: bool,
 }
@@ -21,9 +24,22 @@ impl LuaResponse {
     pub fn new(body: LuaBody) -> Self {
         LuaResponse {
             response: Response::new(EitherBody::Body(body)),
+            labels: None,
             is_proxied: false,
             is_stored: false,
         }
+    }
+
+    /// Returns labels attached to this request
+    #[inline]
+    pub fn labels(&self) -> Option<&HashMap<OTKey, OTValue>> {
+        self.labels.as_ref()
+    }
+
+    /// Removes labels attached to this request and returns them
+    #[inline]
+    pub fn take_labels(&mut self) -> Option<HashMap<OTKey, OTValue>> {
+        self.labels.take()
     }
 
     /// Clones the response including buffering body
@@ -77,6 +93,7 @@ impl From<Response<Body>> for LuaResponse {
                     body,
                 })
             }),
+            labels: None,
             is_proxied: false,
             is_stored: false,
         }
@@ -226,6 +243,26 @@ impl UserData for LuaResponse {
             *this.body_mut() = EitherBody::Body(new_body);
             Ok(())
         });
+
+        // Metric labels manipulation
+        methods.add_method_mut("set_label", |lua, this, (key, value): (String, Value)| {
+            let labels = this.labels.get_or_insert_with(HashMap::new);
+            let key = OTKey::new(key);
+            match value {
+                Value::Nil => labels.remove(&key),
+                Value::Boolean(b) => labels.insert(key, OTValue::Bool(b)),
+                Value::Integer(i) => labels.insert(key, OTValue::I64(i as i64)),
+                Value::Number(n) => labels.insert(key, OTValue::F64(n)),
+                v => match lua.coerce_string(v) {
+                    Ok(Some(s)) => {
+                        let s = s.to_string_lossy().into_owned();
+                        labels.insert(key, OTValue::String(s.into()))
+                    }
+                    _ => None,
+                },
+            };
+            Ok(())
+        });
     }
 }
 
@@ -352,6 +389,20 @@ mod tests {
         })
         .exec()
         .unwrap();
+
+        // Check setting labels
+        {
+            let resp: AnyUserData = lua
+                .load(chunk! {
+                    local resp = Response.new(200)
+                    resp:set_label("hello", "world")
+                    return resp
+                })
+                .eval()
+                .unwrap();
+            let resp = resp.take::<LuaResponse>()?;
+            assert_eq!(resp.labels().unwrap()[&"hello".into()], "world".into());
+        }
 
         Ok(())
     }
