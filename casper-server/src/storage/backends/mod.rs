@@ -1,11 +1,10 @@
+use actix_http::Response;
 use anyhow::{anyhow, bail, Context, Result};
 use futures::future::LocalBoxFuture;
-use hyper::Response;
 use memory::MemoryBackend;
 use redis::RedisBackend;
 
-use super::common::{compress_with_zstd, decode_headers, encode_headers};
-use super::{Item, ItemKey, Key, Storage};
+use super::{Body, Item, ItemKey, Key, Storage};
 
 #[derive(Clone)]
 pub enum Backend {
@@ -46,7 +45,7 @@ impl Backend {
 }
 
 impl Storage for Backend {
-    type Body = hyper::Body;
+    type Body = Body;
     type Error = anyhow::Error;
 
     #[inline]

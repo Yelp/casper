@@ -1,9 +1,10 @@
 use std::collections::HashMap;
 use std::mem;
-use std::ops::{Deref, DerefMut};
 
-use http::{Response, StatusCode};
-use hyper::Body;
+use actix_http::body::MessageBody;
+use actix_http::header::HeaderMap;
+use actix_http::{HttpMessage, Response, StatusCode, Version};
+use awc::ClientResponse;
 use mlua::{
     AnyUserData, ExternalError, ExternalResult, FromLua, Lua, Result as LuaResult,
     String as LuaString, Table, ToLua, UserData, UserDataFields, UserDataMethods, Value,
@@ -12,8 +13,12 @@ use opentelemetry::{Key as OTKey, Value as OTValue};
 
 use super::{EitherBody, LuaBody, LuaHttpHeaders, LuaHttpHeadersExt};
 
+#[derive(Default)]
 pub struct LuaResponse {
-    response: Response<EitherBody>,
+    version: Option<Version>, // Useful in client response
+    status: StatusCode,
+    headers: HeaderMap,
+    body: EitherBody,
     labels: Option<HashMap<OTKey, OTValue>>, // For metrics
     pub is_proxied: bool,
     pub is_stored: bool,
@@ -23,11 +28,33 @@ impl LuaResponse {
     #[inline]
     pub fn new(body: LuaBody) -> Self {
         LuaResponse {
-            response: Response::new(EitherBody::Body(body)),
-            labels: None,
-            is_proxied: false,
-            is_stored: false,
+            body: EitherBody::Body(body),
+            ..Default::default()
         }
+    }
+
+    pub fn version(&self) -> Option<&Version> {
+        self.version.as_ref()
+    }
+
+    pub fn status(&self) -> StatusCode {
+        self.status
+    }
+
+    pub fn status_mut(&mut self) -> &mut StatusCode {
+        &mut self.status
+    }
+
+    pub fn headers(&self) -> &HeaderMap {
+        &self.headers
+    }
+
+    pub fn headers_mut(&mut self) -> &mut HeaderMap {
+        &mut self.headers
+    }
+
+    pub fn body_mut(&mut self) -> &mut EitherBody {
+        &mut self.body
     }
 
     /// Returns labels attached to this request
@@ -46,53 +73,50 @@ impl LuaResponse {
     async fn clone(&mut self) -> LuaResult<Self> {
         // Try to buffer body first
         let body = self.body_mut().buffer().await?;
-        let body = body.map(LuaBody::Bytes).unwrap_or(LuaBody::Empty);
+        let body = body.map(LuaBody::Bytes).unwrap_or(LuaBody::None);
 
-        let mut response = LuaResponse::from({
-            let mut resp = Response::new(Body::empty());
-            *resp.status_mut() = self.status();
-            *resp.version_mut() = self.version();
-            *resp.headers_mut() = self.headers().clone();
-            resp
-        });
-        *response.body_mut() = EitherBody::Body(body);
-        response.is_proxied = self.is_proxied;
-        response.is_stored = self.is_stored;
-
-        Ok(response)
+        Ok(LuaResponse {
+            version: self.version.clone(),
+            status: self.status,
+            headers: self.headers.clone(),
+            body: EitherBody::Body(body),
+            labels: self.labels.clone(),
+            is_proxied: self.is_proxied,
+            is_stored: self.is_stored,
+        })
     }
+}
 
-    /// Consumes the response, returning the wrapped hyper Response
+impl From<ClientResponse> for LuaResponse {
     #[inline]
-    pub fn into_inner(self) -> Response<Body> {
-        self.response.map(|body| body.into())
-    }
-}
-
-impl Deref for LuaResponse {
-    type Target = Response<EitherBody>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.response
-    }
-}
-
-impl DerefMut for LuaResponse {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.response
-    }
-}
-
-impl From<Response<Body>> for LuaResponse {
-    #[inline]
-    fn from(response: Response<Body>) -> Self {
+    fn from(mut response: ClientResponse) -> Self {
         LuaResponse {
-            response: response.map(|body| {
-                EitherBody::Body(LuaBody::Hyper {
-                    timeout: None,
-                    body,
-                })
+            version: Some(response.version().clone()),
+            status: response.status().clone(),
+            // TODO: Avoid clone
+            headers: response.headers().clone(),
+            body: EitherBody::Body(LuaBody::Payload {
+                payload: response.take_payload(),
+                timeout: None,
             }),
+            labels: None,
+            is_proxied: true,
+            is_stored: false,
+        }
+    }
+}
+
+impl<B> From<Response<B>> for LuaResponse
+where
+    B: MessageBody + 'static,
+{
+    #[inline]
+    fn from(mut response: Response<B>) -> Self {
+        LuaResponse {
+            version: None,
+            status: response.status().clone(),
+            headers: mem::replace(response.headers_mut(), HeaderMap::new()),
+            body: EitherBody::Body(LuaBody::from(response.into_body().boxed())),
             labels: None,
             is_proxied: false,
             is_stored: false,
@@ -100,28 +124,19 @@ impl From<Response<Body>> for LuaResponse {
     }
 }
 
-impl From<reqwest::Response> for LuaResponse {
+impl From<LuaResponse> for Response<LuaBody> {
     #[inline]
-    fn from(mut response: reqwest::Response) -> Self {
-        let status = response.status();
-        let headers = mem::take(response.headers_mut());
-        let mut response = Response::new(Body::wrap_stream(response.bytes_stream()));
-        *response.status_mut() = status;
-        *response.headers_mut() = headers;
-        Self::from(response)
-    }
-}
-
-impl From<LuaResponse> for Response<Body> {
-    #[inline]
-    fn from(response: LuaResponse) -> Self {
-        response.into_inner()
+    fn from(mut lua_resp: LuaResponse) -> Self {
+        let body = mem::take(lua_resp.body_mut());
+        let mut resp = Response::with_body(lua_resp.status, body.into());
+        *resp.headers_mut() = mem::replace(lua_resp.headers_mut(), HeaderMap::new());
+        resp
     }
 }
 
 impl<'lua> FromLua<'lua> for LuaResponse {
     fn from_lua(value: Value<'lua>, lua: &'lua Lua) -> LuaResult<Self> {
-        let mut response = LuaResponse::new(LuaBody::Empty);
+        let mut response = LuaResponse::new(LuaBody::None);
 
         let params = match lua.unpack::<Option<Table>>(value)? {
             Some(params) => params,
@@ -164,8 +179,9 @@ impl UserData for LuaResponse {
             Ok(())
         });
 
-        fields.add_field_method_get("version", |lua, this| {
-            format!("{:?}", this.version())[5..].to_lua(lua)
+        fields.add_field_method_get("version", |lua, this| match this.version() {
+            Some(version) => format!("{:?}", version)[5..].to_lua(lua),
+            None => Ok(Value::Nil),
         });
 
         fields.add_field_function_get("body", |lua, this| {
@@ -278,7 +294,7 @@ mod tests {
 
     use super::*;
 
-    #[tokio::test]
+    #[actix_web::test]
     async fn test_response() -> Result<()> {
         let lua = Rc::new(Lua::new());
         lua.set_app_data(Rc::downgrade(&lua));
@@ -292,7 +308,6 @@ mod tests {
             assert(resp.is_proxied == false)
             assert(resp.is_stored == false)
             assert(resp.status == 200)
-            assert(resp.version == "1.1")
             assert(resp.body:read() == nil)
         })
         .exec()
@@ -358,33 +373,29 @@ mod tests {
         .exec()
         .unwrap();
 
-        let local = tokio::task::LocalSet::new();
-        local
-            .run_until(
-                // Check cloning Response
-                lua.load(chunk! {
-                    local i = 0
-                    local resp = Response.new({
-                        status = 202,
-                        headers = {
-                            foo = "bar",
-                        },
-                        body = function()
-                            if i == 0 then
-                                i += 1
-                                return "hello, world"
-                            end
-                        end,
-                    })
-                    local resp2 = resp:clone()
-                    assert(resp2.status == 202)
-                    assert(resp2:header("foo") == "bar")
-                    assert(resp2.body:data() == "hello, world")
-                })
-                .exec_async(),
-            )
-            .await
-            .unwrap();
+        // Check cloning Response
+        lua.load(chunk! {
+            local i = 0
+            local resp = Response.new({
+                status = 202,
+                headers = {
+                    foo = "bar",
+                },
+                body = function()
+                    if i == 0 then
+                        i += 1
+                        return "hello, world"
+                    end
+                end,
+            })
+            local resp2 = resp:clone()
+            assert(resp2.status == 202)
+            assert(resp2:header("foo") == "bar")
+            assert(resp2.body:data() == "hello, world")
+        })
+        .exec_async()
+        .await
+        .unwrap();
 
         // Check rewriting body
         lua.load(chunk! {

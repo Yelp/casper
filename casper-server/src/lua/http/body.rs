@@ -1,51 +1,67 @@
+use std::error::Error as StdError;
 use std::mem;
 use std::pin::Pin;
 use std::rc::{Rc, Weak};
 use std::task::{Context, Poll};
 use std::time::Duration;
 
+use actix_http::body::{self, BodySize, BodyStream, BoxBody, MessageBody};
+use actix_http::Payload;
 use bytes::Bytes;
-use hyper::body::{Body, HttpBody};
+use futures::Stream;
 use mlua::{
     AnyUserData, ExternalError, FromLua, Function, Lua, RegistryKey, Result as LuaResult,
     String as LuaString, UserData, Value,
 };
 use tokio::time;
-use tracing::error;
 
-use super::{
-    super::{LuaExt, WeakLuaExt},
-    LuaHttpHeaders,
-};
+use super::super::{LuaExt, WeakLuaExt};
+use crate::http::buffer_payload;
 
 // TODO: Limit number of fetched bytes
 
 pub enum LuaBody {
-    Empty,
+    None,
     Bytes(Bytes),
-    Hyper {
+    Body {
+        body: BoxBody,
         timeout: Option<Duration>,
-        body: Body,
+    },
+    Payload {
+        payload: Payload,
+        timeout: Option<Duration>,
     },
 }
 
 impl LuaBody {
+    /// Returns timeout used to fetch whole body
+    pub fn timeout(&self) -> Option<Duration> {
+        match self {
+            LuaBody::Body { timeout, .. } => *timeout,
+            LuaBody::Payload { timeout, .. } => *timeout,
+            _ => None,
+        }
+    }
+
     /// Sets timeout to fetch whole body
     pub fn set_timeout(&mut self, dur: Option<Duration>) {
-        if let LuaBody::Hyper { timeout, .. } = self {
-            *timeout = dur;
+        match self {
+            LuaBody::Body { timeout, .. } => *timeout = dur,
+            LuaBody::Payload { timeout, .. } => *timeout = dur,
+            _ => {}
         }
     }
 
     /// Buffers the body into memory and returns the buffered data.
     pub async fn buffer(&mut self) -> LuaResult<Option<Bytes>> {
         match self {
-            LuaBody::Empty => Ok(None),
+            LuaBody::None => Ok(None),
             LuaBody::Bytes(bytes) => Ok(Some(bytes.clone())),
-            LuaBody::Hyper { timeout, body } => {
+            LuaBody::Body { body, timeout } => {
+                let tmp_body = mem::replace(body, body::None::new().boxed());
                 let res = match *timeout {
-                    Some(timeout) => time::timeout(timeout, hyper::body::to_bytes(body)).await,
-                    None => Ok(hyper::body::to_bytes(body).await),
+                    Some(timeout) => time::timeout(timeout, body::to_bytes(tmp_body)).await,
+                    None => Ok(body::to_bytes(tmp_body).await),
                 };
                 match res {
                     Ok(Ok(bytes)) => {
@@ -53,11 +69,31 @@ impl LuaBody {
                         Ok(Some(bytes))
                     }
                     Ok(Err(err)) => {
-                        *self = LuaBody::Empty;
-                        Err(err.to_lua_err())
+                        *self = LuaBody::None;
+                        Err(err.to_string().to_lua_err())
                     }
                     Err(err) => {
-                        *self = LuaBody::Empty;
+                        *self = LuaBody::None;
+                        Err(err.to_lua_err())
+                    }
+                }
+            }
+            LuaBody::Payload { payload, timeout } => {
+                let res = match *timeout {
+                    Some(timeout) => time::timeout(timeout, buffer_payload(payload)).await,
+                    None => Ok(buffer_payload(payload).await),
+                };
+                match res {
+                    Ok(Ok(bytes)) => {
+                        *self = LuaBody::Bytes(bytes.clone());
+                        Ok(Some(bytes))
+                    }
+                    Ok(Err(err)) => {
+                        *self = LuaBody::None;
+                        Err(err.to_string().to_lua_err())
+                    }
+                    Err(err) => {
+                        *self = LuaBody::None;
                         Err(err.to_lua_err())
                     }
                 }
@@ -73,11 +109,18 @@ pub enum EitherBody {
     Registry(Weak<Lua>, RegistryKey),
 }
 
+impl Default for EitherBody {
+    #[inline(always)]
+    fn default() -> Self {
+        EitherBody::Body(LuaBody::None)
+    }
+}
+
 impl EitherBody {
     pub(crate) fn as_userdata<'lua>(&mut self, lua: &'lua Lua) -> LuaResult<AnyUserData<'lua>> {
         match self {
             EitherBody::Body(tmp_body) => {
-                let mut body = LuaBody::Empty;
+                let mut body = LuaBody::None;
                 mem::swap(tmp_body, &mut body);
                 // Move body to Lua registry
                 let lua_body = lua.create_userdata(body)?;
@@ -107,7 +150,7 @@ impl EitherBody {
     }
 }
 
-impl From<EitherBody> for Body {
+impl From<EitherBody> for LuaBody {
     #[inline(always)]
     fn from(body: EitherBody) -> Self {
         match body {
@@ -121,7 +164,13 @@ impl From<EitherBody> for Body {
                     .expect("Failed to take out body from Lua UserData")
             }
         }
-        .into()
+    }
+}
+
+impl From<String> for LuaBody {
+    #[inline(always)]
+    fn from(s: String) -> Self {
+        LuaBody::Bytes(Bytes::from(s))
     }
 }
 
@@ -132,54 +181,67 @@ impl From<Bytes> for LuaBody {
     }
 }
 
-impl From<Body> for LuaBody {
+impl From<BoxBody> for LuaBody {
     #[inline(always)]
-    fn from(body: Body) -> Self {
-        LuaBody::Hyper {
-            timeout: None,
+    fn from(body: BoxBody) -> Self {
+        LuaBody::Body {
             body,
+            timeout: None,
         }
     }
 }
 
-/// Converts the body into [`hyper::Body`]
-impl From<LuaBody> for Body {
+impl From<Payload> for LuaBody {
     #[inline(always)]
-    fn from(body: LuaBody) -> Self {
-        match body {
-            LuaBody::Empty => Body::empty(),
-            LuaBody::Bytes(bytes) => Body::from(bytes),
-            LuaBody::Hyper { body, .. } => body,
+    fn from(payload: Payload) -> Self {
+        LuaBody::Payload {
+            payload,
+            timeout: None,
         }
     }
 }
 
-impl HttpBody for LuaBody {
-    type Data = <Body as HttpBody>::Data;
-    type Error = <Body as HttpBody>::Error;
+impl MessageBody for LuaBody {
+    type Error = Box<dyn StdError>;
 
-    fn poll_data(
+    fn size(&self) -> BodySize {
+        match self {
+            LuaBody::None => BodySize::None,
+            LuaBody::Bytes(b) => BodySize::Sized(b.len() as u64),
+            LuaBody::Body { body, .. } => body.size(),
+            LuaBody::Payload { .. } => BodySize::Stream,
+        }
+    }
+
+    fn poll_next(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
-    ) -> Poll<Option<Result<Self::Data, Self::Error>>> {
-        match &mut *self {
-            LuaBody::Empty => Poll::Ready(None),
-            LuaBody::Bytes(bytes) => {
+    ) -> Poll<Option<Result<Bytes, Self::Error>>> {
+        match *self {
+            LuaBody::None => Poll::Ready(None),
+            LuaBody::Bytes(ref bytes) => {
                 let bytes = bytes.clone();
-                *self = LuaBody::Empty;
+                *self = LuaBody::None;
                 Poll::Ready(Some(Ok(bytes)))
             }
-            LuaBody::Hyper { body, .. } => Pin::new(body).poll_data(cx),
+            LuaBody::Body { ref mut body, .. } => Pin::new(body).poll_next(cx),
+            LuaBody::Payload {
+                ref mut payload, ..
+            } => match futures::ready!(Pin::new(payload).poll_next(cx)) {
+                Some(Ok(bytes)) => Poll::Ready(Some(Ok(bytes))),
+                Some(Err(err)) => Poll::Ready(Some(Err(Box::new(err)))),
+                None => Poll::Ready(None),
+            },
         }
     }
 
-    fn poll_trailers(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<Result<Option<http::HeaderMap>, Self::Error>> {
-        match &mut *self {
-            LuaBody::Hyper { body, .. } => Pin::new(body).poll_trailers(cx),
-            _ => Poll::Ready(Ok(None)),
+    fn try_into_bytes(self) -> Result<Bytes, Self>
+    where
+        Self: Sized,
+    {
+        match self {
+            LuaBody::Bytes(bytes) => Ok(bytes),
+            _ => Err(self),
         }
     }
 }
@@ -187,7 +249,7 @@ impl HttpBody for LuaBody {
 impl<'lua> FromLua<'lua> for LuaBody {
     fn from_lua(lua_value: Value<'lua>, lua: &'lua Lua) -> LuaResult<Self> {
         match lua_value {
-            Value::Nil => Ok(LuaBody::Empty),
+            Value::Nil => Ok(LuaBody::None),
             Value::String(s) => Ok(LuaBody::Bytes(Bytes::from(s.as_bytes().to_vec()))),
             Value::Table(t) => {
                 let mut data = Vec::new();
@@ -199,34 +261,18 @@ impl<'lua> FromLua<'lua> for LuaBody {
             Value::Function(f) => {
                 let lua = lua.strong();
                 let func_key = lua.create_registry_value(f)?;
-                let (mut sender, body) = Body::channel();
-                // TODO: spawn task via worker?
-                tokio::task::spawn_local(async move {
+                let stream = futures::stream::poll_fn(move |_| {
                     let func = lua.registry_value::<Function>(&func_key).unwrap();
-                    // Wait fo sender to be ready
-                    let ready = futures::future::poll_fn(|cx| sender.poll_ready(cx)).await;
-                    if ready.is_err() {
-                        return;
-                    }
-                    loop {
-                        match func.call::<_, Option<LuaString>>(()) {
-                            Ok(Some(chunk)) => {
-                                let chunk = Bytes::from(chunk.as_bytes().to_vec());
-                                if let Err(err) = sender.send_data(chunk).await {
-                                    error!("{err}");
-                                    return;
-                                }
-                            }
-                            Ok(None) => return,
-                            Err(err) => {
-                                error!("{err}");
-                                sender.abort();
-                                return;
-                            }
+                    match func.call::<_, Option<LuaString>>(()) {
+                        Ok(Some(chunk)) => {
+                            Poll::Ready(Some(Ok(Bytes::from(chunk.as_bytes().to_vec()))))
                         }
+                        Ok(None) => Poll::Ready(None),
+                        Err(err) => Poll::Ready(Some(Err(err))),
                     }
                 });
-                Ok(LuaBody::from(body))
+                let stream = BodyStream::new(stream);
+                Ok(LuaBody::from(stream.boxed()))
             }
             Value::UserData(ud) => {
                 if let Ok(body) = ud.take::<Self>() {
@@ -257,12 +303,10 @@ impl UserData for LuaBody {
             Ok(())
         });
 
-        // Reads the body and trailers and discards them
+        // Discards the body without reading it
         methods.add_async_function("discard", |_, ud: AnyUserData| async move {
             let mut this = ud.borrow_mut::<Self>()?;
-            while let Some(Ok(_)) = this.data().await {}
-            let _ = this.trailers().await;
-            *this = LuaBody::Empty;
+            *this = LuaBody::None;
             Ok(())
         });
 
@@ -272,7 +316,7 @@ impl UserData for LuaBody {
             let mut this = ud.borrow_mut::<Self>()?;
             let bytes = lua_try!(this.buffer().await);
             let data = bytes.map(|b| lua.create_string(&b)).transpose()?;
-            *this = LuaBody::Empty; // Drop saved data
+            *this = LuaBody::None; // Drop saved data
             Ok(Ok(data))
         });
 
@@ -284,24 +328,24 @@ impl UserData for LuaBody {
                 async move {
                     let ud = lua.registry_value::<AnyUserData>(&body_key)?;
                     let mut this = ud.borrow_mut::<Self>()?;
-                    let bytes = match &mut *this {
-                        LuaBody::Hyper {
-                            timeout: Some(timeout),
-                            body,
-                        } => {
+                    let timeout = this.timeout();
+                    let next_chunk =
+                        futures::future::poll_fn(|cx| Pin::new(&mut *this).poll_next(cx));
+                    let bytes = match timeout {
+                        Some(timeout) => {
                             let start = time::Instant::now();
-                            let bytes = match time::timeout(*timeout, body.data()).await {
+                            let bytes = match time::timeout(timeout, next_chunk).await {
                                 Ok(res) => res,
                                 Err(err) => {
-                                    *timeout = Duration::new(0, 0);
+                                    this.set_timeout(Some(Duration::new(0, 0)));
                                     return Ok(Err(err.to_string()));
                                 }
                             };
-                            *timeout = timeout.saturating_sub(start.elapsed());
+                            this.set_timeout(Some(timeout.saturating_sub(start.elapsed())));
                             lua_try!(bytes.transpose())
                         }
-                        _ => {
-                            lua_try!(this.data().await.transpose())
+                        None => {
+                            lua_try!(next_chunk.await.transpose())
                         }
                     };
                     let data = bytes.map(|b| lua.create_string(&b)).transpose()?;
@@ -317,27 +361,6 @@ impl UserData for LuaBody {
             let data = bytes.map(|b| lua.create_string(&b)).transpose()?;
             Ok(Ok(data))
         });
-
-        // Get HTTP trailers
-        methods.add_async_function("trailers", |_lua, ud: AnyUserData| async move {
-            let mut this = ud.borrow_mut::<Self>()?;
-
-            let trailers = match &*this {
-                LuaBody::Hyper {
-                    timeout: Some(timeout),
-                    ..
-                } => {
-                    lua_try!(time::timeout(*timeout, this.trailers()).await)
-                }
-                LuaBody::Hyper { timeout: None, .. } => this.trailers().await,
-                _ => Ok(None),
-            };
-
-            match lua_try!(trailers) {
-                Some(trailers) => Ok(Ok(Some(LuaHttpHeaders::from(trailers)))),
-                None => Ok(Ok(None)),
-            }
-        });
     }
 }
 
@@ -349,19 +372,17 @@ mod tests {
         time::Duration,
     };
 
-    use http::HeaderMap;
-    use hyper::Body;
+    use actix_http::body::{BodyStream, MessageBody};
     use mlua::{chunk, Lua, Result as LuaResult};
-    use tokio::task::LocalSet;
     use tokio_stream::{self as stream, StreamExt};
 
     use super::LuaBody;
 
-    #[tokio::test]
+    #[actix_web::test]
     async fn test_empty_body() -> LuaResult<()> {
         let lua = Lua::new();
 
-        let body = LuaBody::Empty;
+        let body = LuaBody::None;
         lua.load(chunk! {
             assert($body:data() == nil)
             assert($body:read() == nil)
@@ -375,7 +396,7 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
+    #[actix_web::test]
     async fn test_bytes_body() -> LuaResult<()> {
         let lua = Lua::new();
 
@@ -405,16 +426,17 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
+    #[actix_web::test]
     async fn test_stream_body() -> LuaResult<()> {
         let lua = Lua::new();
 
         fn make_body_stream() -> LuaBody {
-            let chunks: Vec<Result<_, IoError>> = vec![Ok("hello"), Ok(", "), Ok("world")];
+            let chunks: Vec<Result<_, IoError>> =
+                vec![Ok("hello".into()), Ok(", ".into()), Ok("world".into())];
             let stream = stream::iter(chunks);
-            LuaBody::Hyper {
+            LuaBody::Body {
+                body: BodyStream::new(stream).boxed(),
                 timeout: None,
-                body: Body::wrap_stream(stream),
             }
         }
 
@@ -446,7 +468,7 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
+    #[actix_web::test]
     async fn test_body_discard() -> LuaResult<()> {
         let lua = Lua::new();
 
@@ -462,19 +484,19 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
+    #[actix_web::test]
     async fn test_body_errors() -> LuaResult<()> {
         let lua = Lua::new();
 
         fn make_body_stream() -> LuaBody {
             let chunks: Vec<Result<_, IoError>> = vec![
-                Ok("hello"),
+                Ok("hello".into()),
                 Err(IoError::new(ErrorKind::BrokenPipe, "broken pipe")),
             ];
             let stream = stream::iter(chunks);
-            LuaBody::Hyper {
+            LuaBody::Body {
+                body: BodyStream::new(stream).boxed(),
                 timeout: None,
-                body: Body::wrap_stream(stream),
             }
         }
 
@@ -510,41 +532,14 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
-    async fn test_body_error_channel() -> LuaResult<()> {
-        let lua = Lua::new();
-
-        let (mut sender, body) = Body::channel();
-        let body = LuaBody::Hyper {
-            timeout: None,
-            body,
-        };
-        tokio::task::spawn(async move {
-            sender.send_data("hello".into()).await.unwrap();
-            sender.abort();
-        });
-
-        lua.load(chunk! {
-            local reader = $body:reader()
-            assert(reader() == "hello")
-            local _, err = reader()
-            assert(err:find("aborted") ~= nil)
-        })
-        .exec_async()
-        .await
-        .unwrap();
-
-        Ok(())
-    }
-
-    #[tokio::test]
+    #[actix_web::test]
     async fn test_lua_body() -> LuaResult<()> {
         let lua = Rc::new(Lua::new());
         lua.set_app_data(Rc::downgrade(&lua));
 
         lua.globals().set("Body", lua.create_proxy::<LuaBody>()?)?;
 
-        let chunk = chunk! {
+        lua.load(chunk! {
             local body = Body.new()
             assert(body:data() == nil)
 
@@ -563,25 +558,22 @@ mod tests {
                 return
             end)
             assert(body:read() == "hello, world")
-        };
-
-        let local_set = LocalSet::new();
-        local_set
-            .run_until(lua.load(chunk).exec_async())
-            .await
-            .unwrap();
+        })
+        .exec_async()
+        .await
+        .unwrap();
 
         Ok(())
     }
 
-    #[tokio::test]
+    #[actix_web::test]
     async fn test_lua_body_error() -> LuaResult<()> {
         let lua = Rc::new(Lua::new());
         lua.set_app_data(Rc::downgrade(&lua));
 
         lua.globals().set("Body", lua.create_proxy::<LuaBody>()?)?;
 
-        let chunk = chunk! {
+        lua.load(chunk! {
             local i = 0
             body = Body.new(function()
                 i = i + 1
@@ -589,26 +581,25 @@ mod tests {
                 error("blah")
             end)
             local _, err = body:read()
-            assert(err:find("aborted") ~= nil)
-        };
-
-        let local_set = LocalSet::new();
-        local_set
-            .run_until(lua.load(chunk).exec_async())
-            .await
-            .unwrap();
+            assert(err:find("blah") ~= nil)
+        })
+        .exec_async()
+        .await
+        .unwrap();
 
         Ok(())
     }
 
-    #[tokio::test]
+    #[actix_web::test]
     async fn test_body_timeout() -> LuaResult<()> {
         let lua = Lua::new();
 
-        let chunks: Vec<Result<_, IoError>> = vec![Ok("hello"), Ok(", "), Ok("world")];
-        let body = LuaBody::Hyper {
+        let chunks: Vec<Result<_, IoError>> =
+            vec![Ok("hello".into()), Ok(", ".into()), Ok("world".into())];
+        let stream = stream::iter(chunks).throttle(Duration::from_millis(15));
+        let body = LuaBody::Body {
+            body: BodyStream::new(Box::pin(stream)).boxed(),
             timeout: Some(Duration::from_millis(10)),
-            body: Body::wrap_stream(stream::iter(chunks).throttle(Duration::from_millis(15))),
         };
 
         lua.load(chunk! {
@@ -619,84 +610,6 @@ mod tests {
             // Reset timeout and try again
             $body:set_timeout(0.010)
             assert(reader() == ", ")
-        })
-        .exec_async()
-        .await
-        .unwrap();
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn test_trailers() -> LuaResult<()> {
-        let lua = Lua::new();
-
-        let (mut sender, body) = Body::channel();
-        let body = LuaBody::from(body);
-        let mut trailers = HeaderMap::new();
-        trailers.insert("trailer_name", "trailer_value".parse().unwrap());
-
-        tokio::task::spawn(async move {
-            sender.send_trailers(trailers).await.unwrap();
-        });
-
-        lua.load(chunk! {
-            local trailers = $body:trailers()
-            assert(trailers["trailer_name"][1] == "trailer_value")
-        })
-        .exec_async()
-        .await
-        .unwrap();
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn test_trailers_none() -> LuaResult<()> {
-        let lua = Lua::new();
-
-        let (mut sender, body) = Body::channel();
-        let body = LuaBody::from(body);
-
-        tokio::task::spawn(async move {
-            sender.send_data("hello".into()).await.unwrap();
-        });
-
-        lua.load(chunk! {
-            local trailers = $body:trailers()
-            assert(trailers == nil)
-        })
-        .exec_async()
-        .await
-        .unwrap();
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn test_trailers_timeout() -> LuaResult<()> {
-        let lua = Lua::new();
-
-        let (mut sender, body) = Body::channel();
-        let body = LuaBody::Hyper {
-            timeout: Some(Duration::from_millis(10)),
-            body,
-        };
-        let mut trailers = HeaderMap::new();
-        trailers.insert("trailer_name", "trailer_value".parse().unwrap());
-
-        tokio::task::spawn(async move {
-            tokio::time::sleep(Duration::from_millis(15)).await;
-            sender.send_trailers(trailers).await.unwrap();
-        });
-
-        lua.load(chunk! {
-            // First attempt should timeout
-            local _, err = $body:trailers()
-            assert(err:find("deadline") ~= nil)
-
-            // Second attempt should succeed
-            local trailers = $body:trailers()
-            assert(trailers["trailer_name"][1] == "trailer_value")
         })
         .exec_async()
         .await

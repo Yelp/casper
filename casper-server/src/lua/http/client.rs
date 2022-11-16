@@ -1,57 +1,103 @@
+use std::mem;
 use std::time::Duration;
 
+use actix_http::{header::HeaderMap, BoxedPayloadStream, Payload};
+use awc::{Client, Connector};
 use mlua::{
     AnyUserData, ExternalResult, FromLua, Result as LuaResult, Table, UserData, UserDataMethods,
     Value,
 };
-use reqwest::{Client, Request};
 
-use super::{LuaRequest, LuaResponse};
+use super::{LuaBody, LuaRequest, LuaResponse};
 
-#[derive(Debug)]
-pub struct LuaHttpClient(Client);
+pub struct LuaHttpClient {
+    client: Client,
+    no_decompress: bool,
+}
 
 impl LuaHttpClient {
-    async fn request(&self, req: LuaRequest) -> LuaResult<LuaResponse> {
-        let timeout = req.timeout();
-        let mut req: Request = req.try_into().to_lua_err()?;
-        *req.timeout_mut() = timeout;
-        let resp = self.0.execute(req).await.to_lua_err()?;
+    async fn request(&self, mut req: LuaRequest) -> LuaResult<LuaResponse> {
+        let mut client_req = self.client.request(req.method().clone(), req.uri().clone());
+        if self.no_decompress {
+            client_req = client_req.no_decompress();
+        }
+        if let Some(timeout) = req.timeout() {
+            client_req = client_req.timeout(timeout);
+        }
+
+        *client_req.headers_mut() = mem::replace(client_req.headers_mut(), HeaderMap::new());
+
+        let resp = client_req
+            .send_body(LuaBody::from(req.take_body()))
+            .await
+            .map_err(|e| e.to_string())
+            .to_lua_err()?
+            .map_body(|_, b| Payload::Stream {
+                payload: Box::pin(b) as BoxedPayloadStream,
+            });
+
         Ok(LuaResponse::from(resp))
     }
 }
 
 impl From<Client> for LuaHttpClient {
     fn from(client: Client) -> Self {
-        LuaHttpClient(client)
+        LuaHttpClient {
+            client,
+            no_decompress: false,
+        }
     }
 }
 
 impl<'lua> FromLua<'lua> for LuaHttpClient {
     fn from_lua(value: Value<'lua>, lua: &'lua mlua::Lua) -> LuaResult<Self> {
         if value == Value::Nil {
-            return Ok(LuaHttpClient(Client::new()));
+            return Ok(LuaHttpClient::from(Client::new()));
         }
 
-        let mut builder = Client::builder();
+        let mut client_builder = Client::builder();
         let params = lua.unpack::<Table>(value)?;
 
-        if let Ok(Some(val)) = params.raw_get("accept_invalid_certs") {
-            builder = builder.danger_accept_invalid_certs(val);
-        }
+        let no_decompress = params.raw_get("no_decompress").unwrap_or(false);
 
-        if let Ok(Some(val)) = params.raw_get("gzip") {
-            builder = builder.gzip(val);
-        }
-
-        if let Ok(Some(val)) = params.raw_get::<_, Option<u64>>("pool_idle_timeout") {
+        if let Ok(Some(val)) = params.raw_get::<_, Option<u8>>("max_redirects") {
             match val {
-                0 => builder = builder.pool_idle_timeout(None),
-                _ => builder = builder.pool_idle_timeout(Duration::from_secs(val)),
+                0 => client_builder = client_builder.disable_redirects(),
+                _ => client_builder = client_builder.max_redirects(val),
             }
         }
 
-        Ok(LuaHttpClient(builder.build().to_lua_err()?))
+        if let Ok(Some(val)) = params.raw_get::<_, Option<u64>>("timeout") {
+            match val {
+                0 => client_builder = client_builder.disable_timeout(),
+                _ => client_builder = client_builder.timeout(Duration::from_secs(val)),
+            }
+        }
+
+        // Connector options
+
+        let mut connector = Connector::new();
+
+        if let Ok(Some(val)) = params.raw_get::<_, Option<u64>>("connect_timeout") {
+            connector = connector.timeout(Duration::from_secs(val));
+        }
+
+        if let Ok(Some(val)) = params.raw_get::<_, Option<u64>>("keep_alive") {
+            connector = connector.conn_keep_alive(Duration::from_secs(val));
+        }
+
+        if let Ok(Some(val)) = params.raw_get::<_, Option<u64>>("lifetime") {
+            connector = connector.conn_lifetime(Duration::from_secs(val));
+        }
+
+        if let Ok(Some(val)) = params.raw_get::<_, Option<u64>>("max_connections") {
+            connector = connector.limit(val as usize);
+        }
+
+        Ok(LuaHttpClient {
+            client: client_builder.connector(connector).finish(),
+            no_decompress,
+        })
     }
 }
 
@@ -83,7 +129,7 @@ mod tests {
 
     use super::*;
 
-    #[tokio::test]
+    #[actix_web::test]
     async fn test_client() -> Result<()> {
         let lua = Rc::new(Lua::new());
         lua.set_app_data(Rc::downgrade(&lua));

@@ -176,9 +176,8 @@ mod tests {
     use std::time::Duration;
 
     use mlua::{chunk, Lua, Result};
-    use tokio::task::LocalSet;
 
-    #[tokio::test]
+    #[actix_web::test]
     async fn test_tasks() -> Result<()> {
         let lua = Rc::new(Lua::new());
         lua.set_app_data(Rc::downgrade(&lua));
@@ -192,29 +191,23 @@ mod tests {
             })?,
         )?;
 
-        let local_set = LocalSet::new();
-        local_set
-            .run_until(async {
-                super::start_task_scheduler(&lua);
-            })
-            .await;
+        super::start_task_scheduler(&lua);
 
         // Test normal task run and result collection
-        let chunk = chunk! {
+        lua.load(chunk! {
             local handle = tasks.spawn(function()
                 sleep(0.1)
                 return "hello"
             end)
             assert(handle.id > 0)
             assert(handle:join() == "hello")
-        };
-        local_set
-            .run_until(lua.load(chunk).exec_async())
-            .await
-            .unwrap();
+        })
+        .exec_async()
+        .await
+        .unwrap();
 
         // Test named task
-        let chunk = chunk! {
+        lua.load(chunk! {
             local handle = tasks.spawn({
                 handler = function()
                     sleep(0.1)
@@ -225,28 +218,26 @@ mod tests {
             assert(handle.id > 0)
             assert(handle.name == "test_task")
             assert(handle:join() == "hello2")
-        };
-        local_set
-            .run_until(lua.load(chunk).exec_async())
-            .await
-            .unwrap();
+        })
+        .exec_async()
+        .await
+        .unwrap();
 
         // Test error inside task
-        let chunk = chunk! {
+        lua.load(chunk! {
             local handle = tasks.spawn(function()
                 error("error inside task")
             end)
             local ok, err = handle:join()
             assert(not ok)
             assert(err:find("error inside task"))
-        };
-        local_set
-            .run_until(lua.load(chunk).exec_async())
-            .await
-            .unwrap();
+        })
+        .exec_async()
+        .await
+        .unwrap();
 
         // Test aborting task
-        let chunk = chunk! {
+        lua.load(chunk! {
             local result
             local handle = tasks.spawn(function()
                 sleep(0.1)
@@ -256,11 +247,10 @@ mod tests {
             handle:abort()
             sleep(0.2)
             assert(result == nil)
-        };
-        local_set
-            .run_until(lua.load(chunk).exec_async())
-            .await
-            .unwrap();
+        })
+        .exec_async()
+        .await
+        .unwrap();
 
         Ok(())
     }

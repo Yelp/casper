@@ -2,15 +2,14 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::SystemTime;
 
+use actix_http::{Response, StatusCode};
 use async_trait::async_trait;
 use bytes::Bytes;
-use http::{Response, StatusCode};
 use linked_hash_map::LinkedHashMap;
 use serde::Deserialize;
 use tokio::sync::Mutex;
 
-use super::{decode_headers, encode_headers};
-use crate::storage::{Item, ItemKey, Key, Storage};
+use crate::storage::{decode_headers, encode_headers, Body, Item, ItemKey, Key, Storage};
 
 // Memory backend configuration
 #[derive(Deserialize)]
@@ -145,7 +144,7 @@ impl MemoryBackendImpl {
 
 #[async_trait(?Send)]
 impl Storage for MemoryBackend {
-    type Body = hyper::Body;
+    type Body = Body;
     type Error = anyhow::Error;
 
     fn name(&self) -> String {
@@ -174,10 +173,9 @@ impl Storage for MemoryBackend {
                 .get_unexpired(&key)
                 .map(|value| {
                     let headers = decode_headers(&value.headers)?;
-                    let body = hyper::Body::from(value.body.clone());
+                    let body = Body::left(value.body.clone());
 
-                    let mut resp = Response::new(body);
-                    *resp.status_mut() = value.status;
+                    let mut resp = Response::with_body(value.status, body);
                     *resp.headers_mut() = headers;
 
                     Ok::<_, Self::Error>(resp)
@@ -242,27 +240,29 @@ impl Storage for MemoryBackend {
 
 #[cfg(test)]
 mod tests {
-    use std::convert::TryInto;
     use std::time::Duration;
 
+    use actix_http::body::to_bytes;
+    use actix_http::header::{HeaderName, HeaderValue};
+    use actix_http::Response;
     use bytes::Bytes;
-    use http::HeaderValue;
-    use hyper::Response;
 
     use super::{Config, MemoryBackend};
     use crate::storage::{Item, ItemKey, Storage};
 
     fn make_response(body: impl Into<Bytes>) -> Response<Bytes> {
-        Response::builder().body(body.into()).unwrap()
+        Response::ok().set_body(body.into())
     }
 
-    #[tokio::test]
+    #[actix_web::test]
     async fn test_backend() {
         let memory = MemoryBackend::new(&Config { max_size: 1024 }, None);
         let mut resp = make_response("hello, world");
 
-        resp.headers_mut()
-            .insert("Hello", "World".try_into().unwrap());
+        resp.headers_mut().insert(
+            HeaderName::from_static("hello"),
+            HeaderValue::from_static("World"),
+        );
 
         // Cache response
         let ttl = Duration::from_secs(1);
@@ -277,7 +277,7 @@ mod tests {
             resp.headers().get("Hello"),
             Some(&HeaderValue::from_static("World"))
         );
-        let body = hyper::body::to_bytes(&mut resp).await.unwrap().to_vec();
+        let body = to_bytes(resp.into_body()).await.unwrap().to_vec();
         assert_eq!(String::from_utf8(body).unwrap(), "hello, world");
 
         // Delete cached response
@@ -291,13 +291,15 @@ mod tests {
         assert!(matches!(resp, None));
     }
 
-    #[tokio::test]
+    #[actix_web::test]
     async fn test_backend_ttl() {
         let memory = MemoryBackend::new(&Config { max_size: 1024 }, None);
         let mut resp = make_response("hello, world");
 
-        resp.headers_mut()
-            .insert("Hello", "World".try_into().unwrap());
+        resp.headers_mut().insert(
+            HeaderName::from_static("hello"),
+            HeaderValue::from_static("World"),
+        );
 
         // Cache response with TTL
         let ttl = Duration::from_millis(10);
@@ -314,7 +316,7 @@ mod tests {
         assert!(matches!(resp, None));
     }
 
-    #[tokio::test]
+    #[actix_web::test]
     async fn test_surrogate_keys() {
         let memory = MemoryBackend::new(&Config { max_size: 1024 }, None);
         let resp = make_response("hello, world");
@@ -328,7 +330,7 @@ mod tests {
 
         // Fetch it back
         let mut resp = memory.get_response("key1".into()).await.unwrap().unwrap();
-        let body = hyper::body::to_bytes(&mut resp).await.unwrap().to_vec();
+        let body = to_bytes(resp.into_body()).await.unwrap().to_vec();
         assert_eq!(String::from_utf8(body).unwrap(), "hello, world");
 
         // Delete by surrogate key
