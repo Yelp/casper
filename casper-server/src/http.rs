@@ -75,9 +75,9 @@ async fn send_to_upstream(
         client_req = client_req.timeout(timeout);
     }
 
-    *client_req.headers_mut() = mem::replace(client_req.headers_mut(), HeaderMap::new());
+    *client_req.headers_mut() = mem::replace(req.headers_mut(), HeaderMap::new());
 
-    filter_hop_headers(req.headers_mut());
+    filter_hop_headers(client_req.headers_mut());
 
     // Proxy to an upstream service
     let mut resp: LuaResponse = client_req
@@ -117,7 +117,7 @@ pub async fn proxy_to_upstream(
             Ok(resp)
         }
         Err(err) => {
-            let mut resp = LuaResponse::new(LuaBody::from(err.to_string()).into());
+            let mut resp = LuaResponse::new(LuaBody::from(err.to_string()));
             *resp.status_mut() = StatusCode::BAD_GATEWAY;
             resp.headers_mut()
                 .insert(header::CONTENT_TYPE, HeaderValue::from_static("text/plan"));

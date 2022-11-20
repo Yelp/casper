@@ -4,10 +4,10 @@ use std::net::SocketAddr;
 use std::time::Duration;
 use std::{collections::HashMap, convert::Infallible};
 
-use actix_http::header::HeaderMap;
+use actix_http::header::{HeaderMap, CONTENT_LENGTH};
 use actix_http::uri::PathAndQuery;
 use actix_http::{Method, Payload, Request, Uri, Version};
-use actix_web::{FromRequest, HttpRequest};
+use actix_web::{FromRequest, HttpMessage, HttpRequest};
 use futures::future::{self, Ready};
 use mlua::{
     AnyUserData, ExternalError, ExternalResult, FromLua, Lua, LuaSerdeExt, Result as LuaResult,
@@ -133,7 +133,7 @@ impl LuaRequest {
         Ok(LuaRequest {
             uri: self.uri.clone(),
             method: self.method.clone(),
-            version: self.version.clone(),
+            version: self.version,
             headers: self.headers.clone(),
             body: EitherBody::Body(body),
             remote_addr: self.remote_addr,
@@ -145,15 +145,18 @@ impl LuaRequest {
 impl From<Request> for LuaRequest {
     #[inline]
     fn from(mut request: Request) -> Self {
+        let content_length = request
+            .headers()
+            .get(CONTENT_LENGTH)
+            .and_then(|len| len.to_str().ok())
+            .and_then(|len| len.parse::<u64>().ok());
+
         LuaRequest {
             uri: request.uri().clone(),
             method: request.method().clone(),
-            version: request.version().clone(),
+            version: request.version(),
             headers: mem::replace(request.headers_mut(), HeaderMap::new()),
-            body: EitherBody::Body(LuaBody::Payload {
-                payload: request.take_payload(),
-                timeout: None,
-            }),
+            body: EitherBody::Body(LuaBody::from((request.take_payload(), content_length))),
             remote_addr: request.peer_addr(),
             timeout: None,
         }
@@ -166,13 +169,19 @@ impl FromRequest for LuaRequest {
     type Future = Ready<Result<Self, Self::Error>>;
 
     fn from_request(request: &HttpRequest, payload: &mut Payload) -> Self::Future {
+        let content_length = request
+            .headers()
+            .get(CONTENT_LENGTH)
+            .and_then(|len| len.to_str().ok())
+            .and_then(|len| len.parse::<u64>().ok());
         let payload = payload.take();
+
         future::ready(Ok(LuaRequest {
             uri: request.uri().clone(),
             method: request.method().clone(),
-            version: request.version().clone(),
+            version: request.version(),
             headers: request.headers().clone(),
-            body: EitherBody::Body(LuaBody::from(payload)),
+            body: EitherBody::Body(LuaBody::from((payload, content_length))),
             remote_addr: request.peer_addr(),
             timeout: None,
         }))

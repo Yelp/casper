@@ -49,17 +49,27 @@ async fn main_inner(args: Args) -> anyhow::Result<()> {
         storage_backends.push(backend);
     }
 
+    // Try to initialize application context on the listening thread to check for errors
+    let context = AppContext::builder()
+        .with_config(config.clone())
+        .with_storage_backends(storage_backends.clone())
+        .build()?;
+    // Drop it
+    drop(context);
+
     let addr = &config.main.listen;
     let listener = TcpListener::bind(addr).with_context(|| format!("Failed to listen {addr}"))?;
     info!("Listening on http://{}", addr);
 
     let config2 = config.clone();
     HttpServer::new(move || {
-        // Construct default HTTP client
-        let http_client = Client::builder()
-            .disable_redirects()
-            .disable_timeout()
-            .finish();
+        // Initialize per-worker thread application context
+        let context = AppContext::builder()
+            .with_config(config.clone())
+            .with_storage_backends(storage_backends.clone())
+            .build()
+            .unwrap();
+        let id = context.id;
 
         #[cfg(target_os = "linux")]
         if config.main.pin_workers {
@@ -69,19 +79,18 @@ async fn main_inner(args: Args) -> anyhow::Result<()> {
             }
         }
 
-        // Initialize application context
-        let context = AppContext::builder()
-            .with_config(config.clone())
-            .with_storage_backends(storage_backends.clone())
-            .build()
-            .unwrap();
+        // Construct default HTTP client
+        let http_client = Client::builder()
+            .disable_redirects()
+            .disable_timeout()
+            .finish();
 
-        // Attach default http client to Lua
+        // Attach it to Lua
         context.lua.set_app_data::<Client>(http_client);
 
         // Track Lua used memory every 10 seconds
         let lua = Rc::clone(&context.lua);
-        let id = context.id;
+
         tokio::task::spawn_local(async move {
             loop {
                 lua_used_memory_update!(id, lua.used_memory());
@@ -90,9 +99,10 @@ async fn main_inner(args: Args) -> anyhow::Result<()> {
         });
 
         App::new()
-            .app_data(web::Data::new(context.clone()))
+            .app_data(web::Data::new(context))
             .wrap(middleware::Metrics::new("/metrics".to_string()))
-            .wrap(middleware::Logger::new(context.clone()))
+            .wrap(middleware::Logger::new())
+            // .wrap(actix_web::middleware::Logger::default())
             .default_service(web::to(handler::handler))
     })
     .on_connect(|_, ext| {
@@ -120,7 +130,7 @@ fn main() {
 
     let system = System::new();
     if let Err(err) = system.block_on(main_inner(args)) {
-        error!("{err:?}");
+        error!("{err:#}");
     }
 }
 

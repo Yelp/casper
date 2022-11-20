@@ -3,7 +3,8 @@ members = ["casper-server"]
 
 [profile.release]
 opt-level = 3
-debug = false # Do not include debug symbols in the executable.
+debug = true
+codegen-units = 1
 
 [profile.dev]
 # https://jakedeichert.com/blog/reducing-rust-incremental-compilation-times-on-macos-by-70-percent/

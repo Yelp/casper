@@ -8,6 +8,7 @@ use anyhow::{anyhow, Result};
 use mlua::{Function, Value};
 use opentelemetry::{Key as OTKey, Value as OTValue};
 use scopeguard::defer;
+use tracing::error;
 
 use crate::context::AppContext;
 use crate::lua::{LuaBody, LuaRequest, LuaResponse};
@@ -26,8 +27,10 @@ pub(crate) async fn handler(
     let mut attrs_map: HashMap<OTKey, OTValue> = HashMap::new();
     attrs_map.insert("method".into(), req.method().to_string().into());
 
+    // Create Lua context table
+    let lua_ctx = LuaContext::new(lua);
+
     // Execute inner handler to get response
-    let lua_ctx = LuaContext::new(lua); // Create Lua context table
     let mut resp_result = handler_inner(req, app_ctx, lua_ctx.clone()).await;
 
     // Collect response labels
@@ -44,8 +47,9 @@ pub(crate) async fn handler(
                 }
             }
         }
-        Err(_) => {
+        Err(ref err) => {
             attrs_map.insert("status".into(), 0.into());
+            error!("{err:#}");
         }
     }
     requests_counter_inc!(attrs_map);
@@ -103,7 +107,7 @@ pub(crate) async fn handler_inner(
             }
             Err(err) => {
                 filter_error_counter_add!(1, "name" => name.clone(), "phase" => "on_request");
-                return Err(anyhow!("filter '{name}'::on-request error: {err:?}"));
+                return Err(anyhow!("filter '{name}'::on-request error: {err:#}"));
             }
         }
     }
@@ -125,7 +129,7 @@ pub(crate) async fn handler_inner(
                 }
                 Err(err) => {
                     handler_error_counter_add!(1);
-                    return Err(anyhow!("handler error: {err:?}"));
+                    return Err(anyhow!("handler panic: {err:#}"));
                 }
             }
         }
@@ -157,7 +161,7 @@ pub(crate) async fn handler_inner(
             .await
         {
             filter_error_counter_add!(1, "name" => name.clone(), "phase" => "on_response");
-            return Err(anyhow!("filter '{name}'::on-response error: {err:?}"));
+            return Err(anyhow!("filter '{name}'::on-response error: {err:#}"));
         }
     }
 

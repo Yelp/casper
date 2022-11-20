@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 
 use actix_web::body::{BodySize, MessageBody};
 use actix_web::dev::{forward_ready, Service, ServiceRequest, ServiceResponse, Transform};
-use actix_web::Error;
+use actix_web::{web, Error};
 use bytes::Bytes;
 use futures::future::Ready;
 use mlua::{Function, LuaSerdeExt};
@@ -20,13 +20,11 @@ use crate::metrics::METRICS;
 use crate::types::LuaContext;
 
 #[derive(Debug)]
-pub struct Logger {
-    app_context: AppContext,
-}
+pub struct Logger;
 
 impl Logger {
-    pub fn new(app_context: AppContext) -> Self {
-        Logger { app_context }
+    pub fn new() -> Self {
+        Logger
     }
 }
 
@@ -42,10 +40,7 @@ where
     type Future = Ready<Result<Self::Transform, Self::InitError>>;
 
     fn new_transform(&self, service: S) -> Self::Future {
-        futures::future::ready(Ok(LoggerMiddleware {
-            service,
-            app_context: self.app_context.clone(),
-        }))
+        futures::future::ready(Ok(LoggerMiddleware { service }))
     }
 }
 
@@ -59,12 +54,13 @@ struct LogData {
     status: u16,
     active_conns: u64,
     active_requests: u64,
+    response_size: u64,
+    error: Option<bool>,
 }
 
 /// Logger middleware service.
 #[derive(Clone, Debug)]
 pub struct LoggerMiddleware<S> {
-    app_context: AppContext,
     service: S,
 }
 
@@ -105,63 +101,26 @@ where
     fn call(&self, req: ServiceRequest) -> Self::Future {
         let start = Instant::now();
 
-        let log_data = LogData {
+        let app_context: AppContext =
+            Clone::clone(req.app_data::<web::Data<AppContext>>().unwrap());
+
+        let log_data = app_context.access_log.as_ref().map(|_| LogData {
             uri: req.uri().to_string(),
             method: req.method().to_string(),
             remote_addr: req.peer_addr().map(|addr| addr.to_string()),
             ..Default::default()
-        };
+        });
 
         let fut = self.service.call(req);
 
         LoggerResponse {
             fut,
             start,
-            app_context: self.app_context.clone(),
+            app_context,
             lua_context: None,
-            log_data: Some(log_data),
+            log_data,
             _phantom: PhantomData,
         }
-
-        // Box::pin(async move {
-        //     let mut resp = service.call(req).await;
-
-        //     log_context.elapsed = start.elapsed();
-        //     log_context.active_conns = METRICS.active_connections_counter.get();
-        //     log_context.active_requests = METRICS.active_requests_counter.get();
-
-        //     match resp.as_mut() {
-        //         Ok(resp) => {
-        //             log_context.status = resp.status().as_u16();
-
-        //             let lua_context = resp
-        //                 .extensions()
-        //                 .get::<LuaContext>()
-        //                 .cloned()
-        //                 .expect("Cannot find response context");
-
-        //             Self::spawn_access_log(worker_context, log_context, lua_context);
-        //         }
-        //         Err(_err) => {
-        //             // // Execute user-defined error log function
-        //             // if data.error_log.is_some() {
-        //             //     tokio::task::spawn_local(async move {
-        //             //         let ctx = get_registry::<Table>(&lua, &ctx_key);
-        //             //         let error_log_key = data.error_log.as_ref().unwrap();
-        //             //         let error_logger = get_registry::<Function>(&lua, error_log_key);
-        //             //         let err = format!("{:#}", err);
-        //             //         if let Err(err) = error_logger.call_async::<_, Value>((err, ctx)).await {
-        //             //             error!("{:#}", err);
-        //             //         }
-        //             //     });
-        //             // } else {
-        //             //     error!("{err:?}");
-        //             // }
-        //         }
-        //     }
-
-        //     resp
-        // })
     }
 }
 
@@ -229,7 +188,7 @@ pin_project! {
     pub struct StreamLog<B> {
         #[pin]
         body: B,
-        body_size: usize,
+        body_size: u64,
         start: Instant,
         app_context: AppContext,
         lua_context: Option<LuaContext>,
@@ -240,7 +199,8 @@ pin_project! {
     impl<B> PinnedDrop for StreamLog<B> {
         fn drop(this: Pin<&mut Self>) {
             let this = this.project();
-            if let (Some(log_data), Some(lua_ctx)) = (this.log_data.take(), this.lua_context.take()) {
+            if let (Some(mut log_data), Some(lua_ctx)) = (this.log_data.take(), this.lua_context.take()) {
+                log_data.response_size = *this.body_size;
                 LoggerMiddleware::spawn_access_log(this.app_context.clone(), log_data, lua_ctx)
             }
         }
@@ -263,10 +223,15 @@ impl<B: MessageBody> MessageBody for StreamLog<B> {
 
         match futures::ready!(this.body.poll_next(cx)) {
             Some(Ok(chunk)) => {
-                *this.body_size += chunk.len();
+                *this.body_size += chunk.len() as u64;
                 Poll::Ready(Some(Ok(chunk)))
             }
-            Some(Err(err)) => Poll::Ready(Some(Err(err))),
+            Some(Err(err)) => {
+                if let Some(log_data) = this.log_data.as_mut() {
+                    log_data.error = Some(true);
+                }
+                Poll::Ready(Some(Err(err)))
+            }
             None => Poll::Ready(None),
         }
     }

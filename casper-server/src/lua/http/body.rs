@@ -1,4 +1,5 @@
 use std::error::Error as StdError;
+use std::fmt;
 use std::mem;
 use std::pin::Pin;
 use std::rc::{Rc, Weak};
@@ -14,6 +15,7 @@ use mlua::{
     String as LuaString, UserData, Value,
 };
 use tokio::time;
+use tracing::error;
 
 use super::super::{LuaExt, WeakLuaExt};
 use crate::http::buffer_payload;
@@ -29,6 +31,7 @@ pub enum LuaBody {
     },
     Payload {
         payload: Payload,
+        length: Option<u64>,
         timeout: Option<Duration>,
     },
 }
@@ -78,7 +81,9 @@ impl LuaBody {
                     }
                 }
             }
-            LuaBody::Payload { payload, timeout } => {
+            LuaBody::Payload {
+                payload, timeout, ..
+            } => {
                 let res = match *timeout {
                     Some(timeout) => time::timeout(timeout, buffer_payload(payload)).await,
                     None => Ok(buffer_payload(payload).await),
@@ -107,6 +112,15 @@ pub enum EitherBody {
     Body(LuaBody),
     /// The body is stored in Lua Registry
     Registry(Weak<Lua>, RegistryKey),
+}
+
+impl fmt::Debug for EitherBody {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            EitherBody::Body(_) => f.write_str("EitherBody::Body"),
+            EitherBody::Registry(_, _) => f.write_str("EitherBody::Registry"),
+        }
+    }
 }
 
 impl Default for EitherBody {
@@ -196,11 +210,12 @@ impl From<BoxBody> for LuaBody {
     }
 }
 
-impl From<Payload> for LuaBody {
+impl From<(Payload, Option<u64>)> for LuaBody {
     #[inline(always)]
-    fn from(payload: Payload) -> Self {
+    fn from((payload, length): (Payload, Option<u64>)) -> Self {
         LuaBody::Payload {
             payload,
+            length,
             timeout: None,
         }
     }
@@ -214,7 +229,9 @@ impl MessageBody for LuaBody {
             LuaBody::None => BodySize::None,
             LuaBody::Bytes(b) => BodySize::Sized(b.len() as u64),
             LuaBody::Body { body, .. } => body.size(),
-            LuaBody::Payload { .. } => BodySize::Stream,
+            LuaBody::Payload { length, .. } => {
+                length.map(BodySize::Sized).unwrap_or(BodySize::Stream)
+            }
         }
     }
 
@@ -273,7 +290,10 @@ impl<'lua> FromLua<'lua> for LuaBody {
                             Poll::Ready(Some(Ok(Bytes::from(chunk.as_bytes().to_vec()))))
                         }
                         Ok(None) => Poll::Ready(None),
-                        Err(err) => Poll::Ready(Some(Err(err))),
+                        Err(err) => {
+                            error!("{err:#}");
+                            Poll::Ready(Some(Err(err)))
+                        }
                     }
                 });
                 let stream = BodyStream::new(stream);

@@ -137,7 +137,7 @@ impl AppContextInner {
 
         // Load filters code
         for filter in &self.config.http.filters {
-            let handlers: Table = lua.load(&filter.code).eval()?;
+            let handlers: Table = lua.load(filter.code.trim()).eval()?;
             let on_request: Option<Function> = handlers.get("on_request")?;
             let on_response: Option<Function> = handlers.get("on_response")?;
 
@@ -154,13 +154,13 @@ impl AppContextInner {
 
         // Load main handler
         if let Some(handler) = &self.config.http.handler {
-            let handler: Option<Function> = lua.load(&handler.code).eval()?;
+            let handler: Option<Function> = lua.load(handler.code.trim()).eval()?;
             self.handler = handler.map(|x| lua.create_registry_value(x)).transpose()?;
         }
 
         // Load access logger
         if let Some(logger) = &self.config.http.access_log {
-            let access_log: Option<Function> = lua.load(&logger.code).eval()?;
+            let access_log: Option<Function> = lua.load(logger.code.trim()).eval()?;
             self.access_log = access_log
                 .map(|x| lua.create_registry_value(x))
                 .transpose()?;

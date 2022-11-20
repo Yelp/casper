@@ -2,10 +2,11 @@ use std::collections::HashMap;
 use std::mem;
 
 use actix_http::body::MessageBody;
-use actix_http::header::HeaderMap;
-use actix_http::{Extensions, HttpMessage, Response, StatusCode, Version};
+use actix_http::header::{HeaderMap, CONTENT_LENGTH};
+use actix_http::{Extensions, HttpMessage, Method, Response, StatusCode, Version};
 use actix_web::{HttpRequest, HttpResponse, Responder};
 use awc::ClientResponse;
+use bytes::Bytes;
 use mlua::{
     AnyUserData, ExternalError, ExternalResult, FromLua, Lua, Result as LuaResult,
     String as LuaString, Table, ToLua, UserData, UserDataFields, UserDataMethods, Value,
@@ -14,7 +15,7 @@ use opentelemetry::{Key as OTKey, Value as OTValue};
 
 use super::{EitherBody, LuaBody, LuaHttpHeaders, LuaHttpHeadersExt};
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct LuaResponse {
     version: Option<Version>, // Useful in client response
     status: StatusCode,
@@ -86,7 +87,7 @@ impl LuaResponse {
         let body = body.map(LuaBody::Bytes).unwrap_or(LuaBody::None);
 
         Ok(LuaResponse {
-            version: self.version.clone(),
+            version: self.version,
             status: self.status,
             headers: self.headers.clone(),
             extensions: Extensions::new(),
@@ -101,17 +102,20 @@ impl LuaResponse {
 impl From<ClientResponse> for LuaResponse {
     #[inline]
     fn from(mut response: ClientResponse) -> Self {
+        let content_length = response
+            .headers()
+            .get(CONTENT_LENGTH)
+            .and_then(|len| len.to_str().ok())
+            .and_then(|len| len.parse::<u64>().ok());
         let extensions = mem::take(&mut *response.extensions_mut());
+
         LuaResponse {
-            version: Some(response.version().clone()),
-            status: response.status().clone(),
+            version: Some(response.version()),
+            status: response.status(),
             // TODO: Avoid clone
             headers: response.headers().clone(),
             extensions,
-            body: EitherBody::Body(LuaBody::Payload {
-                payload: response.take_payload(),
-                timeout: None,
-            }),
+            body: EitherBody::Body(LuaBody::from((response.take_payload(), content_length))),
             labels: None,
             is_proxied: true,
             is_stored: false,
@@ -128,7 +132,7 @@ where
         let extensions = mem::take(&mut *response.extensions_mut());
         LuaResponse {
             version: None,
-            status: response.status().clone(),
+            status: response.status(),
             headers: mem::replace(response.headers_mut(), HeaderMap::new()),
             extensions,
             body: EitherBody::Body(LuaBody::from(response.into_body().boxed())),
@@ -159,7 +163,7 @@ impl From<LuaResponse> for Response<LuaBody> {
 impl Responder for LuaResponse {
     type Body = LuaBody;
 
-    fn respond_to(self, _req: &HttpRequest) -> HttpResponse<Self::Body> {
+    fn respond_to(self, req: &HttpRequest) -> HttpResponse<Self::Body> {
         let Self {
             status,
             headers,
@@ -170,7 +174,17 @@ impl Responder for LuaResponse {
         let mut resp = HttpResponse::new(status);
         *resp.headers_mut() = headers;
         *resp.extensions_mut() = extensions;
-        resp.set_body(body.into())
+
+        let mut body = LuaBody::from(body);
+        match *req.method() {
+            // Drop body for HEAD requests
+            Method::HEAD => body = LuaBody::None,
+            // Otherwise we cannot send `None` body
+            _ if matches!(body, LuaBody::None) => body = LuaBody::Bytes(Bytes::new()),
+            _ => {}
+        }
+
+        resp.set_body(body)
     }
 }
 
