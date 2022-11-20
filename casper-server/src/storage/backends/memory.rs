@@ -272,7 +272,7 @@ mod tests {
             .unwrap();
 
         // Fetch it back
-        let mut resp = memory.get_response("key1".into()).await.unwrap().unwrap();
+        let resp = memory.get_response("key1".into()).await.unwrap().unwrap();
         assert_eq!(
             resp.headers().get("Hello"),
             Some(&HeaderValue::from_static("World"))
@@ -329,7 +329,7 @@ mod tests {
             .unwrap();
 
         // Fetch it back
-        let mut resp = memory.get_response("key1".into()).await.unwrap().unwrap();
+        let resp = memory.get_response("key1".into()).await.unwrap().unwrap();
         let body = to_bytes(resp.into_body()).await.unwrap().to_vec();
         assert_eq!(String::from_utf8(body).unwrap(), "hello, world");
 

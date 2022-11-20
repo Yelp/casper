@@ -184,6 +184,11 @@ impl From<Bytes> for LuaBody {
 impl From<BoxBody> for LuaBody {
     #[inline(always)]
     fn from(body: BoxBody) -> Self {
+        let body = match body.try_into_bytes() {
+            Ok(bytes) => return LuaBody::Bytes(bytes),
+            Err(body) => body,
+        };
+
         LuaBody::Body {
             body,
             timeout: None,

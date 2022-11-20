@@ -1,30 +1,27 @@
 use std::fmt::{self, Debug, Formatter};
-use std::future::Future;
 use std::ops::Deref;
 use std::rc::Rc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use mlua::{Function, Lua, LuaOptions, RegistryKey, StdLib as LuaStdLib, Table};
-use tokio::task::JoinHandle;
 
 use crate::config::Config;
 use crate::lua::{self, LuaStorage};
 use crate::storage::{Backend, Storage};
-use crate::types::SimpleHttpClient;
-
-use super::LocalWorkerHandle;
 
 // TODO: Move to config
 const LUA_THREAD_CACHE_SIZE: usize = 1024;
 
+static NEXT_ID: AtomicUsize = AtomicUsize::new(0);
+
 #[derive(Clone)]
-pub struct WorkerContext(Rc<WorkerContextInner>);
+pub struct AppContext(Rc<AppContextInner>);
 
 #[derive(Default)]
-pub struct WorkerContextBuilder {
+pub struct AppContextBuilder {
     config: Arc<Config>,
-    http_client: Option<SimpleHttpClient>,
     storage_backends: Vec<Backend>,
 }
 
@@ -34,10 +31,9 @@ pub struct Filter {
     pub on_response: Option<RegistryKey>,
 }
 
-pub struct WorkerContextInner {
+pub struct AppContextInner {
     pub id: usize,
     pub config: Arc<Config>,
-    handle: LocalWorkerHandle<WorkerContext>,
 
     pub lua: Rc<Lua>,
     pub filters: Vec<Filter>,
@@ -45,38 +41,30 @@ pub struct WorkerContextInner {
     pub access_log: Option<RegistryKey>,
     pub error_log: Option<RegistryKey>,
 
-    // HTTP Client
-    pub http_client: SimpleHttpClient,
-    // Storage backends
     storage_backends: Vec<Backend>,
 }
 
-impl Deref for WorkerContext {
-    type Target = WorkerContextInner;
+impl Deref for AppContext {
+    type Target = AppContextInner;
 
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
-impl Debug for WorkerContext {
+impl Debug for AppContext {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.write_fmt(format_args!("WorkerContext#{}", self.id))
+        f.write_fmt(format_args!("AppContext#{}", self.id))
     }
 }
 
-impl WorkerContextBuilder {
+impl AppContextBuilder {
     pub fn new() -> Self {
-        WorkerContextBuilder::default()
+        AppContextBuilder::default()
     }
 
     pub fn with_config(mut self, config: Arc<Config>) -> Self {
         self.config = config;
-        self
-    }
-
-    pub fn with_http_client(mut self, client: SimpleHttpClient) -> Self {
-        self.http_client = Some(client);
         self
     }
 
@@ -85,45 +73,36 @@ impl WorkerContextBuilder {
         self
     }
 
-    pub fn build(self, handle: LocalWorkerHandle<WorkerContext>) -> Result<WorkerContext> {
-        let http_client = self.http_client.unwrap_or_else(SimpleHttpClient::new);
+    pub fn build(self) -> Result<AppContext> {
         let storage_backends = self.storage_backends;
 
-        WorkerContextInner::new(handle, self.config, http_client, storage_backends)
-            .map(|inner| WorkerContext(Rc::new(inner)))
+        AppContextInner::new(self.config, storage_backends).map(|inner| AppContext(Rc::new(inner)))
     }
 }
 
-impl WorkerContext {
-    pub fn builder() -> WorkerContextBuilder {
-        WorkerContextBuilder::new()
+impl AppContext {
+    pub fn builder() -> AppContextBuilder {
+        AppContextBuilder::new()
     }
 }
 
-impl WorkerContextInner {
-    fn new(
-        handle: LocalWorkerHandle<WorkerContext>,
-        config: Arc<Config>,
-        http_client: SimpleHttpClient,
-        storage_backends: Vec<Backend>,
-    ) -> Result<Self> {
+impl AppContextInner {
+    fn new(config: Arc<Config>, storage_backends: Vec<Backend>) -> Result<Self> {
         let lua_options = LuaOptions::new().thread_cache_size(LUA_THREAD_CACHE_SIZE);
         let lua = Lua::new_with(LuaStdLib::ALL_SAFE, lua_options)
-            .with_context(|| "Failed to create worker Lua instance")?;
+            .with_context(|| "Failed to create Lua instance")?;
         let lua = Rc::new(lua);
         // Store weak reference to self
         lua.set_app_data(Rc::downgrade(&lua));
 
-        let mut worker_ctx = WorkerContextInner {
-            id: handle.id(),
+        let mut worker_ctx = AppContextInner {
+            id: NEXT_ID.fetch_add(1, Ordering::SeqCst),
             config,
             lua,
             filters: Vec::new(),
             handler: None,
             access_log: None,
             error_log: None,
-            handle,
-            http_client,
             storage_backends,
         };
 
@@ -196,24 +175,5 @@ impl WorkerContextInner {
         }
 
         Ok(())
-    }
-
-    #[inline]
-    pub(crate) fn spawn_local<F>(&self, future: F) -> JoinHandle<F::Output>
-    where
-        F: Future + 'static,
-        F::Output: 'static,
-    {
-        self.handle.spawn_local(future)
-    }
-}
-
-impl<F> hyper::rt::Executor<F> for WorkerContext
-where
-    F: Future + 'static, // not requiring `Send`
-{
-    #[inline]
-    fn execute(&self, future: F) {
-        self.handle.spawn_local(future);
     }
 }

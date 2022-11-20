@@ -4,8 +4,8 @@ name = "casper-server"
 version = "0.1.0"
 
 [dependencies]
-actix-http = { version = "3.2.2" }
-actix-web = { version = "4.2.1" }
+actix-http = { version = "3.2" }
+actix-web = { version = "4.2" }
 anyhow = "1"
 async-trait = "0.1"
 awc = { version = "3.0.1" }

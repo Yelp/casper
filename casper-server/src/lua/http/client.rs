@@ -1,7 +1,8 @@
 use std::mem;
 use std::time::Duration;
 
-use actix_http::{header::HeaderMap, BoxedPayloadStream, Payload};
+use actix_http::header::HeaderMap;
+use actix_http::{BoxedPayloadStream, Payload};
 use awc::{Client, Connector};
 use mlua::{
     AnyUserData, ExternalResult, FromLua, Result as LuaResult, Table, UserData, UserDataMethods,
@@ -25,7 +26,8 @@ impl LuaHttpClient {
             client_req = client_req.timeout(timeout);
         }
 
-        *client_req.headers_mut() = mem::replace(client_req.headers_mut(), HeaderMap::new());
+        *client_req.headers_mut() =
+            mem::replace(client_req.headers_mut(), HeaderMap::with_capacity(0));
 
         let resp = client_req
             .send_body(LuaBody::from(req.take_body()))

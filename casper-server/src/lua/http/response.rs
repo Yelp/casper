@@ -3,7 +3,8 @@ use std::mem;
 
 use actix_http::body::MessageBody;
 use actix_http::header::HeaderMap;
-use actix_http::{HttpMessage, Response, StatusCode, Version};
+use actix_http::{Extensions, HttpMessage, Response, StatusCode, Version};
+use actix_web::{HttpRequest, HttpResponse, Responder};
 use awc::ClientResponse;
 use mlua::{
     AnyUserData, ExternalError, ExternalResult, FromLua, Lua, Result as LuaResult,
@@ -18,6 +19,7 @@ pub struct LuaResponse {
     version: Option<Version>, // Useful in client response
     status: StatusCode,
     headers: HeaderMap,
+    extensions: Extensions,
     body: EitherBody,
     labels: Option<HashMap<OTKey, OTValue>>, // For metrics
     pub is_proxied: bool,
@@ -33,8 +35,8 @@ impl LuaResponse {
         }
     }
 
-    pub fn version(&self) -> Option<&Version> {
-        self.version.as_ref()
+    pub fn version(&self) -> Option<Version> {
+        self.version
     }
 
     pub fn status(&self) -> StatusCode {
@@ -51,6 +53,14 @@ impl LuaResponse {
 
     pub fn headers_mut(&mut self) -> &mut HeaderMap {
         &mut self.headers
+    }
+
+    pub fn extensions(&self) -> &Extensions {
+        &self.extensions
+    }
+
+    pub fn extensions_mut(&mut self) -> &mut Extensions {
+        &mut self.extensions
     }
 
     pub fn body_mut(&mut self) -> &mut EitherBody {
@@ -79,6 +89,7 @@ impl LuaResponse {
             version: self.version.clone(),
             status: self.status,
             headers: self.headers.clone(),
+            extensions: Extensions::new(),
             body: EitherBody::Body(body),
             labels: self.labels.clone(),
             is_proxied: self.is_proxied,
@@ -90,11 +101,13 @@ impl LuaResponse {
 impl From<ClientResponse> for LuaResponse {
     #[inline]
     fn from(mut response: ClientResponse) -> Self {
+        let extensions = mem::take(&mut *response.extensions_mut());
         LuaResponse {
             version: Some(response.version().clone()),
             status: response.status().clone(),
             // TODO: Avoid clone
             headers: response.headers().clone(),
+            extensions,
             body: EitherBody::Body(LuaBody::Payload {
                 payload: response.take_payload(),
                 timeout: None,
@@ -112,10 +125,12 @@ where
 {
     #[inline]
     fn from(mut response: Response<B>) -> Self {
+        let extensions = mem::take(&mut *response.extensions_mut());
         LuaResponse {
             version: None,
             status: response.status().clone(),
             headers: mem::replace(response.headers_mut(), HeaderMap::new()),
+            extensions,
             body: EitherBody::Body(LuaBody::from(response.into_body().boxed())),
             labels: None,
             is_proxied: false,
@@ -126,11 +141,36 @@ where
 
 impl From<LuaResponse> for Response<LuaBody> {
     #[inline]
-    fn from(mut lua_resp: LuaResponse) -> Self {
-        let body = mem::take(lua_resp.body_mut());
-        let mut resp = Response::with_body(lua_resp.status, body.into());
-        *resp.headers_mut() = mem::replace(lua_resp.headers_mut(), HeaderMap::new());
+    fn from(lua_resp: LuaResponse) -> Self {
+        let LuaResponse {
+            status,
+            headers,
+            extensions,
+            body,
+            ..
+        } = lua_resp;
+        let mut resp = Response::with_body(status, body.into());
+        *resp.headers_mut() = headers;
+        *resp.extensions_mut() = extensions;
         resp
+    }
+}
+
+impl Responder for LuaResponse {
+    type Body = LuaBody;
+
+    fn respond_to(self, _req: &HttpRequest) -> HttpResponse<Self::Body> {
+        let Self {
+            status,
+            headers,
+            extensions,
+            body,
+            ..
+        } = self;
+        let mut resp = HttpResponse::new(status);
+        *resp.headers_mut() = headers;
+        *resp.extensions_mut() = extensions;
+        resp.set_body(body.into())
     }
 }
 

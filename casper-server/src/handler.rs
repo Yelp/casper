@@ -1,21 +1,65 @@
+use std::collections::HashMap;
+use std::error::Error as StdError;
 use std::time::Instant;
 
+use actix_web::http::StatusCode;
+use actix_web::web;
 use anyhow::{anyhow, Result};
-use http::StatusCode;
 use mlua::{Function, Value};
+use opentelemetry::{Key as OTKey, Value as OTValue};
 use scopeguard::defer;
 
+use crate::context::AppContext;
 use crate::lua::{LuaBody, LuaRequest, LuaResponse};
 use crate::types::LuaContext;
-use crate::worker::WorkerContext;
 
+#[tracing::instrument(skip(req, app_ctx), fields(method = %req.method(), uri = %req.uri()))]
 pub(crate) async fn handler(
-    worker_ctx: WorkerContext,
     req: LuaRequest,
+    app_ctx: web::Data<AppContext>,
+) -> Result<LuaResponse, Box<dyn StdError>> {
+    let start = Instant::now();
+    let _req_guard = active_request_guard!();
+    let lua = &app_ctx.lua;
+
+    // Create labels container for metrics
+    let mut attrs_map: HashMap<OTKey, OTValue> = HashMap::new();
+    attrs_map.insert("method".into(), req.method().to_string().into());
+
+    // Execute inner handler to get response
+    let lua_ctx = LuaContext::new(lua); // Create Lua context table
+    let mut resp_result = handler_inner(req, app_ctx, lua_ctx.clone()).await;
+
+    // Collect response labels
+    match resp_result {
+        Ok(ref mut resp) => {
+            // Save lua context table (used for logger)
+            resp.extensions_mut().insert(lua_ctx);
+
+            attrs_map.insert("status".into(), (resp.status().as_u16() as i64).into());
+            // Read labels set by Lua and attach them
+            if let Some(lua_labels) = resp.take_labels() {
+                for (k, v) in lua_labels {
+                    attrs_map.insert(k, v);
+                }
+            }
+        }
+        Err(_) => {
+            attrs_map.insert("status".into(), 0.into());
+        }
+    }
+    requests_counter_inc!(attrs_map);
+    requests_histogram_rec!(start, attrs_map);
+
+    resp_result.map_err(Into::into)
+}
+
+pub(crate) async fn handler_inner(
+    req: LuaRequest,
+    app_ctx: web::Data<AppContext>,
     lua_ctx: LuaContext,
 ) -> Result<LuaResponse> {
-    let req_version = req.version();
-    let lua = worker_ctx.lua.clone();
+    let lua = app_ctx.lua.clone();
 
     // Get Lua context table
     let ctx = lua_ctx.get(&lua);
@@ -24,8 +68,8 @@ pub(crate) async fn handler(
     let mut early_resp = None;
 
     // Process a chain of Lua's `on_request` actions
-    let mut process_level = worker_ctx.filters.len();
-    for (i, filter, on_request) in worker_ctx
+    let mut process_level = app_ctx.filters.len();
+    for (i, filter, on_request) in app_ctx
         .filters
         .iter()
         .enumerate()
@@ -66,7 +110,7 @@ pub(crate) async fn handler(
 
     // If we got early Response, use it
     // Otherwise call handler function
-    let lua_resp = match (early_resp, &worker_ctx.handler) {
+    let lua_resp = match (early_resp, &app_ctx.handler) {
         (Some(resp), _) => resp,
         (None, Some(handler_key)) => {
             let handler: Function = lua.registry_value(handler_key)?;
@@ -94,7 +138,7 @@ pub(crate) async fn handler(
 
     // Process a chain of Lua's `on_response` actions up to the `process_level`
     // We need to do this in reverse order
-    for (filter, on_response) in worker_ctx
+    for (filter, on_response) in app_ctx
         .filters
         .iter()
         .take(process_level)
@@ -117,9 +161,7 @@ pub(crate) async fn handler(
         }
     }
 
-    let mut resp = lua_resp.take::<LuaResponse>()?;
-    // Set HTTP version to match request
-    *resp.version_mut() = req_version;
+    let resp = lua_resp.take::<LuaResponse>()?;
 
     Ok(resp)
 }

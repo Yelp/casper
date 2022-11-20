@@ -1,17 +1,7 @@
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::ops::Deref;
 use std::sync::Arc;
 
 use mlua::{Lua, RegistryKey, Table};
-
-#[derive(Clone, Copy)]
-pub(crate) struct RemoteAddr(pub(crate) SocketAddr);
-
-impl Default for RemoteAddr {
-    fn default() -> Self {
-        RemoteAddr(SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 0))
-    }
-}
 
 #[derive(Clone)]
 pub(crate) struct LuaContext(pub(crate) Arc<RegistryKey>);

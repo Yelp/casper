@@ -1,12 +1,14 @@
-use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::mem;
 use std::net::SocketAddr;
 use std::time::Duration;
+use std::{collections::HashMap, convert::Infallible};
 
 use actix_http::header::HeaderMap;
 use actix_http::uri::PathAndQuery;
-use actix_http::{Method, Request, Uri, Version};
+use actix_http::{Method, Payload, Request, Uri, Version};
+use actix_web::{FromRequest, HttpRequest};
+use futures::future::{self, Ready};
 use mlua::{
     AnyUserData, ExternalError, ExternalResult, FromLua, Lua, LuaSerdeExt, Result as LuaResult,
     String as LuaString, Table, ToLua, UserData, UserDataFields, UserDataMethods, Value,
@@ -155,6 +157,25 @@ impl From<Request> for LuaRequest {
             remote_addr: request.peer_addr(),
             timeout: None,
         }
+    }
+}
+
+/// Provides an Extractor to make LuaRequest from actix request
+impl FromRequest for LuaRequest {
+    type Error = Infallible;
+    type Future = Ready<Result<Self, Self::Error>>;
+
+    fn from_request(request: &HttpRequest, payload: &mut Payload) -> Self::Future {
+        let payload = payload.take();
+        future::ready(Ok(LuaRequest {
+            uri: request.uri().clone(),
+            method: request.method().clone(),
+            version: request.version().clone(),
+            headers: request.headers().clone(),
+            body: EitherBody::Body(LuaBody::from(payload)),
+            remote_addr: request.peer_addr(),
+            timeout: None,
+        }))
     }
 }
 
