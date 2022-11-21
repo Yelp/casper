@@ -161,6 +161,11 @@ pub fn start_task_scheduler(lua: &Rc<Lua>) {
     });
 }
 
+pub fn stop_task_scheduler(lua: &Rc<Lua>) {
+    lua.remove_app_data::<UnboundedSender<Task>>();
+    lua.remove_app_data::<UnboundedReceiver<Task>>();
+}
+
 pub fn create_module(lua: &Lua) -> Result<Table> {
     // Create channel to send tasks
     let (tx, rx) = mpsc::unbounded_channel::<Task>();

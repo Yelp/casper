@@ -86,6 +86,12 @@ impl AppContext {
     }
 }
 
+impl Drop for AppContextInner {
+    fn drop(&mut self) {
+        lua::tasks::stop_task_scheduler(&self.lua);
+    }
+}
+
 impl AppContextInner {
     fn new(config: Arc<Config>, storage_backends: Vec<Backend>) -> Result<Self> {
         let lua_options = LuaOptions::new().thread_cache_size(LUA_THREAD_CACHE_SIZE);
