@@ -74,3 +74,4 @@ version = "5.2.0"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 affinity = "0.1.2"
+tikv-jemallocator = "0.5"

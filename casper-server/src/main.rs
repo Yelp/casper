@@ -19,6 +19,10 @@ use crate::storage::Storage;
 #[macro_use]
 mod metrics;
 
+#[cfg(target_os = "linux")]
+#[global_allocator]
+static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+
 #[derive(Parser, Debug)]
 #[clap(version, about, long_about = None)]
 struct Args {
