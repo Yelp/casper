@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 
-use actix_http::body::{BodyStream, BoxBody, EitherBody, MessageBody};
+use actix_http::body::{BodyStream, BoxBody, EitherBody, MessageBody, SizedStream};
 use actix_http::{Response, StatusCode};
 use anyhow::{Context, Result};
 use async_trait::async_trait;
@@ -52,6 +52,9 @@ struct ResponseItem {
     timestamp: u64,
     surrogate_keys: Vec<Key>,
     body: Bytes,
+    // Total original body length (before compression)
+    #[serde(default)]
+    body_length: Option<usize>,
     num_chunks: u32,
     flags: Flags,
 }
@@ -256,12 +259,24 @@ impl RedisBackend {
         // Decompress the body and headers if required
         let (body, headers);
         if response_item.flags.contains(Flags::COMPRESSED) {
-            let decoded_body_stream = BodyStream::new(Box::pin(ZstdDecoder::new(body_stream)));
-            body = Body::right(decoded_body_stream.boxed());
             headers = zstd::stream::decode_all(response_item.headers.as_slice())?;
+            let decoded_body_stream = match response_item.body_length {
+                Some(length) => {
+                    SizedStream::new(length as u64, ZstdDecoder::new(body_stream)).boxed()
+                }
+                None => BodyStream::new(ZstdDecoder::new(body_stream)).boxed(),
+            };
+            body = Body::right(decoded_body_stream);
         } else {
-            body = Body::right(BodyStream::new(body_stream).boxed());
             headers = response_item.headers;
+            match response_item.body_length {
+                Some(length) => {
+                    body = Body::right(SizedStream::new(length as u64, body_stream).boxed());
+                }
+                None => {
+                    body = Body::right(BodyStream::new(body_stream).boxed());
+                }
+            }
         }
 
         // Construct a response object
@@ -305,6 +320,7 @@ impl RedisBackend {
     async fn store_response_inner<'a>(&self, item: Item<'a>) -> Result<()> {
         let mut headers = encode_headers(&item.headers)?;
         let mut body = item.body;
+        let body_length = body.len();
 
         // If a compression level is set, compress the body and headers with the zstd encoding, if compressed update flags
         let mut flags = Flags::NONE;
@@ -344,6 +360,7 @@ impl RedisBackend {
             surrogate_keys: item.surrogate_keys.clone(),
             headers,
             body,
+            body_length: Some(body_length), // Original length before compression
             num_chunks,
             flags,
         };
