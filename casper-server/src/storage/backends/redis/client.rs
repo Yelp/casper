@@ -1,9 +1,12 @@
+use std::io;
 use std::mem;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 
-use anyhow::{bail, Context, Result};
+use actix_http::body::{BodyStream, BoxBody, EitherBody, MessageBody};
+use actix_http::{Response, StatusCode};
+use anyhow::{Context, Result};
 use async_trait::async_trait;
 use bitflags::bitflags;
 use bytes::Bytes;
@@ -13,17 +16,20 @@ use fred::pool::RedisPool;
 use fred::types::{Expiration, ReconnectPolicy, RedisKey, RedisValue, SetOptions};
 use futures::future::{try_join, try_join_all, TryFutureExt};
 use futures::stream::{self, StreamExt};
-use hyper::{Response, StatusCode};
 use moka::future::Cache;
 use once_cell::sync::Lazy;
 use opentelemetry::{global, metrics::Counter};
 use serde::{Deserialize, Serialize};
 use tokio::time::timeout;
 
-use super::super::{compress_with_zstd, decode_headers, encode_headers};
 use super::Config;
-use crate::storage::{Item, ItemKey, Key, Storage};
+use crate::storage::{
+    compress_with_zstd, decode_headers, encode_headers, Body, Item, ItemKey, Key, Storage,
+};
 use crate::utils::zstd::ZstdDecoder;
+
+// TODO: Define format version
+// TODO: Use SizedStream
 
 pub const MAX_CONCURRENCY: usize = 100;
 
@@ -158,7 +164,7 @@ impl RedisBackend {
         }
     }
 
-    async fn get_response_inner(&self, key: Key) -> Result<Option<Response<hyper::Body>>> {
+    async fn get_response_inner(&self, key: Key) -> Result<Option<Response<Body>>> {
         // Fetch response item
         let res: Option<Vec<u8>> = self.pool.get(make_redis_key(&key)).await?;
         let response_item: ResponseItem = match res {
@@ -233,26 +239,34 @@ impl RedisBackend {
             .enumerate()
             .then(move |(i, (client, key))| async move {
                 let chunk_key = make_chunk_key(&key, i as u32 + 1);
-                match client.get::<Option<Vec<u8>>, _>(chunk_key).await? {
-                    Some(data) => anyhow::Ok(Bytes::from(data)),
-                    None => bail!("Cannot find chunk {}/{}", i + 2, num_chunks),
+                let data = client
+                    .get::<Option<Vec<u8>>, _>(chunk_key)
+                    .await
+                    .map_err(|err| io::Error::new(io::ErrorKind::Other, err))?;
+                match data {
+                    Some(data) => Ok(Bytes::from(data)),
+                    None => Err(io::Error::new(
+                        io::ErrorKind::NotFound,
+                        format!("Cannot find chunk {}/{}", i + 2, num_chunks),
+                    )),
                 }
             });
-        let body_stream = stream::iter(vec![anyhow::Ok(response_item.body)]).chain(chunks_stream);
+        let body_stream = stream::iter(vec![Ok(response_item.body)]).chain(chunks_stream);
 
         // Decompress the body and headers if required
         let (body, headers);
         if response_item.flags.contains(Flags::COMPRESSED) {
-            body = hyper::Body::wrap_stream(ZstdDecoder::new(body_stream));
+            let decoded_body_stream = BodyStream::new(Box::pin(ZstdDecoder::new(body_stream)));
+            body = Body::right(decoded_body_stream.boxed());
             headers = zstd::stream::decode_all(response_item.headers.as_slice())?;
         } else {
-            body = hyper::Body::wrap_stream(body_stream);
+            body = Body::right(BodyStream::new(body_stream).boxed());
             headers = response_item.headers;
         }
 
         // Construct a response object
-        let mut resp = Response::new(body);
-        *resp.status_mut() = StatusCode::from_u16(response_item.status_code)?;
+        let status = StatusCode::from_u16(response_item.status_code)?;
+        let mut resp = Response::with_body(status, body);
         *resp.headers_mut() = decode_headers(&headers)?;
 
         Ok(Some(resp))
@@ -278,7 +292,7 @@ impl RedisBackend {
                     .pool
                     .set(
                         make_redis_key(&skey),
-                        RedisValue::Bytes(Bytes::from(sk_item_enc)),
+                        RedisValue::Bytes(sk_item_enc.into()),
                         Some(Expiration::EX(SURROGATE_KEYS_TTL)),
                         None,
                         false,
@@ -314,7 +328,7 @@ impl RedisBackend {
                 self.pool
                     .set(
                         make_chunk_key(&item.key, i as u32 + 1),
-                        RedisValue::Bytes(Bytes::from(chunk.to_vec())),
+                        RedisValue::Bytes(chunk.to_vec().into()),
                         Some(Expiration::EX(item.ttl.as_secs() as i64)),
                         None,
                         false,
@@ -339,7 +353,7 @@ impl RedisBackend {
         self.pool
             .set(
                 make_redis_key(&item.key),
-                RedisValue::Bytes(Bytes::from(response_item_enc)),
+                RedisValue::Bytes(response_item_enc.into()),
                 Some(Expiration::EX(item.ttl.as_secs() as i64)),
                 None,
                 false,
@@ -371,7 +385,7 @@ impl RedisBackend {
                         .pool
                         .set(
                             make_redis_key(&skey),
-                            RedisValue::Bytes(Bytes::from(sk_item_enc)),
+                            RedisValue::Bytes(sk_item_enc.into()),
                             Some(Expiration::EX(SURROGATE_KEYS_TTL)),
                             Some(SetOptions::NX),
                             false,
@@ -404,7 +418,7 @@ impl RedisBackend {
 
 #[async_trait(?Send)]
 impl Storage for RedisBackend {
-    type Body = hyper::Body;
+    type Body = EitherBody<Bytes, BoxBody>;
     type Error = anyhow::Error;
 
     fn name(&self) -> String {
@@ -468,19 +482,19 @@ fn make_chunk_key(key: &impl AsRef<[u8]>, n: u32) -> RedisKey {
 
 #[cfg(test)]
 mod tests {
-    use std::convert::TryInto;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::Duration;
 
+    use actix_http::body::to_bytes;
+    use actix_http::header::{HeaderName, HeaderValue};
+    use actix_http::Response;
     use bytes::Bytes;
-    use http::HeaderValue;
-    use hyper::Response;
 
     use super::{Config, RedisBackend};
     use crate::storage::{Item, ItemKey, Key, Storage};
 
     fn make_response(body: impl Into<Bytes>) -> Response<Bytes> {
-        Response::builder().body(body.into()).unwrap()
+        Response::ok().set_body(body.into())
     }
 
     fn make_uniq_key() -> Key {
@@ -488,14 +502,16 @@ mod tests {
         format!("key{}", N.fetch_add(1, Ordering::Relaxed)).into()
     }
 
-    #[tokio::test]
+    #[actix_web::test]
     async fn test_backend() {
         let backend = RedisBackend::new(Config::default(), None).unwrap();
         backend.connect().await.unwrap();
 
         let mut resp = make_response("hello, world");
-        resp.headers_mut()
-            .insert("Hello", "World".try_into().unwrap());
+        resp.headers_mut().insert(
+            HeaderName::from_static("hello"),
+            HeaderValue::from_static("World"),
+        );
 
         let key = make_uniq_key();
 
@@ -506,12 +522,12 @@ mod tests {
             .unwrap();
 
         // Fetch it back
-        let mut resp = backend.get_response(key.clone()).await.unwrap().unwrap();
+        let resp = backend.get_response(key.clone()).await.unwrap().unwrap();
         assert_eq!(
             resp.headers().get("Hello"),
             Some(&HeaderValue::from_static("World"))
         );
-        let body = hyper::body::to_bytes(&mut resp).await.unwrap().to_vec();
+        let body = to_bytes(resp.into_body()).await.unwrap().to_vec();
         assert_eq!(String::from_utf8(body).unwrap(), "hello, world");
 
         // Delete cached response
@@ -525,7 +541,7 @@ mod tests {
         assert!(matches!(resp, None));
     }
 
-    #[tokio::test]
+    #[actix_web::test]
     async fn test_chunked_body() {
         let mut config = Config::default();
         config.max_body_chunk_size = 2; // Set max chunk size to 2 bytes
@@ -542,12 +558,12 @@ mod tests {
             .unwrap();
 
         // Fetch it back
-        let mut resp = backend.get_response(key.clone()).await.unwrap().unwrap();
-        let body = hyper::body::to_bytes(&mut resp).await.unwrap().to_vec();
+        let resp = backend.get_response(key.clone()).await.unwrap().unwrap();
+        let body = to_bytes(resp.into_body()).await.unwrap().to_vec();
         assert_eq!(String::from_utf8(body).unwrap(), "hello, world");
     }
 
-    #[tokio::test]
+    #[actix_web::test]
     async fn test_chunked_compressed_body() {
         // Same as the above test, but with compression enabled
         let mut config = Config::default();
@@ -567,12 +583,12 @@ mod tests {
             .unwrap();
 
         // Fetch it back
-        let mut resp = backend.get_response(key.clone()).await.unwrap().unwrap();
-        let body = hyper::body::to_bytes(&mut resp).await.unwrap().to_vec();
+        let resp = backend.get_response(key.clone()).await.unwrap().unwrap();
+        let body = to_bytes(resp.into_body()).await.unwrap().to_vec();
         assert_eq!(String::from_utf8(body).unwrap(), "hello, world");
     }
 
-    #[tokio::test]
+    #[actix_web::test]
     async fn test_compressed_headers() {
         let mut config = Config::default();
         config.compression_level = Some(22);
@@ -584,8 +600,8 @@ mod tests {
         // Cache response
         let mut resp = make_response("hello, world");
         resp.headers_mut().insert(
-            "Hello-World-Header",
-            "Hello world header data".try_into().unwrap(),
+            HeaderName::from_static("hello-world-header"),
+            HeaderValue::from_static("Hello world header data"),
         );
 
         backend
@@ -601,7 +617,7 @@ mod tests {
         );
     }
 
-    #[tokio::test]
+    #[actix_web::test]
     async fn test_surrogate_keys() {
         let backend = RedisBackend::new(Config::default(), None).unwrap();
         backend.connect().await.unwrap();
@@ -621,8 +637,8 @@ mod tests {
             .unwrap();
 
         // Fetch it back
-        let mut resp = backend.get_response(key.clone()).await.unwrap().unwrap();
-        let body = hyper::body::to_bytes(&mut resp).await.unwrap().to_vec();
+        let resp = backend.get_response(key.clone()).await.unwrap().unwrap();
+        let body = to_bytes(resp.into_body()).await.unwrap().to_vec();
         assert_eq!(String::from_utf8(body).unwrap(), "hello, world");
 
         // Delete by surrogate key

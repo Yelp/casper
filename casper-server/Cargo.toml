@@ -4,6 +4,7 @@ name = "casper-server"
 version = "0.1.0"
 
 [dependencies]
+actix-http = { version = "3.2" }
 anyhow = "1"
 async-trait = "0.1"
 base64 = "0.13"
@@ -18,8 +19,6 @@ futures-util = "0.3"
 hex = "0.4.3"
 http = "0.2"
 http-serde = "1"
-hyper = { version = "0.14", features = ["full"] }
-hyper-tls = "0.5"
 linked-hash-map = "0.5.4"
 moka = { version = "0.9", features = ["future"] }
 num_cpus = "1.13"
@@ -34,7 +33,6 @@ pin-project-lite = "0.2.8"
 prometheus = "0.13"
 rand = "0.8"
 regex = "1.5"
-reqwest = { version = "0.11", features = ["gzip", "stream"] }
 ripemd = "0.1"
 scopeguard = "1.1.0"
 serde = { version = "1", features = ["derive"] }
@@ -46,8 +44,6 @@ sys-info = "0.9"
 thiserror = "1"
 time = "0.3"
 tokio = { version = "1", features = ["full"] }
-tower = { version = "0.4", features = ["util"] }
-tower-http = { version = "0.3", features = ["add-extension", "trace", "util"] }
 tracing = "0.1"
 tracing-log = "0.1"
 tracing-subscriber = "0.3"
@@ -56,6 +52,16 @@ zstd = "0.11"
 [dev-dependencies]
 tokio-stream = { version = "0.1", features = ["time"] }
 wiremock = "0.5"
+
+[dependencies.awc]
+default_features = false
+features = ["compress-gzip", "openssl"]
+version = "3.0.1"
+
+[dependencies.actix-web]
+default_features = false
+features = ["macros", "compress-gzip", "openssl"]
+version = "4.2"
 
 [dependencies.mlua]
 features = ["luau", "async", "serialize", "macros"]

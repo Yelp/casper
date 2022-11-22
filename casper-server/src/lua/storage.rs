@@ -3,7 +3,6 @@ use std::iter::IntoIterator;
 use std::time::{Duration, Instant};
 use std::{borrow::Cow, ops::Deref};
 
-use hyper::Body;
 use mlua::{
     AnyUserData, FromLua, Lua, Result as LuaResult, String as LuaString, Table, UserData,
     UserDataMethods, Value,
@@ -12,7 +11,7 @@ use ripemd::{Digest, Ripemd160};
 
 use super::http::LuaResponse;
 use crate::http::filter_hop_headers;
-use crate::storage::{Item, ItemKey, Key, Storage};
+use crate::storage::{Body, Item, ItemKey, Key, Storage};
 
 pub struct LuaStorage<T: Storage>(T);
 
@@ -235,7 +234,7 @@ mod tests {
     use super::*;
     use crate::storage::Backend;
 
-    #[tokio::test]
+    #[actix_web::test]
     async fn test_storage() -> Result<()> {
         let lua = Rc::new(Lua::new());
         lua.set_app_data(Rc::downgrade(&lua));

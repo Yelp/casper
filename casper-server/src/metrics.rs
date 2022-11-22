@@ -15,10 +15,7 @@ use tokio::sync::RwLock;
 
 use crate::config::{MainConfig, MetricsConfig};
 
-// Re-export
-pub use middleware::MetricsLayer;
-
-static PROMETHEUS_EXPORTER: Lazy<PrometheusExporter> = Lazy::new(|| {
+pub(crate) static PROMETHEUS_EXPORTER: Lazy<PrometheusExporter> = Lazy::new(|| {
     let boundaries = vec![
         0.001, 0.002, 0.003, 0.005, 0.01, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.75, 1.0, 1.5, 2.0, 3.0,
         4.0, 5.0, 10.0,
@@ -415,5 +412,3 @@ impl Drop for ActiveCounterGuard {
         self.0.fetch_sub(self.1, Ordering::Relaxed);
     }
 }
-
-mod middleware;

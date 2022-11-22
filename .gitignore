@@ -1,3 +1,5 @@
+casper.lua
+
 target/
 **/*.rs.bk
 

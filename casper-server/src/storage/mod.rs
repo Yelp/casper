@@ -3,16 +3,19 @@ use std::fmt;
 use std::iter::IntoIterator;
 use std::time::Duration;
 
+use actix_http::body::{BoxBody, EitherBody, MessageBody};
+use actix_http::header::HeaderMap;
+use actix_http::{Response, StatusCode};
 use async_trait::async_trait;
 use bytes::Bytes;
 use futures::stream::{self, StreamExt};
-use http::{HeaderMap, StatusCode};
-use hyper::body::HttpBody;
-use hyper::Response;
 
 pub use backends::Backend;
+pub(crate) use common::{compress_with_zstd, decode_headers, encode_headers};
 
 pub type Key = Bytes;
+
+pub type Body = EitherBody<Bytes, BoxBody>;
 
 pub struct Item<'a> {
     pub key: Key,
@@ -26,11 +29,11 @@ pub struct Item<'a> {
 impl Item<'static> {
     #[cfg(test)]
     pub fn new(key: impl Into<Key>, response: Response<Bytes>, ttl: Duration) -> Self {
-        let (parts, body) = response.into_parts();
+        let (response, body) = response.into_parts();
         Item {
             key: key.into(),
-            status: parts.status,
-            headers: Cow::Owned(parts.headers),
+            status: response.status(),
+            headers: Cow::Owned(response.headers().clone()),
             body,
             surrogate_keys: Vec::new(),
             ttl,
@@ -44,11 +47,11 @@ impl Item<'static> {
         surrogate_keys: Vec<impl Into<Key>>,
         ttl: Duration,
     ) -> Self {
-        let (parts, body) = response.into_parts();
+        let (response, body) = response.into_parts();
         Item {
             key: key.into(),
-            status: parts.status,
-            headers: Cow::Owned(parts.headers),
+            status: response.status(),
+            headers: Cow::Owned(response.headers().clone()),
             body,
             surrogate_keys: surrogate_keys.into_iter().map(|sk| sk.into()).collect(),
             ttl,
@@ -65,7 +68,7 @@ pub enum ItemKey {
 impl fmt::Display for ItemKey {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            ItemKey::Primary(key) => write!(f, "Primary({})", hex::encode(key)),
+            ItemKey::Primary(key) => write!(f, "Primary({key:?})"),
             ItemKey::Surrogate(key) => write!(f, "Surrogate({key:?})"),
         }
     }
@@ -73,7 +76,7 @@ impl fmt::Display for ItemKey {
 
 #[async_trait(?Send)]
 pub trait Storage {
-    type Body: HttpBody;
+    type Body: MessageBody;
     type Error;
 
     fn name(&self) -> String;

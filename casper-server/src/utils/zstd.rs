@@ -1,7 +1,7 @@
+use std::io::Error as IoError;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-use anyhow::Error;
 use bytes::{Buf, Bytes, BytesMut};
 use futures::{ready, stream::Stream};
 use pin_project_lite::pin_project;
@@ -21,7 +21,7 @@ pin_project! {
         decoder: zstd::stream::raw::Decoder<'static>,
         state: State,
         input: Bytes,
-        output: BytesMut
+        output: BytesMut,
     }
 }
 
@@ -41,9 +41,9 @@ impl<S> ZstdDecoder<S> {
 
 impl<S> Stream for ZstdDecoder<S>
 where
-    S: Stream<Item = Result<Bytes, Error>>,
+    S: Stream<Item = Result<Bytes, IoError>>,
 {
-    type Item = Result<Bytes, Error>;
+    type Item = Result<Bytes, IoError>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let mut this = self.project();

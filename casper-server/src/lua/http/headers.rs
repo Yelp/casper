@@ -1,8 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::ops::{Deref, DerefMut};
 
-use http::header::{HeaderName, HeaderValue};
-use http::HeaderMap;
+use actix_http::header::{HeaderMap, HeaderName, HeaderValue};
 use mlua::{
     AnyUserData, ExternalError, ExternalResult, FromLua, Function, Lua, MetaMethod, RegistryKey,
     Result as LuaResult, String as LuaString, Table, ToLua, UserData, UserDataMethods, Value,
@@ -246,7 +245,6 @@ impl LuaHttpHeadersExt for HeaderMap {
     fn get_all<'lua>(&self, lua: &'lua Lua, name: &str) -> LuaResult<Value<'lua>> {
         let vals = self.get_all(name);
         let vals = vals
-            .iter()
             .map(|val| lua.create_string(val.as_bytes()))
             .collect::<LuaResult<Vec<_>>>()?;
         if vals.is_empty() {
@@ -256,7 +254,7 @@ impl LuaHttpHeadersExt for HeaderMap {
     }
 
     fn get_cnt(&self, _: &Lua, name: &str) -> LuaResult<usize> {
-        Ok(self.get_all(name).iter().count())
+        Ok(self.get_all(name).count())
     }
 
     fn is_match(&self, lua: &Lua, name: &str, pattern: String) -> LuaResult<bool> {

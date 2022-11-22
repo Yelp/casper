@@ -1,12 +1,14 @@
-use std::collections::HashMap;
 use std::convert::TryFrom;
+use std::mem;
 use std::net::SocketAddr;
-use std::ops::{Deref, DerefMut};
 use std::time::Duration;
+use std::{collections::HashMap, convert::Infallible};
 
-use http::uri::PathAndQuery;
-use http::{Method, Request, Uri, Version};
-use hyper::Body;
+use actix_http::header::{HeaderMap, CONTENT_LENGTH};
+use actix_http::uri::PathAndQuery;
+use actix_http::{Method, Payload, Request, Uri, Version};
+use actix_web::{FromRequest, HttpMessage, HttpRequest};
+use futures::future::{self, Ready};
 use mlua::{
     AnyUserData, ExternalError, ExternalResult, FromLua, Lua, LuaSerdeExt, Result as LuaResult,
     String as LuaString, Table, ToLua, UserData, UserDataFields, UserDataMethods, Value,
@@ -15,22 +17,61 @@ use serde_json::Value as JsonValue;
 
 use super::{EitherBody, LuaBody, LuaHttpHeaders, LuaHttpHeadersExt};
 use crate::http::proxy_to_upstream;
-use crate::types::SimpleHttpClient;
 
+#[derive(Default)]
 pub struct LuaRequest {
-    request: Request<EitherBody>,
+    uri: Uri,
+    method: Method,
+    version: Version,
+    headers: HeaderMap,
+    body: EitherBody,
+
+    // Incoming Request fields
     remote_addr: Option<SocketAddr>,
+
+    // Outgoing Request fields
     timeout: Option<Duration>,
 }
 
 impl LuaRequest {
     #[inline]
-    pub fn new(body: LuaBody) -> Self {
+    pub fn new(body: impl Into<LuaBody>) -> Self {
         LuaRequest {
-            request: Request::new(EitherBody::Body(body)),
-            remote_addr: None,
-            timeout: None,
+            body: EitherBody::Body(body.into()),
+            ..Default::default()
         }
+    }
+
+    pub fn uri(&self) -> &Uri {
+        &self.uri
+    }
+
+    pub fn uri_mut(&mut self) -> &mut Uri {
+        &mut self.uri
+    }
+
+    pub fn method(&self) -> &Method {
+        &self.method
+    }
+
+    pub fn method_mut(&mut self) -> &mut Method {
+        &mut self.method
+    }
+
+    pub fn version(&self) -> &Version {
+        &self.version
+    }
+
+    pub fn version_mut(&mut self) -> &mut Version {
+        &mut self.version
+    }
+
+    pub fn headers(&self) -> &HeaderMap {
+        &self.headers
+    }
+
+    pub fn headers_mut(&mut self) -> &mut HeaderMap {
+        &mut self.headers
     }
 
     /// Returns timeout for outgoing request
@@ -39,10 +80,14 @@ impl LuaRequest {
         self.timeout
     }
 
-    /// Sets remote address for incoming request
     #[inline]
-    pub fn set_remote_addr(&mut self, addr: SocketAddr) {
-        self.remote_addr = Some(addr);
+    pub fn body_mut(&mut self) -> &mut EitherBody {
+        &mut self.body
+    }
+
+    #[inline]
+    pub fn take_body(&mut self) -> EitherBody {
+        mem::take(&mut self.body)
     }
 
     /// Rewrites request's uri path
@@ -83,82 +128,69 @@ impl LuaRequest {
     async fn clone(&mut self) -> LuaResult<Self> {
         // Try to buffer body first
         let body = self.body_mut().buffer().await?;
-        let body = body.map(LuaBody::Bytes).unwrap_or(LuaBody::Empty);
+        let body = body.map(LuaBody::Bytes).unwrap_or(LuaBody::None);
 
-        let mut request = LuaRequest::from({
-            let mut req = Request::new(Body::empty());
-            *req.uri_mut() = self.uri().clone();
-            *req.version_mut() = self.version();
-            *req.method_mut() = self.method().clone();
-            *req.headers_mut() = self.headers().clone();
-            req
-        });
-        *request.body_mut() = EitherBody::Body(body);
-        request.remote_addr = self.remote_addr;
-        request.timeout = self.timeout;
-
-        Ok(request)
+        Ok(LuaRequest {
+            uri: self.uri.clone(),
+            method: self.method.clone(),
+            version: self.version,
+            headers: self.headers.clone(),
+            body: EitherBody::Body(body),
+            remote_addr: self.remote_addr,
+            timeout: self.timeout,
+        })
     }
+}
 
-    /// Consumes the request, returning the wrapped hyper Request
+impl From<Request> for LuaRequest {
     #[inline]
-    pub fn into_inner(self) -> Request<Body> {
-        self.request.map(|body| body.into())
-    }
-}
+    fn from(mut request: Request) -> Self {
+        let content_length = request
+            .headers()
+            .get(CONTENT_LENGTH)
+            .and_then(|len| len.to_str().ok())
+            .and_then(|len| len.parse::<u64>().ok());
 
-impl Deref for LuaRequest {
-    type Target = Request<EitherBody>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.request
-    }
-}
-
-impl DerefMut for LuaRequest {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.request
-    }
-}
-
-impl From<Request<Body>> for LuaRequest {
-    #[inline]
-    fn from(request: Request<Body>) -> Self {
         LuaRequest {
-            request: request.map(|body| {
-                EitherBody::Body(LuaBody::Hyper {
-                    timeout: None,
-                    body,
-                })
-            }),
-            remote_addr: None,
+            uri: request.uri().clone(),
+            method: request.method().clone(),
+            version: request.version(),
+            headers: mem::replace(request.headers_mut(), HeaderMap::new()),
+            body: EitherBody::Body(LuaBody::from((request.take_payload(), content_length))),
+            remote_addr: request.peer_addr(),
             timeout: None,
         }
     }
 }
 
-impl From<LuaRequest> for Request<Body> {
-    #[inline]
-    fn from(request: LuaRequest) -> Self {
-        request.into_inner()
-    }
-}
+/// Provides an Extractor to make LuaRequest from actix request
+impl FromRequest for LuaRequest {
+    type Error = Infallible;
+    type Future = Ready<Result<Self, Self::Error>>;
 
-impl TryFrom<LuaRequest> for reqwest::Request {
-    type Error = reqwest::Error;
+    fn from_request(request: &HttpRequest, payload: &mut Payload) -> Self::Future {
+        let content_length = request
+            .headers()
+            .get(CONTENT_LENGTH)
+            .and_then(|len| len.to_str().ok())
+            .and_then(|len| len.parse::<u64>().ok());
+        let payload = payload.take();
 
-    #[inline]
-    fn try_from(request: LuaRequest) -> Result<Self, Self::Error> {
-        let timeout = request.timeout;
-        let mut request: Self = request.into_inner().try_into()?;
-        *request.timeout_mut() = timeout;
-        Ok(request)
+        future::ready(Ok(LuaRequest {
+            uri: request.uri().clone(),
+            method: request.method().clone(),
+            version: request.version(),
+            headers: request.headers().clone(),
+            body: EitherBody::Body(LuaBody::from((payload, content_length))),
+            remote_addr: request.peer_addr(),
+            timeout: None,
+        }))
     }
 }
 
 impl<'lua> FromLua<'lua> for LuaRequest {
     fn from_lua(value: Value<'lua>, lua: &'lua Lua) -> LuaResult<Self> {
-        let mut request = LuaRequest::new(LuaBody::Empty);
+        let mut request = LuaRequest::new(LuaBody::None);
         let params = match lua.unpack::<Option<Table>>(value)? {
             Some(params) => params,
             None => return Ok(request),
@@ -340,10 +372,10 @@ impl UserData for LuaRequest {
                 // Merge request uri with the upstream uri
                 let req = this.take::<LuaRequest>()?;
                 let client = lua
-                    .app_data_ref::<SimpleHttpClient>()
-                    .expect("Failed to get http client")
+                    .app_data_ref::<awc::Client>()
+                    .expect("Failed to get default http client")
                     .clone();
-                proxy_to_upstream(&client, req, upstream.as_deref()).await
+                proxy_to_upstream(client, req, upstream.as_deref()).await
             },
         );
     }
@@ -359,7 +391,7 @@ mod tests {
 
     use super::*;
 
-    #[tokio::test]
+    #[actix_web::test]
     async fn test_request() -> Result<()> {
         let lua = Rc::new(Lua::new());
         lua.set_app_data(Rc::downgrade(&lua));
@@ -439,33 +471,29 @@ mod tests {
         .exec()
         .unwrap();
 
-        let local = tokio::task::LocalSet::new();
-        local
-            .run_until(
-                // Check cloning Request
-                lua.load(chunk! {
-                    local i = 0
-                    local req = Request.new({
-                        uri = "http://0.1.2.3/",
-                        headers = {
-                            ["user-agent"] = "test ua",
-                        },
-                        body = function()
-                            if i == 0 then
-                                i += 1
-                                return "hello, world"
-                            end
-                        end,
-                    })
-                    local req2 = req:clone()
-                    assert(req2.uri == "http://0.1.2.3/")
-                    assert(req2:header("user-agent") == "test ua")
-                    assert(req2.body:data() == "hello, world")
-                })
-                .exec_async(),
-            )
-            .await
-            .unwrap();
+        // Check cloning Request
+        lua.load(chunk! {
+            local i = 0
+            local req = Request.new({
+                uri = "http://0.1.2.3/",
+                headers = {
+                    ["user-agent"] = "test ua",
+                },
+                body = function()
+                    if i == 0 then
+                        i += 1
+                        return "hello, world"
+                    end
+                end,
+            })
+            local req2 = req:clone()
+            assert(req2.uri == "http://0.1.2.3/")
+            assert(req2:header("user-agent") == "test ua")
+            assert(req2.body:data() == "hello, world")
+        })
+        .exec_async()
+        .await
+        .unwrap();
 
         // Check rewriting body
         lua.load(chunk! {
@@ -479,7 +507,7 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
+    #[actix_web::test]
     async fn test_proxy_to_upstream() -> Result<()> {
         let lua = Rc::new(Lua::new());
         lua.set_app_data(Rc::downgrade(&lua));
@@ -488,8 +516,9 @@ mod tests {
             .set("Request", lua.create_proxy::<LuaRequest>()?)?;
 
         // Attach HTTP client
-        lua.set_app_data(SimpleHttpClient::new());
+        lua.set_app_data(awc::Client::new());
 
+        // TODO: Use actix test server?
         let mock_server = MockServer::start().await;
         let upstream = mock_server.uri();
         Mock::given(method("GET"))
