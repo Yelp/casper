@@ -180,6 +180,9 @@ impl AppContextInner {
                 .transpose()?;
         }
 
+        // Enable sandboxing
+        lua.sandbox(true)?;
+
         Ok(())
     }
 }
