@@ -1,9 +1,12 @@
 use std::io::Result as IoResult;
 use std::ops::Deref;
 
-use mlua::{AnyUserData, Lua, Result, String as LuaString, Table, UserData, UserDataMethods};
+use mlua::{
+    AnyUserData, Lua, Result, String as LuaString, Table, UserData, UserDataMethods, Value,
+};
 use tokio::net::{ToSocketAddrs, UdpSocket};
 
+/// Represents Tokio UDP socket for Lua
 struct LuaUdpSocket(UdpSocket);
 
 impl Deref for LuaUdpSocket {
@@ -27,8 +30,8 @@ impl UserData for LuaUdpSocket {
             "connect",
             |_, (this, addr): (AnyUserData, String)| async move {
                 let this = this.borrow::<Self>()?;
-                this.connect(addr).await?;
-                Ok(())
+                lua_try!(this.connect(addr).await);
+                Ok(Ok(Value::Boolean(true)))
             },
         );
 
@@ -41,10 +44,10 @@ impl UserData for LuaUdpSocket {
             |_, (this, buf): (AnyUserData, Option<LuaString>)| async move {
                 let this = this.borrow::<Self>()?;
                 let n = match buf {
-                    Some(buf) => this.send(buf.as_bytes()).await?,
+                    Some(buf) => lua_try!(this.send(buf.as_bytes()).await),
                     None => 0,
                 };
-                Ok(n)
+                Ok(Ok(n))
             },
         );
 
@@ -53,10 +56,10 @@ impl UserData for LuaUdpSocket {
             |_, (this, dst, buf): (AnyUserData, String, Option<LuaString>)| async move {
                 let this = this.borrow::<Self>()?;
                 let n = match buf {
-                    Some(buf) => this.send_to(buf.as_bytes(), dst).await?,
+                    Some(buf) => lua_try!(this.send_to(buf.as_bytes(), dst).await),
                     None => 0,
                 };
-                Ok(n)
+                Ok(Ok(n))
             },
         );
     }
@@ -65,7 +68,7 @@ impl UserData for LuaUdpSocket {
 pub fn create_module(lua: &Lua) -> Result<Table> {
     let bind = lua.create_async_function(|_, addr: Option<String>| async move {
         let addr = addr.unwrap_or_else(|| "0.0.0.0:0".to_string());
-        Ok(LuaUdpSocket::bind(addr).await?)
+        Ok(Ok(lua_try!(LuaUdpSocket::bind(addr).await)))
     })?;
 
     lua.create_table_from([("bind", bind)])
