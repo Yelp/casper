@@ -40,6 +40,10 @@ impl LuaResponse {
         self.version
     }
 
+    pub fn set_version(&mut self, version: Option<Version>) {
+        self.version = version;
+    }
+
     pub fn status(&self) -> StatusCode {
         self.status
     }

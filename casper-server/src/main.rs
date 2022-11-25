@@ -7,8 +7,9 @@ use actix_web::rt::System;
 use actix_web::web;
 use actix_web::{App, HttpServer};
 use anyhow::Context as _;
-use awc::{Client, Connector};
 use clap::Parser;
+use isahc::config::{Configurable as _, DnsCache, RedirectPolicy};
+use isahc::HttpClient;
 use tracing::{error, info};
 use tracing_log::LogTracer;
 
@@ -53,6 +54,16 @@ async fn main_inner(args: Args) -> anyhow::Result<()> {
         storage_backends.push(backend);
     }
 
+    // Construct default HTTP client
+    let http_client = HttpClient::builder()
+        .connection_cache_size(1000)
+        .connection_cache_ttl(Duration::from_secs(60))
+        .dns_cache(DnsCache::Disable)
+        .automatic_decompression(false)
+        .redirect_policy(RedirectPolicy::None)
+        .tcp_nodelay()
+        .build()?;
+
     // Try to initialize application context on the listening thread to check for errors
     let context = AppContext::builder()
         .with_config(config.clone())
@@ -83,20 +94,8 @@ async fn main_inner(args: Args) -> anyhow::Result<()> {
             }
         }
 
-        // Construct default HTTP client
-        let http_client = Client::builder()
-            .disable_redirects()
-            .disable_timeout()
-            .connector(
-                Connector::new()
-                    .conn_keep_alive(Duration::from_secs(60))
-                    .conn_lifetime(Duration::from_secs(600))
-                    .limit(1000),
-            )
-            .finish();
-
-        // Attach it to Lua
-        context.lua.set_app_data::<Client>(http_client);
+        // Attach default HTTP client to Lua
+        context.lua.set_app_data(http_client.clone());
 
         // Track Lua used memory every 10 seconds
         let lua = Rc::clone(&context.lua);

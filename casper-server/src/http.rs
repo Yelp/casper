@@ -1,14 +1,18 @@
 use std::error::Error as StdError;
+use std::io;
 use std::mem;
 
+use actix_http::error::PayloadError;
 use actix_http::header::{self, HeaderMap, HeaderName, HeaderValue};
 use actix_http::uri::{InvalidUri, InvalidUriParts, Scheme, Uri};
-use actix_http::{BoxedPayloadStream, Payload, StatusCode};
-use awc::error::{ConnectError, SendRequestError};
-use awc::Client;
+use actix_http::{Payload, StatusCode};
 use bytes::{Bytes, BytesMut};
-use futures::StreamExt;
-use mlua::{ExternalResult, Result as LuaResult};
+use futures::{StreamExt, TryStreamExt};
+use isahc::config::Configurable;
+use isahc::HttpClient;
+use mlua::{ExternalError, ExternalResult, Result as LuaResult};
+use tokio_util::compat::FuturesAsyncReadCompatExt;
+use tokio_util::io::ReaderStream;
 
 use crate::lua::{LuaBody, LuaRequest, LuaResponse};
 
@@ -64,38 +68,75 @@ fn merge_uri(src: Uri, dst: &str) -> Result<Uri, UriError> {
 }
 
 async fn send_to_upstream(
-    client: Client,
+    client: HttpClient,
     mut req: LuaRequest,
-) -> Result<LuaResponse, SendRequestError> {
-    let mut client_req = client
-        .request(req.method().clone(), req.uri().clone())
-        .no_decompress();
+) -> Result<LuaResponse, isahc::error::Error> {
+    let mut client_req_builder = http::Request::builder()
+        .uri(req.uri().clone())
+        .method(req.method().clone());
 
     if let Some(timeout) = req.timeout() {
-        client_req = client_req.timeout(timeout);
+        client_req_builder = client_req_builder.timeout(timeout);
     }
 
-    *client_req.headers_mut() = mem::replace(req.headers_mut(), HeaderMap::new());
+    // TODO: Rewrite this
+    let body_bytes = req
+        .take_body()
+        .buffer()
+        .await
+        .map_err(|err| io::Error::new(io::ErrorKind::Other, err))?;
+    let body = match body_bytes {
+        Some(bytes) => isahc::AsyncBody::from_bytes_static(bytes),
+        None => isahc::AsyncBody::empty(),
+    };
 
-    filter_hop_headers(client_req.headers_mut());
+    let mut client_req = client_req_builder.body(body)?;
+
+    let mut headers = mem::take(req.headers_mut());
+    filter_hop_headers(&mut headers);
+    for (key, value) in headers {
+        client_req.headers_mut().append(key, value);
+    }
 
     // Proxy to an upstream service
-    let mut resp: LuaResponse = client_req
-        .send_body(LuaBody::from(req.take_body()))
-        .await?
-        .map_body(|_, b| Payload::Stream {
-            payload: Box::pin(b) as BoxedPayloadStream,
-        })
-        .into();
-    resp.is_proxied = true;
+    let mut isahc_resp = client.send_async(client_req).await?;
+    let mut resp = LuaResponse::new({
+        let _body = mem::take(isahc_resp.body_mut());
+        let length = isahc_resp
+            .headers()
+            .get(http::header::CONTENT_LENGTH)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|s| s.parse().ok());
+        let reader = ReaderStream::new(_body.compat());
 
+        LuaBody::Payload {
+            payload: Payload::Stream {
+                payload: reader.map_err(PayloadError::Io).boxed(),
+            },
+            length,
+            timeout: None,
+        }
+    });
+
+    resp.is_proxied = true;
+    *resp.status_mut() = isahc_resp.status();
+    resp.set_version(Some(isahc_resp.version()));
+
+    // Copy headers
+    let mut name = None;
+    for (key, value) in isahc_resp.headers_mut().drain() {
+        if key.is_some() {
+            name = key;
+        }
+        resp.headers_mut().append(name.clone().unwrap(), value);
+    }
     filter_hop_headers(resp.headers_mut());
 
     Ok(resp)
 }
 
 pub async fn proxy_to_upstream(
-    client: Client,
+    client: HttpClient,
     mut req: LuaRequest,
     upstream: Option<&str>,
 ) -> LuaResult<LuaResponse> {
@@ -107,22 +148,21 @@ pub async fn proxy_to_upstream(
 
     match send_to_upstream(client, req).await {
         Ok(resp) => Ok(resp),
-        err @ Err(SendRequestError::Url(..)) => err.map_err(|e| e.to_string()).to_lua_err(),
-        err @ Err(SendRequestError::Timeout)
-        | err @ Err(SendRequestError::Connect(ConnectError::Timeout)) => {
-            let mut resp = LuaResponse::new(LuaBody::from(err.err().unwrap().to_string()));
+        Err(err) if err.is_timeout() => {
+            let mut resp = LuaResponse::new(LuaBody::from(err.to_string()));
             *resp.status_mut() = StatusCode::GATEWAY_TIMEOUT;
             resp.headers_mut()
                 .insert(header::CONTENT_TYPE, HeaderValue::from_static("text/plan"));
             Ok(resp)
         }
-        Err(err) => {
+        Err(err) if err.is_network() || err.is_server() => {
             let mut resp = LuaResponse::new(LuaBody::from(err.to_string()));
             *resp.status_mut() = StatusCode::BAD_GATEWAY;
             resp.headers_mut()
                 .insert(header::CONTENT_TYPE, HeaderValue::from_static("text/plan"));
             Ok(resp)
         }
+        Err(err) => Err(err.to_lua_err()),
     }
 }
 

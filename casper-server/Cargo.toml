@@ -19,6 +19,7 @@ futures-util = "0.3"
 hex = "0.4.3"
 http = "0.2"
 http-serde = "1"
+isahc = "1.7.2"
 linked-hash-map = "0.5.4"
 moka = { version = "0.9", features = ["future"] }
 num_cpus = "1.13"
@@ -44,6 +45,7 @@ sys-info = "0.9"
 thiserror = "1"
 time = "0.3"
 tokio = { version = "1", features = ["full"] }
+tokio-util = { version = "0.7.4", features = ["compat"] }
 tracing = "0.1"
 tracing-log = "0.1"
 tracing-subscriber = "0.3"
