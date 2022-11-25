@@ -8,8 +8,7 @@ use actix_web::web;
 use actix_web::{App, HttpServer};
 use anyhow::Context as _;
 use clap::Parser;
-use isahc::config::{Configurable as _, DnsCache, RedirectPolicy};
-use isahc::HttpClient;
+use reqwest::Client as HttpClient;
 use tracing::{error, info};
 use tracing_log::LogTracer;
 
@@ -56,12 +55,10 @@ async fn main_inner(args: Args) -> anyhow::Result<()> {
 
     // Construct default HTTP client
     let http_client = HttpClient::builder()
-        .connection_cache_size(1000)
-        .connection_cache_ttl(Duration::from_secs(60))
-        .dns_cache(DnsCache::Disable)
-        .automatic_decompression(false)
-        .redirect_policy(RedirectPolicy::None)
-        .tcp_nodelay()
+        .redirect(reqwest::redirect::Policy::none())
+        .no_brotli()
+        .no_deflate()
+        .no_gzip()
         .build()?;
 
     // Try to initialize application context on the listening thread to check for errors
