@@ -117,7 +117,7 @@ async fn main_inner(args: Args) -> anyhow::Result<()> {
         ext.insert(ConnectionCountGuard(connections_counter_inc!()));
     })
     .listen(listener)?
-    .keep_alive(Duration::from_secs(60))
+    .keep_alive(Duration::from_secs(30))
     .workers(config2.main.workers)
     .run()
     .await?;
