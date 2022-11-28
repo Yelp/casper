@@ -3,7 +3,6 @@ members = ["casper-server"]
 
 [profile.release]
 opt-level = 3
-debug = true
 codegen-units = 1
 
 [profile.dev]

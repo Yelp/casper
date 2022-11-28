@@ -13,6 +13,7 @@ use mlua::{
     AnyUserData, ExternalError, ExternalResult, FromLua, Lua, LuaSerdeExt, Result as LuaResult,
     String as LuaString, Table, ToLua, UserData, UserDataFields, UserDataMethods, Value,
 };
+use reqwest::Client as HttpClient;
 use serde_json::Value as JsonValue;
 
 use super::{EitherBody, LuaBody, LuaHttpHeaders, LuaHttpHeadersExt};
@@ -372,7 +373,7 @@ impl UserData for LuaRequest {
                 // Merge request uri with the upstream uri
                 let req = this.take::<LuaRequest>()?;
                 let client = lua
-                    .app_data_ref::<awc::Client>()
+                    .app_data_ref::<HttpClient>()
                     .expect("Failed to get default http client")
                     .clone();
                 proxy_to_upstream(client, req, upstream.as_deref()).await
@@ -516,7 +517,7 @@ mod tests {
             .set("Request", lua.create_proxy::<LuaRequest>()?)?;
 
         // Attach HTTP client
-        lua.set_app_data(awc::Client::new());
+        lua.set_app_data(HttpClient::new());
 
         // TODO: Use actix test server?
         let mock_server = MockServer::start().await;

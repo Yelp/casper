@@ -33,6 +33,7 @@ pin-project-lite = "0.2.8"
 prometheus = "0.13"
 rand = "0.8"
 regex = "1.5"
+reqwest = { version = "0.11.13", features = ["stream"] }
 ripemd = "0.1"
 scopeguard = "1.1.0"
 serde = { version = "1", features = ["derive"] }
