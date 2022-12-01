@@ -29,7 +29,6 @@ use crate::storage::{
 use crate::utils::zstd::ZstdDecoder;
 
 // TODO: Define format version
-// TODO: Use SizedStream
 
 pub const MAX_CONCURRENCY: usize = 100;
 
@@ -279,7 +278,7 @@ impl RedisBackend {
             }
         }
 
-        // Construct a response object
+        // Construct new Response object
         let status = StatusCode::from_u16(response_item.status_code)?;
         let mut resp = Response::with_body(status, body);
         *resp.headers_mut() = decode_headers(&headers)?;
@@ -322,12 +321,17 @@ impl RedisBackend {
         let mut body = item.body;
         let body_length = body.len();
 
+        let max_ttl = self.config.max_ttl;
+        let ttl = max_ttl
+            .map(|max_ttl| std::cmp::max(max_ttl, item.ttl.as_secs()))
+            .unwrap_or(item.ttl.as_secs());
+
         // If a compression level is set, compress the body and headers with the zstd encoding, if compressed update flags
         let mut flags = Flags::NONE;
         if let Some(level) = self.config.compression_level {
             (body, headers) = try_join(
                 compress_with_zstd(body, level).map_ok(Bytes::from),
-                compress_with_zstd(Bytes::from(headers), level),
+                compress_with_zstd(headers, level),
             )
             .await?;
             flags.insert(Flags::COMPRESSED);
@@ -345,7 +349,7 @@ impl RedisBackend {
                     .set(
                         make_chunk_key(&item.key, i as u32 + 1),
                         RedisValue::Bytes(chunk.to_vec().into()),
-                        Some(Expiration::EX(item.ttl.as_secs() as i64)),
+                        Some(Expiration::EX(ttl as i64)),
                         None,
                         false,
                     )
@@ -371,7 +375,7 @@ impl RedisBackend {
             .set(
                 make_redis_key(&item.key),
                 RedisValue::Bytes(response_item_enc.into()),
-                Some(Expiration::EX(item.ttl.as_secs() as i64)),
+                Some(Expiration::EX(ttl as i64)),
                 None,
                 false,
             )

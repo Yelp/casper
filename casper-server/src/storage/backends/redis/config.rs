@@ -22,6 +22,8 @@ pub struct Config {
     #[serde(default = "Config::default_max_body_chunk_size")]
     pub max_body_chunk_size: usize,
     pub compression_level: Option<i32>,
+    pub max_ttl: Option<u64>,
+
     pub wait_for_connect: Option<f32>,
     #[serde(default)]
     pub lazy: bool,
@@ -91,11 +93,11 @@ impl Default for TimeoutConfig {
 
 impl TimeoutConfig {
     const fn default_fetch_timeout() -> f32 {
-        10.0
+        1.0
     }
 
     const fn default_store_timeout() -> f32 {
-        10.0
+        1.0
     }
 }
 
@@ -110,6 +112,7 @@ impl Default for Config {
             pool_size: Config::default_pool_size(),
             max_body_chunk_size: Config::default_max_body_chunk_size(),
             compression_level: None,
+            max_ttl: None,
             wait_for_connect: None,
             lazy: false,
             internal_cache_size: Config::default_internal_cache_size(),
