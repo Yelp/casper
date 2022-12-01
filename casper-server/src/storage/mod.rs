@@ -13,6 +13,8 @@ use futures::stream::{self, StreamExt};
 pub use backends::Backend;
 pub(crate) use common::{compress_with_zstd, decode_headers, encode_headers};
 
+pub(crate) const MAX_CONCURRENCY: usize = 100;
+
 pub type Key = Bytes;
 
 pub type Body = EitherBody<Bytes, BoxBody>;
@@ -102,7 +104,7 @@ pub trait Storage {
     {
         // Create list of pending futures to poll them in parallel
         stream::iter(keys.into_iter().map(|key| self.get_response(key)))
-            .buffered(100)
+            .buffered(MAX_CONCURRENCY)
             .collect()
             .await
     }
@@ -113,7 +115,7 @@ pub trait Storage {
     {
         // Create list of pending futures to poll them in parallel
         stream::iter(keys.into_iter().map(|key| self.delete_responses(key)))
-            .buffered(100)
+            .buffered(MAX_CONCURRENCY)
             .collect()
             .await
     }
@@ -124,7 +126,7 @@ pub trait Storage {
     {
         // Create list of pending futures to poll them in parallel
         stream::iter(items.into_iter().map(|it| self.store_response(it)))
-            .buffered(100)
+            .buffered(MAX_CONCURRENCY)
             .collect()
             .await
     }

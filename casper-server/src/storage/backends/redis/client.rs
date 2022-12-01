@@ -25,12 +25,11 @@ use tokio::time::timeout;
 use super::Config;
 use crate::storage::{
     compress_with_zstd, decode_headers, encode_headers, Body, Item, ItemKey, Key, Storage,
+    MAX_CONCURRENCY,
 };
 use crate::utils::zstd::ZstdDecoder;
 
 // TODO: Define format version
-
-pub const MAX_CONCURRENCY: usize = 100;
 
 const SURROGATE_KEYS_TTL: i64 = 86400; // 1 day
 
