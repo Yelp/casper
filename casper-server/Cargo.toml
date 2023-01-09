@@ -70,9 +70,9 @@ git = "https://github.com/khvzak/mlua"
 branch = "master"
 
 [dependencies.fred]
-default-features = false
-features = ["pool-prefer-active", "enable-tls"]
-version = "5.2.0"
+features = ["enable-native-tls"]
+git = "https://github.com/aembke/fred.rs"
+rev = "a33578585986854c09a1482970d81350b772ea38"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 affinity = "0.1.2"

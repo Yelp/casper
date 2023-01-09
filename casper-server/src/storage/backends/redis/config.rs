@@ -56,7 +56,7 @@ impl ServerConfig {
             ServerConfig::Centralized { endpoint } => {
                 let (host, port) = parse_host_port(&endpoint)
                     .with_context(|| format!("invalid redis endpoint `{endpoint}`"))?;
-                Ok(fred::types::ServerConfig::Centralized { host, port })
+                Ok(fred::types::ServerConfig::new_centralized(host, port))
             }
             ServerConfig::Clustered { endpoints } => {
                 let mut hosts = Vec::new();
@@ -65,7 +65,7 @@ impl ServerConfig {
                         .with_context(|| format!("invalid redis endpoint `{endpoint}`"))?;
                     hosts.push((host, port));
                 }
-                Ok(fred::types::ServerConfig::Clustered { hosts })
+                Ok(fred::types::ServerConfig::new_clustered(hosts))
             }
         }
     }
@@ -145,7 +145,7 @@ impl Config {
             password: self.password,
             server: self.server.into_redis_server_config()?,
             tls: if self.enable_tls {
-                Some(fred::types::TlsConfig::default())
+                Some(fred::types::TlsConnector::default_native_tls()?.into())
             } else {
                 None
             },

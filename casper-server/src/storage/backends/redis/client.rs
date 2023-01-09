@@ -13,7 +13,9 @@ use bytes::Bytes;
 use fred::error::RedisError;
 use fred::interfaces::KeysInterface;
 use fred::pool::RedisPool;
-use fred::types::{Expiration, ReconnectPolicy, RedisKey, RedisValue, SetOptions};
+use fred::types::{
+    Expiration, PerformanceConfig, ReconnectPolicy, RedisKey, RedisValue, SetOptions,
+};
 use futures::future::{try_join, try_join_all, TryFutureExt};
 use futures::stream::{self, StreamExt};
 use moka::future::Cache;
@@ -103,7 +105,10 @@ impl RedisBackend {
     /// Creates a new Redis backend instance without connecting to the server.
     pub fn new(config: Config, name: impl Into<Option<String>>) -> Result<Self> {
         let redis_config = config.clone().into_redis_config()?;
-        let pool = RedisPool::new(redis_config, config.pool_size)?;
+        // Use default performance config
+        let perf = PerformanceConfig::default();
+        let policy = ReconnectPolicy::default();
+        let pool = RedisPool::new(redis_config, Some(perf), Some(policy), config.pool_size)?;
 
         let internal_cache_size = config.internal_cache_size;
         let backend = RedisBackend {
@@ -127,8 +132,7 @@ impl RedisBackend {
     pub async fn connect(&self) -> Result<()> {
         // Nothing to do on lazy mode
         if !self.config.lazy && !self.spawned_connect.swap(true, Ordering::SeqCst) {
-            let policy = self.reconnect_policy();
-            let _handles = self.pool.connect(Some(policy));
+            let _handles = self.pool.connect();
             if let Err(err) = self.wait_for_connect().await {
                 // Do not abort connection tasks, only return a error
                 return Err(err.context("Failed to connect to Redis"));
@@ -152,16 +156,10 @@ impl RedisBackend {
     }
 
     #[inline]
-    fn reconnect_policy(&self) -> ReconnectPolicy {
-        ReconnectPolicy::default()
-    }
-
-    #[inline]
     fn lazy_connect(&self) {
         // Non-lazy instances should be already connected
         if self.config.lazy && !self.spawned_connect.swap(true, Ordering::SeqCst) {
-            let policy = self.reconnect_policy();
-            self.pool.connect(Some(policy));
+            self.pool.connect();
         }
     }
 
