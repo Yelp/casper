@@ -4,7 +4,7 @@ use std::ops::{Deref, DerefMut};
 use actix_http::header::{HeaderMap, HeaderName, HeaderValue};
 use mlua::{
     AnyUserData, ExternalError, ExternalResult, FromLua, Function, Lua, MetaMethod, RegistryKey,
-    Result as LuaResult, String as LuaString, Table, ToLua, UserData, UserDataMethods, Value,
+    Result as LuaResult, String as LuaString, Table, IntoLua, UserData, UserDataMethods, Value,
     Variadic,
 };
 
@@ -37,7 +37,7 @@ pub trait LuaHttpHeadersExt {
     fn to_table<'lua>(&self, lua: &'lua Lua, names_filter: Value<'lua>) -> LuaResult<Table<'lua>>;
 }
 
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct LuaHttpHeaders(HeaderMap);
 
 impl LuaHttpHeaders {
@@ -54,11 +54,6 @@ impl LuaHttpHeaders {
     #[inline]
     pub fn into_inner(self) -> HeaderMap {
         self.0
-    }
-
-    // `Clone` trait conflicts with `FromLua` and `UserData`, so implemented as a type method
-    pub fn clone(&self) -> Self {
-        LuaHttpHeaders(self.0.clone())
     }
 }
 
@@ -250,7 +245,7 @@ impl LuaHttpHeadersExt for HeaderMap {
         if vals.is_empty() {
             return Ok(Value::Nil);
         }
-        vals.to_lua(lua)
+        vals.into_lua(lua)
     }
 
     fn get_cnt(&self, _: &Lua, name: &str) -> LuaResult<usize> {
@@ -318,7 +313,7 @@ impl LuaHttpHeadersExt for HeaderMap {
                 .push(lua.create_string(value.as_bytes())?);
         }
 
-        let lua_headers = Table::from_lua(headers.to_lua(lua)?, lua)?;
+        let lua_headers = Table::from_lua(headers.into_lua(lua)?, lua)?;
         set_headers_metatable(lua, lua_headers.clone())?;
 
         Ok(lua_headers)

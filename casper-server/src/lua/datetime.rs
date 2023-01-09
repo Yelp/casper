@@ -1,6 +1,6 @@
 use std::ops::Deref;
 
-use mlua::{Lua, MetaMethod, Result, Table, UserData, UserDataMethods};
+use mlua::{AnyUserData, Lua, MetaMethod, Result, Table, UserData, UserDataMethods};
 use time::OffsetDateTime;
 
 #[derive(Clone, Copy, Debug)]
@@ -30,7 +30,8 @@ impl UserData for DateTime {
             Ok((OffsetDateTime::now_utc() - this.0).as_seconds_f64())
         });
 
-        methods.add_meta_method(MetaMethod::Sub, |_, this, other: DateTime| {
+        methods.add_meta_method(MetaMethod::Sub, |_, this, other: AnyUserData| {
+            let other = other.borrow::<DateTime>()?;
             Ok((this.0 - other.0).as_seconds_f64())
         });
     }

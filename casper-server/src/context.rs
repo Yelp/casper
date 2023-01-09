@@ -12,7 +12,7 @@ use crate::lua::{self, LuaStorage};
 use crate::storage::{Backend, Storage};
 
 // TODO: Move to config
-const LUA_THREAD_CACHE_SIZE: usize = 1024;
+const LUA_THREAD_POOL_SIZE: usize = 1024;
 
 static NEXT_ID: AtomicUsize = AtomicUsize::new(0);
 
@@ -94,7 +94,7 @@ impl Drop for AppContextInner {
 
 impl AppContextInner {
     fn new(config: Arc<Config>, storage_backends: Vec<Backend>) -> Result<Self> {
-        let lua_options = LuaOptions::new().thread_cache_size(LUA_THREAD_CACHE_SIZE);
+        let lua_options = LuaOptions::new().thread_pool_size(LUA_THREAD_POOL_SIZE);
         let lua = Lua::new_with(LuaStdLib::ALL_SAFE, lua_options)
             .with_context(|| "Failed to create Lua instance")?;
         let lua = Rc::new(lua);

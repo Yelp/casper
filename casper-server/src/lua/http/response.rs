@@ -9,7 +9,7 @@ use awc::ClientResponse;
 use bytes::Bytes;
 use mlua::{
     AnyUserData, ExternalError, ExternalResult, FromLua, Lua, Result as LuaResult,
-    String as LuaString, Table, ToLua, UserData, UserDataFields, UserDataMethods, Value,
+    String as LuaString, Table, IntoLua, UserData, UserDataFields, UserDataMethods, Value,
 };
 use opentelemetry::{Key as OTKey, Value as OTValue};
 
@@ -238,7 +238,7 @@ impl UserData for LuaResponse {
         });
 
         fields.add_field_method_get("version", |lua, this| match this.version() {
-            Some(version) => format!("{:?}", version)[5..].to_lua(lua),
+            Some(version) => format!("{:?}", version)[5..].into_lua(lua),
             None => Ok(Value::Nil),
         });
 

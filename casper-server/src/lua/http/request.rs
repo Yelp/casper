@@ -11,7 +11,7 @@ use actix_web::{FromRequest, HttpMessage, HttpRequest};
 use futures::future::{self, Ready};
 use mlua::{
     AnyUserData, ExternalError, ExternalResult, FromLua, Lua, LuaSerdeExt, Result as LuaResult,
-    String as LuaString, Table, ToLua, UserData, UserDataFields, UserDataMethods, Value,
+    String as LuaString, Table, IntoLua, UserData, UserDataFields, UserDataMethods, Value,
 };
 use reqwest::Client as HttpClient;
 use serde_json::Value as JsonValue;
@@ -240,14 +240,14 @@ impl<'lua> FromLua<'lua> for LuaRequest {
 
 impl UserData for LuaRequest {
     fn add_fields<'lua, F: UserDataFields<'lua, Self>>(fields: &mut F) {
-        fields.add_field_method_get("method", |lua, this| this.method().as_str().to_lua(lua));
+        fields.add_field_method_get("method", |lua, this| this.method().as_str().into_lua(lua));
         fields.add_field_method_set("method", |_, this, method: String| {
             *this.method_mut() = Method::from_bytes(method.as_bytes()).to_lua_err()?;
             Ok(())
         });
 
         fields.add_field_method_get("version", |lua, this| {
-            format!("{:?}", this.version())[5..].to_lua(lua)
+            format!("{:?}", this.version())[5..].into_lua(lua)
         });
 
         fields.add_field_method_get("uri", |_, this| Ok(this.uri().to_string()));
@@ -288,12 +288,12 @@ impl UserData for LuaRequest {
             Ok(())
         });
 
-        methods.add_method("uri_path", |lua, this, ()| this.uri().path().to_lua(lua));
+        methods.add_method("uri_path", |lua, this, ()| this.uri().path().into_lua(lua));
         methods.add_method_mut("set_uri_path", |_, this, path: String| {
             this.set_uri_path(&path)
         });
 
-        methods.add_method("uri_query", |lua, this, ()| this.uri().query().to_lua(lua));
+        methods.add_method("uri_query", |lua, this, ()| this.uri().query().into_lua(lua));
         methods.add_method_mut("set_uri_query", |_, this, query: String| {
             this.set_uri_query(&query)
         });

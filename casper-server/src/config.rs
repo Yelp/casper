@@ -70,7 +70,7 @@ pub(crate) fn read_config<P: AsRef<Path> + ?Sized>(path: &P) -> Result<Config> {
             configure_lua(&lua)?;
             let mut chunk = lua.load(&data);
             if let Some(name) = path.as_ref().to_str() {
-                chunk = chunk.set_name(name)?;
+                chunk = chunk.set_name(name);
             }
             let config = lua.from_value::<Config>(chunk.eval::<Value>()?)?;
             Ok(config)
