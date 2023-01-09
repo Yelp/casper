@@ -8,8 +8,8 @@ use actix_web::{HttpRequest, HttpResponse, Responder};
 use awc::ClientResponse;
 use bytes::Bytes;
 use mlua::{
-    AnyUserData, ExternalError, ExternalResult, FromLua, Lua, Result as LuaResult,
-    String as LuaString, Table, IntoLua, UserData, UserDataFields, UserDataMethods, Value,
+    AnyUserData, ExternalError, ExternalResult, FromLua, IntoLua, Lua, Result as LuaResult,
+    String as LuaString, Table, UserData, UserDataFields, UserDataMethods, Value,
 };
 use opentelemetry::{Key as OTKey, Value as OTValue};
 

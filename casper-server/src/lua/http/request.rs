@@ -10,8 +10,9 @@ use actix_http::{Method, Payload, Request, Uri, Version};
 use actix_web::{FromRequest, HttpMessage, HttpRequest};
 use futures::future::{self, Ready};
 use mlua::{
-    AnyUserData, ExternalError, ExternalResult, FromLua, Lua, LuaSerdeExt, Result as LuaResult,
-    String as LuaString, Table, IntoLua, UserData, UserDataFields, UserDataMethods, Value,
+    AnyUserData, ExternalError, ExternalResult, FromLua, IntoLua, Lua, LuaSerdeExt,
+    Result as LuaResult, String as LuaString, Table, UserData, UserDataFields, UserDataMethods,
+    Value,
 };
 use reqwest::Client as HttpClient;
 use serde_json::Value as JsonValue;
@@ -293,7 +294,9 @@ impl UserData for LuaRequest {
             this.set_uri_path(&path)
         });
 
-        methods.add_method("uri_query", |lua, this, ()| this.uri().query().into_lua(lua));
+        methods.add_method("uri_query", |lua, this, ()| {
+            this.uri().query().into_lua(lua)
+        });
         methods.add_method_mut("set_uri_query", |_, this, query: String| {
             this.set_uri_query(&query)
         });

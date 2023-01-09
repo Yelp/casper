@@ -3,8 +3,8 @@ use std::ops::{Deref, DerefMut};
 
 use actix_http::header::{HeaderMap, HeaderName, HeaderValue};
 use mlua::{
-    AnyUserData, ExternalError, ExternalResult, FromLua, Function, Lua, MetaMethod, RegistryKey,
-    Result as LuaResult, String as LuaString, Table, IntoLua, UserData, UserDataMethods, Value,
+    AnyUserData, ExternalError, ExternalResult, FromLua, Function, IntoLua, Lua, MetaMethod,
+    RegistryKey, Result as LuaResult, String as LuaString, Table, UserData, UserDataMethods, Value,
     Variadic,
 };
 
