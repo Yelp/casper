@@ -8,6 +8,7 @@ use actix_http::body::{BodyStream, BoxBody, EitherBody, MessageBody, SizedStream
 use actix_http::{Response, StatusCode};
 use anyhow::{Context, Result};
 use async_trait::async_trait;
+use base64::Engine as _;
 use bitflags::bitflags;
 use bytes::Bytes;
 use fred::error::RedisError;
@@ -489,12 +490,12 @@ fn current_timestamp() -> u64 {
 
 #[inline]
 fn make_redis_key(key: &impl AsRef<[u8]>) -> RedisKey {
-    RedisKey::from(base64::encode_config(key, base64::URL_SAFE_NO_PAD))
+    RedisKey::from(base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(key))
 }
 
 #[inline]
 fn make_chunk_key(key: &impl AsRef<[u8]>, n: u32) -> RedisKey {
-    let key = base64::encode_config(key, base64::URL_SAFE_NO_PAD);
+    let key = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(key);
     RedisKey::from(format!("{{{}}}|{}", key, n))
 }
 

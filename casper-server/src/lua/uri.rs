@@ -13,7 +13,7 @@ fn percent_encode(_: &Lua, input: LuaString) -> LuaResult<String> {
 }
 
 fn normalize_uri(_: &Lua, uri: LuaString) -> LuaResult<String> {
-    let mut parts = Uri::try_from(uri.as_bytes()).to_lua_err()?.into_parts();
+    let mut parts = Uri::try_from(uri.as_bytes()).into_lua_err()?.into_parts();
 
     if let Some(ref path_and_query) = parts.path_and_query {
         // TODO: Normalize using the haproxy rules
@@ -38,11 +38,11 @@ fn normalize_uri(_: &Lua, uri: LuaString) -> LuaResult<String> {
                 .collect::<Box<_>>()
                 .join("&");
 
-            parts.path_and_query = Some(format!("{}?{}", path, query).parse().to_lua_err()?)
+            parts.path_and_query = Some(format!("{}?{}", path, query).parse().into_lua_err()?)
         }
     }
 
-    Ok(Uri::from_parts(parts).to_lua_err()?.to_string())
+    Ok(Uri::from_parts(parts).into_lua_err()?.to_string())
 }
 
 pub fn create_module(lua: &Lua) -> LuaResult<Table> {

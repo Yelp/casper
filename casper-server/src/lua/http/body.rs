@@ -73,11 +73,11 @@ impl LuaBody {
                     }
                     Ok(Err(err)) => {
                         *self = LuaBody::None;
-                        Err(err.to_string().to_lua_err())
+                        Err(err.to_string().into_lua_err())
                     }
                     Err(err) => {
                         *self = LuaBody::None;
-                        Err(err.to_lua_err())
+                        Err(err.into_lua_err())
                     }
                 }
             }
@@ -95,11 +95,11 @@ impl LuaBody {
                     }
                     Ok(Err(err)) => {
                         *self = LuaBody::None;
-                        Err(err.to_string().to_lua_err())
+                        Err(err.to_string().into_lua_err())
                     }
                     Err(err) => {
                         *self = LuaBody::None;
-                        Err(err.to_lua_err())
+                        Err(err.into_lua_err())
                     }
                 }
             }
@@ -303,12 +303,12 @@ impl<'lua> FromLua<'lua> for LuaBody {
                 if let Ok(body) = ud.take::<Self>() {
                     Ok(body)
                 } else {
-                    Err("cannot make body from wrong userdata".to_lua_err())
+                    Err("cannot make body from wrong userdata".into_lua_err())
                 }
             }
             val => {
                 let err = format!("cannot make body from {}", val.type_name());
-                Err(err.to_lua_err())
+                Err(err.into_lua_err())
             }
         }
     }

@@ -18,14 +18,14 @@ pub async fn get_config<'a>(
             Value::Integer(i) => Ok(IndexKey::String(i.to_string())),
             Value::Number(n) => Ok(IndexKey::String(n.to_string())),
             Value::String(s) => Ok(IndexKey::String(s.to_string_lossy().to_string())),
-            _ => Err(format!("invalid key: {}", k.type_name()).to_lua_err()),
+            _ => Err(format!("invalid key: {}", k.type_name()).into_lua_err()),
         })
         .collect::<Result<Vec<_>>>()?;
 
     let value = config_loader::get_config(&config, &keys, None, None)
         .await
         .with_context(|| format!("failed to read '{config}'"))
-        .to_lua_err()?;
+        .into_lua_err()?;
 
     let options = SerializeOptions::new()
         .serialize_none_to_null(false)

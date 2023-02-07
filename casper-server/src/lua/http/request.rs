@@ -106,8 +106,8 @@ impl LuaRequest {
             } else {
                 PathAndQuery::try_from(path)
             };
-        parts.path_and_query = Some(path_and_query.to_lua_err()?);
-        *self.uri_mut() = Uri::from_parts(parts).to_lua_err()?;
+        parts.path_and_query = Some(path_and_query.into_lua_err()?);
+        *self.uri_mut() = Uri::from_parts(parts).into_lua_err()?;
         Ok(())
     }
 
@@ -121,8 +121,8 @@ impl LuaRequest {
         } else {
             Some(PathAndQuery::try_from(format!("{path}?{query}"))).transpose()
         };
-        parts.path_and_query = path_and_query.to_lua_err()?;
-        *self.uri_mut() = Uri::from_parts(parts).to_lua_err()?;
+        parts.path_and_query = path_and_query.into_lua_err()?;
+        *self.uri_mut() = Uri::from_parts(parts).into_lua_err()?;
         Ok(())
     }
 
@@ -199,13 +199,13 @@ impl<'lua> FromLua<'lua> for LuaRequest {
         };
 
         if let Ok(Some(method)) = params.raw_get::<_, Option<LuaString>>("method") {
-            *request.method_mut() = Method::from_bytes(method.as_bytes()).to_lua_err()?;
+            *request.method_mut() = Method::from_bytes(method.as_bytes()).into_lua_err()?;
         }
 
         if let Ok(Some(uri)) = params.raw_get::<_, Option<LuaString>>("uri") {
             *request.uri_mut() = Uri::try_from(uri.as_bytes())
                 .map_err(|err| format!("invalid uri: {err}"))
-                .to_lua_err()?;
+                .into_lua_err()?;
         }
 
         if let Ok(Some(version)) = params.raw_get::<_, Option<LuaString>>("version") {
@@ -213,7 +213,7 @@ impl<'lua> FromLua<'lua> for LuaRequest {
                 b"1.0" => Version::HTTP_10,
                 b"1.1" => Version::HTTP_11,
                 b"2" | b"2.0" => Version::HTTP_2,
-                _ => return Err("invalid HTTP version").to_lua_err(),
+                _ => return Err("invalid HTTP version").into_lua_err(),
             };
         }
 
@@ -226,13 +226,13 @@ impl<'lua> FromLua<'lua> for LuaRequest {
         let headers = params
             .raw_get::<_, LuaHttpHeaders>("headers")
             .map_err(|err| format!("invalid headers: {err}"))
-            .to_lua_err()?;
+            .into_lua_err()?;
         *request.headers_mut() = headers.into();
 
         let body = params
             .raw_get::<_, LuaBody>("body")
             .map_err(|err| format!("invalid body: {err}"))
-            .to_lua_err()?;
+            .into_lua_err()?;
         *request.body_mut() = EitherBody::Body(body);
 
         Ok(request)
@@ -243,7 +243,7 @@ impl UserData for LuaRequest {
     fn add_fields<'lua, F: UserDataFields<'lua, Self>>(fields: &mut F) {
         fields.add_field_method_get("method", |lua, this| this.method().as_str().into_lua(lua));
         fields.add_field_method_set("method", |_, this, method: String| {
-            *this.method_mut() = Method::from_bytes(method.as_bytes()).to_lua_err()?;
+            *this.method_mut() = Method::from_bytes(method.as_bytes()).into_lua_err()?;
             Ok(())
         });
 
@@ -253,7 +253,7 @@ impl UserData for LuaRequest {
 
         fields.add_field_method_get("uri", |_, this| Ok(this.uri().to_string()));
         fields.add_field_method_set("uri", |_, this, uri: LuaString| {
-            *this.uri_mut() = Uri::try_from(uri.as_bytes()).to_lua_err()?;
+            *this.uri_mut() = Uri::try_from(uri.as_bytes()).into_lua_err()?;
             Ok(())
         });
 
@@ -304,12 +304,12 @@ impl UserData for LuaRequest {
         methods.add_method("uri_args", |lua, this, ()| {
             let query = this.uri().query().unwrap_or("");
             let args =
-                lua_try!(serde_qs::from_str::<HashMap<String, JsonValue>>(query).to_lua_err());
+                lua_try!(serde_qs::from_str::<HashMap<String, JsonValue>>(query).into_lua_err());
             Ok(Ok(lua.to_value(&args)?))
         });
 
         methods.add_method_mut("set_uri_args", |_, this, args: Table| {
-            let query = serde_qs::to_string(&args).to_lua_err()?;
+            let query = serde_qs::to_string(&args).into_lua_err()?;
             this.set_uri_query(&query)
         });
 
@@ -356,10 +356,10 @@ impl UserData for LuaRequest {
 
         methods.add_method_mut("set_headers", |lua, this, value: Value| {
             let headers = match value {
-                Value::Nil => Err("headers must be non-nil".to_lua_err()),
+                Value::Nil => Err("headers must be non-nil".into_lua_err()),
                 _ => LuaHttpHeaders::from_lua(value, lua)
                     .map_err(|err| format!("invalid headers: {err}"))
-                    .to_lua_err(),
+                    .into_lua_err(),
             };
             *this.headers_mut() = headers?.into();
             Ok(())

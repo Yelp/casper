@@ -81,18 +81,18 @@ impl<'lua> FromLua<'lua> for LuaHttpHeaders {
                     let (name, value) = kv?;
                     // Maybe `value` is a list of header values
                     if let Value::Table(values) = value {
-                        let name = HeaderName::from_bytes(name.as_bytes()).to_lua_err()?;
+                        let name = HeaderName::from_bytes(name.as_bytes()).into_lua_err()?;
                         for value in values.raw_sequence_values::<LuaString>() {
                             headers.append(
                                 name.clone(),
-                                HeaderValue::from_bytes(value?.as_bytes()).to_lua_err()?,
+                                HeaderValue::from_bytes(value?.as_bytes()).into_lua_err()?,
                             );
                         }
                     } else {
                         let value = lua.unpack::<LuaString>(value)?;
                         headers.append(
-                            HeaderName::from_bytes(name.as_bytes()).to_lua_err()?,
-                            HeaderValue::from_bytes(value.as_bytes()).to_lua_err()?,
+                            HeaderName::from_bytes(name.as_bytes()).into_lua_err()?,
+                            HeaderValue::from_bytes(value.as_bytes()).into_lua_err()?,
                         );
                     }
                 }
@@ -102,13 +102,13 @@ impl<'lua> FromLua<'lua> for LuaHttpHeaders {
                 if let Ok(headers) = ud.borrow::<Self>() {
                     Ok(headers.clone())
                 } else {
-                    Err("cannot make headers from wrong userdata".to_lua_err())
+                    Err("cannot make headers from wrong userdata".into_lua_err())
                 }
             }
             val => {
                 let type_name = val.type_name();
                 let msg = format!("cannot make headers from {type_name}");
-                Err(msg.to_lua_err())
+                Err(msg.into_lua_err())
             }
         }
     }
@@ -172,9 +172,10 @@ impl UserData for LuaHttpHeaders {
             |lua, this, (name, value): (String, Value)| {
                 match value {
                     Value::Table(t) => {
-                        let name = HeaderName::from_bytes(name.as_bytes()).to_lua_err()?;
+                        let name = HeaderName::from_bytes(name.as_bytes()).into_lua_err()?;
                         for (i, v) in t.raw_sequence_values::<LuaString>().enumerate() {
-                            let hdr_value = HeaderValue::from_bytes(v?.as_bytes()).to_lua_err()?;
+                            let hdr_value =
+                                HeaderValue::from_bytes(v?.as_bytes()).into_lua_err()?;
                             if i == 0 {
                                 this.insert(name.clone(), hdr_value);
                             } else {
@@ -271,15 +272,15 @@ impl LuaHttpHeadersExt for HeaderMap {
     }
 
     fn add(&mut self, name: &str, value: &[u8]) -> LuaResult<()> {
-        let name = HeaderName::from_bytes(name.as_bytes()).to_lua_err()?;
-        let value = HeaderValue::from_bytes(value).to_lua_err()?;
+        let name = HeaderName::from_bytes(name.as_bytes()).into_lua_err()?;
+        let value = HeaderValue::from_bytes(value).into_lua_err()?;
         self.append(name, value);
         Ok(())
     }
 
     fn set(&mut self, name: &str, value: &[u8]) -> LuaResult<()> {
-        let name = HeaderName::from_bytes(name.as_bytes()).to_lua_err()?;
-        let value = HeaderValue::from_bytes(value).to_lua_err()?;
+        let name = HeaderName::from_bytes(name.as_bytes()).into_lua_err()?;
+        let value = HeaderValue::from_bytes(value).into_lua_err()?;
         self.insert(name, value);
         Ok(())
     }
@@ -289,13 +290,13 @@ impl LuaHttpHeadersExt for HeaderMap {
             Value::Nil => None,
             Value::Table(t) => Some(
                 t.raw_sequence_values::<LuaString>()
-                    .map(|s| s.and_then(|s| HeaderName::from_bytes(s.as_bytes()).to_lua_err()))
+                    .map(|s| s.and_then(|s| HeaderName::from_bytes(s.as_bytes()).into_lua_err()))
                     .collect::<LuaResult<HashSet<_>>>()?,
             ),
             val => {
                 let type_name = val.type_name();
                 let reason = format!("invalid names filter: expected table, got {type_name}");
-                Err(reason.to_lua_err())?
+                Err(reason.into_lua_err())?
             }
         };
 

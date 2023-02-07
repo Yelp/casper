@@ -204,19 +204,19 @@ impl<'lua> FromLua<'lua> for LuaResponse {
         if let Ok(Some(status)) = params.raw_get::<_, Option<u16>>("status") {
             *response.status_mut() = StatusCode::from_u16(status)
                 .map_err(|err| err.to_string())
-                .to_lua_err()?;
+                .into_lua_err()?;
         }
 
         let headers = params
             .raw_get::<_, LuaHttpHeaders>("headers")
             .map_err(|err| format!("invalid headers: {err}"))
-            .to_lua_err()?;
+            .into_lua_err()?;
         *response.headers_mut() = headers.into();
 
         let body = params
             .raw_get::<_, LuaBody>("body")
             .map_err(|err| format!("invalid body: {err}"))
-            .to_lua_err()?;
+            .into_lua_err()?;
         *response.body_mut() = EitherBody::Body(body);
 
         Ok(response)
@@ -233,7 +233,7 @@ impl UserData for LuaResponse {
         fields.add_field_method_set("status", |_, this, status: u16| {
             *this.status_mut() = StatusCode::from_u16(status)
                 .map_err(|err| err.to_string())
-                .to_lua_err()?;
+                .into_lua_err()?;
             Ok(())
         });
 
@@ -308,10 +308,10 @@ impl UserData for LuaResponse {
 
         methods.add_method_mut("set_headers", |lua, this, value: Value| {
             let headers = match value {
-                Value::Nil => Err("headers must be non-nil".to_lua_err()),
+                Value::Nil => Err("headers must be non-nil".into_lua_err()),
                 _ => LuaHttpHeaders::from_lua(value, lua)
                     .map_err(|err| format!("invalid headers: {err}"))
-                    .to_lua_err(),
+                    .into_lua_err(),
             };
             *this.headers_mut() = headers?.into();
             Ok(())

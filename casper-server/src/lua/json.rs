@@ -3,7 +3,7 @@ use mlua::{ExternalResult, Lua, LuaSerdeExt, Result, String as LuaString, Table,
 fn decode_json<'l>(lua: &'l Lua, data: Option<LuaString>) -> Result<Value<'l>> {
     match data {
         Some(data) => {
-            let json: serde_json::Value = serde_json::from_slice(data.as_bytes()).to_lua_err()?;
+            let json: serde_json::Value = serde_json::from_slice(data.as_bytes()).into_lua_err()?;
             lua.to_value(&json)
         }
         None => Ok(Value::Nil),
@@ -12,7 +12,7 @@ fn decode_json<'l>(lua: &'l Lua, data: Option<LuaString>) -> Result<Value<'l>> {
 
 fn encode_json<'l>(lua: &'l Lua, value: Value) -> Result<LuaString<'l>> {
     let json: serde_json::Value = lua.from_value(value)?;
-    let data = serde_json::to_vec(&json).to_lua_err()?;
+    let data = serde_json::to_vec(&json).into_lua_err()?;
     lua.create_string(&data)
 }
 

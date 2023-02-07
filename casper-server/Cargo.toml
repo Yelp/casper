@@ -7,7 +7,7 @@ version = "0.1.0"
 actix-http = { version = "3.2" }
 anyhow = "1"
 async-trait = "0.1"
-base64 = "0.13"
+base64 = "0.21"
 bitflags = "1.3.2"
 bytes = { version = "1", features = ["serde"] }
 clap = { version = "4", features = ["derive", "env"] }
@@ -39,7 +39,7 @@ scopeguard = "1.1.0"
 serde = { version = "1", features = ["derive"] }
 serde_bytes = "0.11"
 serde_json = "1"
-serde_qs = "0.10"
+serde_qs = "0.11"
 serde_yaml = "0.9"
 sys-info = "0.9"
 thiserror = "1"
@@ -67,12 +67,12 @@ version = "4.2"
 [dependencies.mlua]
 features = ["luau", "async", "serialize", "macros", "unstable"]
 git = "https://github.com/khvzak/mlua"
-branch = "master"
+rev = "8339621f9c50c361506bff2516d6bf7c9dda0a3e"
 
 [dependencies.fred]
 features = ["enable-native-tls"]
 git = "https://github.com/aembke/fred.rs"
-rev = "a33578585986854c09a1482970d81350b772ea38"
+rev = "32d81433394a88dd8eb97dbbe73f82d53dff3d6c"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 affinity = "0.1.2"

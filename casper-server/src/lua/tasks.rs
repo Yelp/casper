@@ -92,7 +92,7 @@ fn spawn_task(lua: &Lua, arg: Value) -> Result<TaskHandle> {
                 "cannot spawn task: invalid argument type `{}`",
                 v.type_name()
             );
-            return Err(err.to_lua_err());
+            return Err(err.into_lua_err());
         }
     };
 
@@ -104,7 +104,7 @@ fn spawn_task(lua: &Lua, arg: Value) -> Result<TaskHandle> {
             handler,
             join_handle_tx,
         })
-        .to_lua_err()?;
+        .into_lua_err()?;
 
     Ok(TaskHandle {
         id,

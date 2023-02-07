@@ -33,7 +33,7 @@ impl LuaHttpClient {
             .send_body(LuaBody::from(req.take_body()))
             .await
             .map_err(|e| e.to_string())
-            .to_lua_err()?
+            .into_lua_err()?
             .map_body(|_, b| Payload::Stream {
                 payload: Box::pin(b) as BoxedPayloadStream,
             });

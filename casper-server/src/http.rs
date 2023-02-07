@@ -183,7 +183,7 @@ pub async fn proxy_to_upstream(
 ) -> LuaResult<LuaResponse> {
     // Merge request uri with the upstream uri
     if let Some(upstream) = upstream {
-        let new_uri = merge_uri(req.uri().clone(), upstream).to_lua_err()?;
+        let new_uri = merge_uri(req.uri().clone(), upstream).into_lua_err()?;
         *req.uri_mut() = new_uri;
     }
 
@@ -194,7 +194,7 @@ pub async fn proxy_to_upstream(
                 _ if err.is_timeout() => StatusCode::GATEWAY_TIMEOUT,
                 _ if err.is_connect() => StatusCode::SERVICE_UNAVAILABLE,
                 _ if err.is_request() => StatusCode::BAD_GATEWAY,
-                _ => return Err(err.to_lua_err()),
+                _ => return Err(err.into_lua_err()),
             };
             let mut resp = LuaResponse::new(LuaBody::from(err.to_string()));
             *resp.status_mut() = status;
