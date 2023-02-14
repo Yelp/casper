@@ -17,8 +17,8 @@ use crate::config::{MainConfig, MetricsConfig};
 
 pub(crate) static PROMETHEUS_EXPORTER: Lazy<PrometheusExporter> = Lazy::new(|| {
     let boundaries = vec![
-        0.001, 0.002, 0.003, 0.005, 0.01, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.75, 1.0, 1.5, 2.0, 3.0,
-        4.0, 5.0, 10.0,
+        0.001, 0.003, 0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.2, 0.3, 0.4, 0.5, 0.75, 1.0, 1.5,
+        2.0, 3.0, 4.0, 5.0, 7.5, 10.0,
     ];
 
     let mut attrs = Vec::new();
