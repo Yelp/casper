@@ -1,6 +1,6 @@
 use std::net::TcpListener;
 use std::rc::Rc;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use actix_web::rt::System;
@@ -73,6 +73,11 @@ async fn main_inner(args: Args) -> anyhow::Result<()> {
     let listener = TcpListener::bind(addr).with_context(|| format!("Failed to listen {addr}"))?;
     info!("Listening on http://{}", addr);
 
+    // Get available CPU cores
+    let core_ids = Arc::new(Mutex::new(
+        core_affinity::get_core_ids().unwrap_or_default(),
+    ));
+
     let config2 = config.clone();
     HttpServer::new(move || {
         // Initialize per-worker thread application context
@@ -83,11 +88,9 @@ async fn main_inner(args: Args) -> anyhow::Result<()> {
             .unwrap();
         let id = context.id;
 
-        #[cfg(target_os = "linux")]
         if config.main.pin_workers {
-            let cores = affinity::get_core_num();
-            if let Err(err) = affinity::set_thread_affinity([id % cores]) {
-                error!("Failed to set worker thread affinity: {}", err);
+            if let Some(id) = core_ids.lock().unwrap().pop() {
+                core_affinity::set_for_current(id);
             }
         }
 

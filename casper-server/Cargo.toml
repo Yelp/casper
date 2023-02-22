@@ -11,6 +11,7 @@ base64 = "0.21"
 bitflags = "1.3.2"
 bytes = { version = "1", features = ["serde"] }
 clap = { version = "4", features = ["derive", "env"] }
+core_affinity = "0.8.0"
 dyn-clone = "1"
 flexbuffers = "2"
 form_urlencoded = "1"
@@ -75,5 +76,4 @@ git = "https://github.com/aembke/fred.rs"
 rev = "32d81433394a88dd8eb97dbbe73f82d53dff3d6c"
 
 [target.'cfg(target_os = "linux")'.dependencies]
-affinity = "0.1.2"
 tikv-jemallocator = "0.5"
