@@ -67,7 +67,7 @@ version = "4.2"
 [dependencies.mlua]
 features = ["luau", "async", "serialize", "macros", "unstable"]
 git = "https://github.com/khvzak/mlua"
-rev = "8339621f9c50c361506bff2516d6bf7c9dda0a3e"
+rev = "949906f9f7b8e68ac898ad64c8102b3469b59d12"
 
 [dependencies.fred]
 features = ["enable-native-tls"]
