@@ -1,8 +1,9 @@
 use std::rc::Rc;
 
+use bytes::Bytes;
 use mlua::{
-    AnyUserData, ExternalResult, Integer as LuaInteger, Lua, LuaSerdeExt, MetaMethod, Result,
-    String as LuaString, Table, UserData, UserDataMethods, Value, Variadic,
+    AnyUserData, Error as LuaError, ExternalResult, Integer as LuaInteger, Lua, LuaSerdeExt,
+    MetaMethod, Result, String as LuaString, Table, UserData, UserDataMethods, Value, Variadic,
 };
 use ouroboros::self_referencing;
 use serde::Serialize;
@@ -64,7 +65,7 @@ impl JsonValue {
                 } else if let Some(n) = n.as_f64() {
                     Ok(Value::Number(n))
                 } else {
-                    Err(mlua::Error::ToLuaConversionError {
+                    Err(LuaError::ToLuaConversionError {
                         from: "number",
                         to: "integer or float",
                         message: Some("number is too big to fit in a Lua integer".to_owned()),
@@ -176,26 +177,37 @@ struct LuaJsonObjectIter {
 
 impl UserData for LuaJsonObjectIter {}
 
-fn decode_json<'l>(lua: &'l Lua, data: Option<LuaString>) -> Result<Value<'l>> {
-    match data {
-        Some(data) => {
-            let json: serde_json::Value = serde_json::from_slice(data.as_bytes()).into_lua_err()?;
-            lua.to_value(&json)
+fn try_with_slice<R>(value: Value, f: impl FnOnce(&[u8]) -> R) -> Result<R> {
+    match value {
+        Value::String(s) => Ok(f(s.as_bytes())),
+        Value::UserData(ud) if ud.is::<Bytes>() => {
+            let bytes = ud.borrow::<Bytes>()?;
+            Ok(f(bytes.as_ref()))
         }
-        None => Ok(Value::Nil),
+        _ => Err(LuaError::FromLuaConversionError {
+            from: value.type_name(),
+            to: "string",
+            message: None,
+        }),
     }
 }
 
-fn decode_json_native<'l>(lua: &'l Lua, data: Option<LuaString>) -> Result<Value<'l>> {
-    match data {
-        Some(data) => {
-            let json: serde_json::Value = serde_json::from_slice(data.as_bytes()).into_lua_err()?;
-            let root = Rc::new(json);
-            let current = Rc::as_ptr(&root);
-            JsonValue::to_lua(Some(&JsonValue { root, current }), lua)
-        }
-        None => Ok(Value::Nil),
-    }
+fn decode_json<'l>(lua: &'l Lua, data: Value) -> Result<Value<'l>> {
+    let json: serde_json::Value = match data {
+        Value::Nil => return Ok(Value::Nil),
+        _ => try_with_slice(data, |s| serde_json::from_slice(s))?.into_lua_err()?,
+    };
+    lua.to_value(&json)
+}
+
+fn decode_json_native<'l>(lua: &'l Lua, data: Value) -> Result<Value<'l>> {
+    let json: serde_json::Value = match data {
+        Value::Nil => return Ok(Value::Nil),
+        _ => try_with_slice(data, |s| serde_json::from_slice(s))?.into_lua_err()?,
+    };
+    let root = Rc::new(json);
+    let current = Rc::as_ptr(&root);
+    JsonValue::to_lua(Some(&JsonValue { root, current }), lua)
 }
 
 fn encode_json<'l>(lua: &'l Lua, value: Value) -> Result<LuaString<'l>> {

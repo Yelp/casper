@@ -275,7 +275,7 @@ mod tests {
             resp = $storage:get_response({"abc"})
             assert(resp.status == 201)
             assert(resp:header("hello") == "world")
-            assert(resp.body:data() == "test response 1")
+            assert(resp.body:to_string() == "test response 1")
 
             // Delete response
             $storage:delete_responses({surrogate_keys = {"skey2"}})

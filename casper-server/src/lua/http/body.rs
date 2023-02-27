@@ -336,11 +336,11 @@ impl UserData for LuaBody {
         });
 
         // Reads the body
-        // Returns `string` or `nil, error`
+        // Returns `bytes` (userdata) or `nil, error`
         methods.add_async_function("read", |lua, ud: AnyUserData| async move {
             let mut this = ud.borrow_mut::<Self>()?;
             let bytes = lua_try!(this.buffer().await);
-            let data = bytes.map(|b| lua.create_string(&b)).transpose()?;
+            let data = bytes.map(|b| lua.create_any_userdata(b)).transpose()?;
             *this = LuaBody::None; // Drop saved data
             Ok(Ok(data))
         });
@@ -373,7 +373,7 @@ impl UserData for LuaBody {
                             lua_try!(next_chunk.await.transpose())
                         }
                     };
-                    let data = bytes.map(|b| lua.create_string(&b)).transpose()?;
+                    let data = bytes.map(|b| lua.create_any_userdata(b)).transpose()?;
                     Ok(Ok(data))
                 }
             })
@@ -381,6 +381,13 @@ impl UserData for LuaBody {
 
         // Buffers the body into memory (if not already) and returns the buffered data
         methods.add_async_function("data", |lua, this: AnyUserData| async move {
+            let mut this = this.borrow_mut::<Self>()?;
+            let bytes = lua_try!(this.buffer().await);
+            let data = bytes.map(|b| lua.create_any_userdata(b)).transpose()?;
+            Ok(Ok(data))
+        });
+
+        methods.add_async_function("to_string", |lua, this: AnyUserData| async move {
             let mut this = this.borrow_mut::<Self>()?;
             let bytes = lua_try!(this.buffer().await);
             let data = bytes.map(|b| lua.create_string(&b)).transpose()?;
@@ -424,13 +431,14 @@ mod tests {
     #[actix_web::test]
     async fn test_bytes_body() -> LuaResult<()> {
         let lua = Lua::new();
+        super::super::super::bytes::register_types(&lua)?;
 
         let body = LuaBody::Bytes("hello, world".into());
         lua.load(chunk! {
-            assert($body:data() == "hello, world")
-            assert($body:data() == "hello, world")
+            assert($body:to_string() == "hello, world")
+            assert($body:to_string() == "hello, world")
             // Read must consume body
-            assert($body:read() == "hello, world")
+            assert($body:read():to_string() == "hello, world")
             assert($body:read() == nil)
             assert($body:data() == nil)
         })
@@ -441,7 +449,7 @@ mod tests {
         let body = LuaBody::Bytes("hello, world".into());
         lua.load(chunk! {
             local reader = $body:reader()
-            assert(reader() == "hello, world")
+            assert(reader():to_string() == "hello, world")
             assert(reader() == nil)
         })
         .exec_async()
@@ -454,6 +462,7 @@ mod tests {
     #[actix_web::test]
     async fn test_stream_body() -> LuaResult<()> {
         let lua = Lua::new();
+        super::super::super::bytes::register_types(&lua)?;
 
         fn make_body_stream() -> LuaBody {
             let chunks: Vec<Result<_, IoError>> =
@@ -467,10 +476,10 @@ mod tests {
 
         let body = make_body_stream();
         lua.load(chunk! {
-            assert($body:data() == "hello, world")
-            assert($body:data() == "hello, world")
+            assert($body:to_string() == "hello, world")
+            assert($body:to_string() == "hello, world")
             // Read must consume body
-            assert($body:read() == "hello, world")
+            assert($body:read():to_string() == "hello, world")
             assert($body:read() == nil)
             assert($body:data() == nil)
         })
@@ -481,9 +490,9 @@ mod tests {
         let body = make_body_stream();
         lua.load(chunk! {
             local reader = $body:reader()
-            assert(reader() == "hello")
-            assert(reader() == ", ")
-            assert(reader() == "world")
+            assert(reader():to_string() == "hello")
+            assert(reader():to_string() == ", ")
+            assert(reader():to_string() == "world")
             assert(reader() == nil)
         })
         .exec_async()
@@ -496,6 +505,7 @@ mod tests {
     #[actix_web::test]
     async fn test_body_discard() -> LuaResult<()> {
         let lua = Lua::new();
+        super::super::super::bytes::register_types(&lua)?;
 
         let body = LuaBody::Bytes("hello, world".into());
         lua.load(chunk! {
@@ -512,6 +522,7 @@ mod tests {
     #[actix_web::test]
     async fn test_body_errors() -> LuaResult<()> {
         let lua = Lua::new();
+        super::super::super::bytes::register_types(&lua)?;
 
         fn make_body_stream() -> LuaBody {
             let chunks: Vec<Result<_, IoError>> = vec![
@@ -546,7 +557,7 @@ mod tests {
         let body = make_body_stream();
         lua.load(chunk! {
             local reader = $body:reader()
-            assert(reader() == "hello")
+            assert(reader():to_string() == "hello")
             local _, err = reader()
             assert(err:find("broken pipe") ~= nil)
         })
@@ -560,6 +571,7 @@ mod tests {
     #[actix_web::test]
     async fn test_lua_body() -> LuaResult<()> {
         let lua = Rc::new(Lua::new());
+        super::super::super::bytes::register_types(&lua)?;
         lua.set_app_data(Rc::downgrade(&lua));
 
         lua.globals().set("Body", lua.create_proxy::<LuaBody>()?)?;
@@ -569,10 +581,10 @@ mod tests {
             assert(body:data() == nil)
 
             body = Body.new("hello, world")
-            assert(body:data() == "hello, world")
+            assert(body:to_string() == "hello, world")
 
             body = Body.new({"hello", ", ", "world"})
-            assert(body:data() == "hello, world")
+            assert(body:to_string() == "hello, world")
 
             local i = 0
             body = Body.new(function()
@@ -582,7 +594,7 @@ mod tests {
                 if i == 3 then return "world" end
                 return
             end)
-            assert(body:read() == "hello, world")
+            assert(body:read():to_string() == "hello, world")
         })
         .exec_async()
         .await
@@ -594,6 +606,7 @@ mod tests {
     #[actix_web::test]
     async fn test_lua_body_error() -> LuaResult<()> {
         let lua = Rc::new(Lua::new());
+        super::super::super::bytes::register_types(&lua)?;
         lua.set_app_data(Rc::downgrade(&lua));
 
         lua.globals().set("Body", lua.create_proxy::<LuaBody>()?)?;
@@ -618,6 +631,7 @@ mod tests {
     #[actix_web::test]
     async fn test_body_timeout() -> LuaResult<()> {
         let lua = Lua::new();
+        super::super::super::bytes::register_types(&lua)?;
 
         let chunks: Vec<Result<_, IoError>> =
             vec![Ok("hello".into()), Ok(", ".into()), Ok("world".into())];
@@ -629,12 +643,12 @@ mod tests {
 
         lua.load(chunk! {
             local reader = $body:reader()
-            assert(reader() == "hello")
+            assert(reader():to_string() == "hello")
             local _, err = reader()
             assert(err:find("deadline") ~= nil)
             // Reset timeout and try again
             $body:set_timeout(0.010)
-            assert(reader() == ", ")
+            assert(reader():to_string() == ", ")
         })
         .exec_async()
         .await

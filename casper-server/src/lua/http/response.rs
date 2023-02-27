@@ -375,7 +375,7 @@ mod tests {
         lua.load(chunk! {
             local resp = Response.new(400, "bad response")
             assert(resp.status == 400)
-            assert(resp.body:read() == "bad response")
+            assert(resp.body:to_string() == "bad response")
         })
         .exec()
         .unwrap();
@@ -390,7 +390,7 @@ mod tests {
                 },
             })
             assert(resp.status == 201)
-            assert(resp.body:read() == "hello, world")
+            assert(resp.body:to_string() == "hello, world")
         })
         .exec()
         .unwrap();
@@ -449,7 +449,7 @@ mod tests {
             local resp2 = resp:clone()
             assert(resp2.status == 202)
             assert(resp2:header("foo") == "bar")
-            assert(resp2.body:data() == "hello, world")
+            assert(resp2.body:to_string() == "hello, world")
         })
         .exec_async()
         .await
@@ -459,7 +459,7 @@ mod tests {
         lua.load(chunk! {
             local resp = Response.new(200, "hello")
             resp:set_body("world")
-            assert(resp.body:read() == "world")
+            assert(resp.body:to_string() == "world")
         })
         .exec()
         .unwrap();

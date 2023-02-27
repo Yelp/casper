@@ -9,6 +9,7 @@ pub(crate) use traits::{LuaExt, WeakLuaExt};
 #[macro_use]
 mod macros;
 
+mod bytes;
 pub mod config;
 pub mod core;
 pub mod datetime;

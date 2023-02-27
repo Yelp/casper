@@ -7,6 +7,9 @@ use mlua::{Lua, LuaSerdeExt, Result as LuaResult, Table};
 use super::{LuaRequest, LuaResponse};
 
 pub fn create_module(lua: &Lua) -> LuaResult<Table> {
+    // Register data types
+    super::bytes::register_types(lua)?;
+
     let core = lua.create_table()?;
 
     core.set("Request", lua.create_proxy::<LuaRequest>()?)?;

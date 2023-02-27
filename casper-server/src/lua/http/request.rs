@@ -493,7 +493,7 @@ mod tests {
             local req2 = req:clone()
             assert(req2.uri == "http://0.1.2.3/")
             assert(req2:header("user-agent") == "test ua")
-            assert(req2.body:data() == "hello, world")
+            assert(req2.body:to_string() == "hello, world")
         })
         .exec_async()
         .await
@@ -503,7 +503,7 @@ mod tests {
         lua.load(chunk! {
             local req = Request.new({body = "hello"})
             req:set_body("world")
-            assert(req.body:read() == "world")
+            assert(req.body:to_string() == "world")
         })
         .exec()
         .unwrap();
@@ -540,7 +540,7 @@ mod tests {
             local resp = req:proxy_to_upstream($upstream)
             assert(resp.status == 200)
             assert(resp:header("x-test") == "abc")
-            assert(resp.body:data() == "hello, world!")
+            assert(resp.body:to_string() == "hello, world!")
         })
         .exec_async()
         .await

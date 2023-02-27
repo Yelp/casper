@@ -157,7 +157,7 @@ mod tests {
                 uri = $uri.."/status",
             })
             assert(response:header("x-test") == "abc")
-            assert(response.body:read() == "hello, world!")
+            assert(response.body:to_string() == "hello, world!")
         })
         .exec_async()
         .await
