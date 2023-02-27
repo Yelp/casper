@@ -212,7 +212,7 @@ fn decode_json_native<'l>(lua: &'l Lua, data: Value) -> Result<Value<'l>> {
 
 fn encode_json<'l>(lua: &'l Lua, value: Value) -> Result<LuaString<'l>> {
     let data = serde_json::to_vec(&value).into_lua_err()?;
-    lua.create_string(&data)
+    lua.create_string(data)
 }
 
 pub fn create_module(lua: &Lua) -> Result<Table> {
