@@ -5,13 +5,14 @@ use std::time::Duration;
 
 use anyhow::Context as _;
 use clap::Parser;
-use ntex::http::client::Client as HttpClient;
+use ntex::http::client::{Client as HttpClient, Connector as HttpClientConnector};
 use ntex::rt::System;
 use ntex::web::{self, App, HttpServer};
 use tracing::{error, info};
 use tracing_log::LogTracer;
 
 use crate::context::AppContext;
+use crate::http::connector::RetryConnector;
 use crate::storage::Storage;
 
 #[macro_use]
@@ -88,6 +89,7 @@ async fn main_inner(args: Args) -> anyhow::Result<()> {
         let http_client = HttpClient::build()
             .disable_redirects()
             .disable_timeout()
+            .connector(RetryConnector(HttpClientConnector::new().finish()))
             .finish();
         context.lua.set_app_data(http_client);
 
