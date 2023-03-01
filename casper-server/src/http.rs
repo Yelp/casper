@@ -9,7 +9,6 @@ use ntex::http::header::{self, HeaderMap, HeaderName, HeaderValue};
 use ntex::http::uri::{InvalidUri, InvalidUriParts, Scheme, Uri};
 use ntex::http::StatusCode;
 use ntex::util::{Bytes, BytesMut};
-use tracing::warn;
 
 use crate::lua::{LuaBody, LuaRequest, LuaResponse};
 
@@ -106,7 +105,6 @@ pub async fn proxy_to_upstream(
     match send_to_upstream(client, req).await {
         Ok(resp) => Ok(resp),
         Err(err) => {
-            warn!("Failed to proxy request: {err:?}");
             let status = match err {
                 SendRequestError::Connect(_) => StatusCode::SERVICE_UNAVAILABLE,
                 SendRequestError::Timeout => StatusCode::GATEWAY_TIMEOUT,
@@ -131,47 +129,4 @@ pub async fn buffer_body(mut body: impl MessageBody) -> Result<Bytes, Box<dyn St
         bytes.extend_from_slice(&item?);
     }
     Ok(bytes.freeze())
-}
-
-pub(crate) mod connector {
-    use std::task::{Context, Poll};
-
-    use ntex::http::client::error::ConnectError;
-    use ntex::http::client::Connect;
-    use ntex::service::Service;
-    use ntex::util::BoxFuture;
-
-    pub(crate) struct RetryConnector<T>(pub(crate) T);
-
-    impl<T> Service<Connect> for RetryConnector<T>
-    where
-        T: Service<Connect, Error = ConnectError>,
-    {
-        type Response = T::Response;
-        type Error = ConnectError;
-        type Future<'f> = BoxFuture<'f, Result<Self::Response, Self::Error>> where Self: 'f;
-
-        fn poll_ready(&self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-            self.0.poll_ready(cx)
-        }
-
-        fn poll_shutdown(&self, cx: &mut Context<'_>) -> Poll<()> {
-            self.0.poll_shutdown(cx)
-        }
-
-        fn call(&self, req: Connect) -> Self::Future<'_> {
-            Box::pin(async move {
-                let mut n = 0;
-                loop {
-                    n += 1;
-                    match self.0.call(req.clone()).await {
-                        Err(ConnectError::Timeout | ConnectError::Disconnected(..)) if n < 3 => {
-                            continue;
-                        }
-                        res => return res,
-                    }
-                }
-            })
-        }
-    }
 }
