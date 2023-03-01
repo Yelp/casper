@@ -195,6 +195,10 @@ where
 impl From<(Payload, Option<u64>)> for LuaBody {
     #[inline(always)]
     fn from((payload, length): (Payload, Option<u64>)) -> Self {
+        if length == Some(0) {
+            return LuaBody::Bytes(Bytes::new());
+        }
+
         LuaBody::Payload {
             payload,
             length,

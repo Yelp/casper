@@ -11,7 +11,7 @@ use mlua::{
     Value,
 };
 use ntex::http::client::Client as HttpClient;
-use ntex::http::header::{HeaderMap, CONTENT_LENGTH};
+use ntex::http::header::{HeaderMap, CONTENT_LENGTH, TRANSFER_ENCODING};
 use ntex::http::uri::PathAndQuery;
 use ntex::http::{Method, Payload, Uri, Version};
 use ntex::web::{FromRequest, HttpRequest};
@@ -155,14 +155,23 @@ impl<Err> FromRequest<Err> for LuaRequest {
             .get(CONTENT_LENGTH)
             .and_then(|len| len.to_str().ok())
             .and_then(|len| len.parse::<u64>().ok());
-        let payload = payload.take();
+        let body = match content_length {
+            Some(len) => LuaBody::from((payload.take(), Some(len))),
+            None => {
+                // Check transfer-encoding
+                match request.headers().get(TRANSFER_ENCODING) {
+                    Some(_) => LuaBody::from((payload.take(), None)),
+                    None => LuaBody::None,
+                }
+            }
+        };
 
         future::ready(Ok(LuaRequest {
             uri: request.uri().clone(),
             method: request.method().clone(),
             version: request.version(),
             headers: request.headers().clone(),
-            body: EitherBody::Body(LuaBody::from((payload, content_length))),
+            body: EitherBody::Body(body),
             remote_addr: request.peer_addr(),
             timeout: None,
         }))
