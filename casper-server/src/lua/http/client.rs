@@ -1,13 +1,12 @@
 use std::mem;
 use std::time::Duration;
 
-use actix_http::header::HeaderMap;
-use actix_http::{BoxedPayloadStream, Payload};
-use awc::{Client, Connector};
 use mlua::{
     AnyUserData, ExternalResult, FromLua, Result as LuaResult, Table, UserData, UserDataMethods,
     Value,
 };
+use ntex::http::client::{Client, Connector};
+use ntex::time::Seconds;
 
 use super::{LuaBody, LuaRequest, LuaResponse};
 
@@ -18,7 +17,7 @@ pub struct LuaHttpClient {
 
 impl LuaHttpClient {
     async fn request(&self, mut req: LuaRequest) -> LuaResult<LuaResponse> {
-        let mut client_req = self.client.request(req.method().clone(), req.uri().clone());
+        let mut client_req = self.client.request(req.method().clone(), req.uri());
         if self.no_decompress {
             client_req = client_req.no_decompress();
         }
@@ -26,17 +25,13 @@ impl LuaHttpClient {
             client_req = client_req.timeout(timeout);
         }
 
-        *client_req.headers_mut() =
-            mem::replace(client_req.headers_mut(), HeaderMap::with_capacity(0));
+        *client_req.headers_mut() = mem::take(client_req.headers_mut());
 
         let resp = client_req
             .send_body(LuaBody::from(req.take_body()))
             .await
             .map_err(|e| e.to_string())
-            .into_lua_err()?
-            .map_body(|_, b| Payload::Stream {
-                payload: Box::pin(b) as BoxedPayloadStream,
-            });
+            .into_lua_err()?;
 
         Ok(LuaResponse::from(resp))
     }
@@ -57,7 +52,7 @@ impl<'lua> FromLua<'lua> for LuaHttpClient {
             return Ok(LuaHttpClient::from(Client::new()));
         }
 
-        let mut client_builder = Client::builder();
+        let mut client_builder = Client::build();
         let params = lua.unpack::<Table>(value)?;
 
         let no_decompress = params.raw_get("no_decompress").unwrap_or(false);
@@ -65,7 +60,7 @@ impl<'lua> FromLua<'lua> for LuaHttpClient {
         if let Ok(Some(val)) = params.raw_get::<_, Option<u8>>("max_redirects") {
             match val {
                 0 => client_builder = client_builder.disable_redirects(),
-                _ => client_builder = client_builder.max_redirects(val),
+                _ => client_builder = client_builder.max_redirects(val as usize),
             }
         }
 
@@ -84,12 +79,12 @@ impl<'lua> FromLua<'lua> for LuaHttpClient {
             connector = connector.timeout(Duration::from_secs(val));
         }
 
-        if let Ok(Some(val)) = params.raw_get::<_, Option<u64>>("keep_alive") {
-            connector = connector.conn_keep_alive(Duration::from_secs(val));
+        if let Ok(Some(val)) = params.raw_get::<_, Option<u16>>("keep_alive") {
+            connector = connector.keep_alive(Seconds::new(val));
         }
 
-        if let Ok(Some(val)) = params.raw_get::<_, Option<u64>>("lifetime") {
-            connector = connector.conn_lifetime(Duration::from_secs(val));
+        if let Ok(Some(val)) = params.raw_get::<_, Option<u16>>("lifetime") {
+            connector = connector.lifetime(Seconds::new(val));
         }
 
         if let Ok(Some(val)) = params.raw_get::<_, Option<u64>>("max_connections") {
@@ -97,7 +92,7 @@ impl<'lua> FromLua<'lua> for LuaHttpClient {
         }
 
         Ok(LuaHttpClient {
-            client: client_builder.connector(connector).finish(),
+            client: client_builder.connector(connector.finish()).finish(),
             no_decompress,
         })
     }
@@ -131,7 +126,7 @@ mod tests {
 
     use super::*;
 
-    #[actix_web::test]
+    #[ntex::test]
     async fn test_client() -> Result<()> {
         let lua = Rc::new(Lua::new());
         lua.set_app_data(Rc::downgrade(&lua));

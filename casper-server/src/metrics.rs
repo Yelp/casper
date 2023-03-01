@@ -224,13 +224,14 @@ pub fn register_custom_metrics(config: MetricsConfig) {
     }
 }
 
-macro_rules! connections_counter_inc {
-    () => {{
-        let cx = ::opentelemetry::Context::current();
-        crate::metrics::METRICS.connections_counter.add(&cx, 1, &[]);
-        crate::metrics::METRICS.active_connections_counter.inc()
-    }};
-}
+// TODO: Re-enable
+// macro_rules! connections_counter_inc {
+//     () => {{
+//         let cx = ::opentelemetry::Context::current();
+//         crate::metrics::METRICS.connections_counter.add(&cx, 1, &[]);
+//         crate::metrics::METRICS.active_connections_counter.inc()
+//     }};
+// }
 
 macro_rules! active_request_guard {
     () => {

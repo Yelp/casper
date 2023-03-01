@@ -1,12 +1,12 @@
 use std::collections::{HashMap, HashSet};
 use std::ops::{Deref, DerefMut};
 
-use actix_http::header::{HeaderMap, HeaderName, HeaderValue};
 use mlua::{
     AnyUserData, ExternalError, ExternalResult, FromLua, Function, IntoLua, Lua, MetaMethod,
     RegistryKey, Result as LuaResult, String as LuaString, Table, UserData, UserDataMethods, Value,
     Variadic,
 };
+use ntex::http::header::{HeaderMap, HeaderName, HeaderValue};
 
 use super::super::Regex;
 

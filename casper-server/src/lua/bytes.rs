@@ -1,5 +1,5 @@
-use bytes::Bytes;
 use mlua::{Lua, MetaMethod, Result as LuaResult, UserDataMethods};
+use ntex::util::Bytes;
 
 pub fn register_types(lua: &Lua) -> LuaResult<()> {
     lua.register_userdata_type::<Bytes>(|reg| {

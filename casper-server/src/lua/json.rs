@@ -1,10 +1,10 @@
 use std::rc::Rc;
 
-use bytes::Bytes;
 use mlua::{
     AnyUserData, Error as LuaError, ExternalResult, Integer as LuaInteger, Lua, LuaSerdeExt,
     MetaMethod, Result, String as LuaString, Table, UserData, UserDataMethods, Value, Variadic,
 };
+use ntex::util::Bytes;
 use ouroboros::self_referencing;
 use serde::Serialize;
 

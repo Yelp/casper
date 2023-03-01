@@ -2,14 +2,15 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::SystemTime;
 
-use actix_http::{Response, StatusCode};
 use async_trait::async_trait;
-use bytes::Bytes;
 use linked_hash_map::LinkedHashMap;
+use ntex::http::body::Body;
+use ntex::http::{Response, StatusCode};
+use ntex::util::Bytes;
 use serde::Deserialize;
 use tokio::sync::Mutex;
 
-use crate::storage::{decode_headers, encode_headers, Body, Item, ItemKey, Key, Storage};
+use crate::storage::{decode_headers, encode_headers, Item, ItemKey, Key, Storage};
 
 // Memory backend configuration
 #[derive(Deserialize)]
@@ -173,7 +174,7 @@ impl Storage for MemoryBackend {
                 .get_unexpired(&key)
                 .map(|value| {
                     let headers = decode_headers(&value.headers)?;
-                    let body = Body::left(value.body.clone());
+                    let body = Body::Bytes(value.body.clone());
 
                     let mut resp = Response::with_body(value.status, body);
                     *resp.headers_mut() = headers;
@@ -242,19 +243,19 @@ impl Storage for MemoryBackend {
 mod tests {
     use std::time::Duration;
 
-    use actix_http::body::to_bytes;
-    use actix_http::header::{HeaderName, HeaderValue};
-    use actix_http::Response;
-    use bytes::Bytes;
+    use ntex::http::header::{HeaderName, HeaderValue};
+    use ntex::http::Response;
+    use ntex::util::Bytes;
 
     use super::{Config, MemoryBackend};
+    use crate::http::buffer_body;
     use crate::storage::{Item, ItemKey, Storage};
 
     fn make_response(body: impl Into<Bytes>) -> Response<Bytes> {
-        Response::ok().set_body(body.into())
+        Response::Ok().message_body(body.into())
     }
 
-    #[actix_web::test]
+    #[ntex::test]
     async fn test_backend() {
         let memory = MemoryBackend::new(&Config { max_size: 1024 }, None);
         let mut resp = make_response("hello, world");
@@ -272,12 +273,12 @@ mod tests {
             .unwrap();
 
         // Fetch it back
-        let resp = memory.get_response("key1".into()).await.unwrap().unwrap();
+        let mut resp = memory.get_response("key1".into()).await.unwrap().unwrap();
         assert_eq!(
             resp.headers().get("Hello"),
             Some(&HeaderValue::from_static("World"))
         );
-        let body = to_bytes(resp.into_body()).await.unwrap().to_vec();
+        let body = buffer_body(resp.take_body()).await.unwrap().to_vec();
         assert_eq!(String::from_utf8(body).unwrap(), "hello, world");
 
         // Delete cached response
@@ -291,7 +292,7 @@ mod tests {
         assert!(matches!(resp, None));
     }
 
-    #[actix_web::test]
+    #[ntex::test]
     async fn test_backend_ttl() {
         let memory = MemoryBackend::new(&Config { max_size: 1024 }, None);
         let mut resp = make_response("hello, world");
@@ -316,7 +317,7 @@ mod tests {
         assert!(matches!(resp, None));
     }
 
-    #[actix_web::test]
+    #[ntex::test]
     async fn test_surrogate_keys() {
         let memory = MemoryBackend::new(&Config { max_size: 1024 }, None);
         let resp = make_response("hello, world");
@@ -329,8 +330,8 @@ mod tests {
             .unwrap();
 
         // Fetch it back
-        let resp = memory.get_response("key1".into()).await.unwrap().unwrap();
-        let body = to_bytes(resp.into_body()).await.unwrap().to_vec();
+        let mut resp = memory.get_response("key1".into()).await.unwrap().unwrap();
+        let body = buffer_body(resp.take_body()).await.unwrap().to_vec();
         assert_eq!(String::from_utf8(body).unwrap(), "hello, world");
 
         // Delete by surrogate key

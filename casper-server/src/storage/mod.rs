@@ -3,12 +3,12 @@ use std::fmt;
 use std::iter::IntoIterator;
 use std::time::Duration;
 
-use actix_http::body::{BoxBody, EitherBody, MessageBody};
-use actix_http::header::HeaderMap;
-use actix_http::{Response, StatusCode};
 use async_trait::async_trait;
-use bytes::Bytes;
 use futures::stream::{self, StreamExt};
+pub(crate) use ntex::http::body::Body;
+use ntex::http::body::MessageBody;
+use ntex::http::{HeaderMap, Response, StatusCode};
+use ntex::util::Bytes;
 
 pub use backends::Backend;
 pub(crate) use common::{compress_with_zstd, decode_headers, encode_headers};
@@ -16,8 +16,6 @@ pub(crate) use common::{compress_with_zstd, decode_headers, encode_headers};
 pub(crate) const MAX_CONCURRENCY: usize = 100;
 
 pub type Key = Bytes;
-
-pub type Body = EitherBody<Bytes, BoxBody>;
 
 pub struct Item<'a> {
     pub key: Key,
@@ -36,7 +34,7 @@ impl Item<'static> {
             key: key.into(),
             status: response.status(),
             headers: Cow::Owned(response.headers().clone()),
-            body,
+            body: body.as_ref().unwrap().clone(),
             surrogate_keys: Vec::new(),
             ttl,
         }
@@ -54,7 +52,7 @@ impl Item<'static> {
             key: key.into(),
             status: response.status(),
             headers: Cow::Owned(response.headers().clone()),
-            body,
+            body: body.as_ref().unwrap().clone(),
             surrogate_keys: surrogate_keys.into_iter().map(|sk| sk.into()).collect(),
             ttl,
         }

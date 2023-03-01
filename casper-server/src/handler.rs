@@ -1,11 +1,11 @@
 use std::collections::HashMap;
-use std::error::Error as StdError;
 use std::time::Instant;
 
-use actix_web::http::StatusCode;
-use actix_web::web;
 use anyhow::{anyhow, Result};
 use mlua::{Function, Value};
+use ntex::http::StatusCode;
+use ntex::web::error::InternalError;
+use ntex::web::types::State;
 use opentelemetry::{Key as OTKey, Value as OTValue};
 use scopeguard::defer;
 use tracing::error;
@@ -17,8 +17,8 @@ use crate::types::LuaContext;
 #[tracing::instrument(skip(req, app_ctx), fields(method = %req.method(), uri = %req.uri()))]
 pub(crate) async fn handler(
     req: LuaRequest,
-    app_ctx: web::Data<AppContext>,
-) -> Result<LuaResponse, Box<dyn StdError>> {
+    app_ctx: State<AppContext>,
+) -> Result<LuaResponse, InternalError<anyhow::Error>> {
     let start = Instant::now();
     let _req_guard = active_request_guard!();
     let lua = &app_ctx.lua;
@@ -36,7 +36,7 @@ pub(crate) async fn handler(
     // Collect response labels
     match resp_result {
         Ok(ref mut resp) => {
-            // Save lua context table (used for logger)
+            // Save lua context table (used by logger)
             resp.extensions_mut().insert(lua_ctx);
 
             attrs_map.insert("status".into(), (resp.status().as_u16() as i64).into());
@@ -55,12 +55,12 @@ pub(crate) async fn handler(
     requests_counter_inc!(attrs_map);
     requests_histogram_rec!(start, attrs_map);
 
-    resp_result.map_err(Into::into)
+    resp_result.map_err(|err| InternalError::new(err, StatusCode::INTERNAL_SERVER_ERROR))
 }
 
 pub(crate) async fn handler_inner(
     req: LuaRequest,
-    app_ctx: web::Data<AppContext>,
+    app_ctx: State<AppContext>,
     lua_ctx: LuaContext,
 ) -> Result<LuaResponse> {
     let lua = app_ctx.lua.clone();
@@ -80,7 +80,7 @@ pub(crate) async fn handler_inner(
         .filter_map(|(i, flt)| flt.on_request.as_ref().map(|r| (i, flt, r)))
     {
         let start = Instant::now();
-        let name = filter.name.clone();
+        let name = &filter.name;
         defer! {
             filter_histogram_rec!(start, "name" => name.clone(), "phase" => "on_request");
         }

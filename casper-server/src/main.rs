@@ -3,17 +3,15 @@ use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use actix_web::rt::System;
-use actix_web::web;
-use actix_web::{App, HttpServer};
 use anyhow::Context as _;
 use clap::Parser;
-use reqwest::Client as HttpClient;
+use ntex::http::client::Client as HttpClient;
+use ntex::rt::System;
+use ntex::web::{self, App, HttpServer};
 use tracing::{error, info};
 use tracing_log::LogTracer;
 
 use crate::context::AppContext;
-use crate::metrics::ActiveCounterGuard;
 use crate::storage::Storage;
 
 #[macro_use]
@@ -53,14 +51,6 @@ async fn main_inner(args: Args) -> anyhow::Result<()> {
         storage_backends.push(backend);
     }
 
-    // Construct default HTTP client
-    let http_client = HttpClient::builder()
-        .redirect(reqwest::redirect::Policy::none())
-        .no_brotli()
-        .no_deflate()
-        .no_gzip()
-        .build()?;
-
     // Try to initialize application context on the listening thread to check for errors
     let context = AppContext::builder()
         .with_config(config.clone())
@@ -94,8 +84,12 @@ async fn main_inner(args: Args) -> anyhow::Result<()> {
             }
         }
 
-        // Attach default HTTP client to Lua
-        context.lua.set_app_data(http_client.clone());
+        // Construct default HTTP client and attach it to Lua
+        let http_client = HttpClient::build()
+            .disable_redirects()
+            .disable_timeout()
+            .finish();
+        context.lua.set_app_data(http_client);
 
         // Track Lua used memory every 10 seconds
         let lua = Rc::clone(&context.lua);
@@ -108,19 +102,20 @@ async fn main_inner(args: Args) -> anyhow::Result<()> {
         });
 
         App::new()
-            .app_data(web::Data::new(context))
+            .state(context)
             .wrap(middleware::Metrics::new("/metrics".to_string()))
             .wrap(middleware::Logger::new())
-            // .wrap(actix_web::middleware::Logger::default())
+            // .wrap(ntex::web::middleware::Logger::default())
             .default_service(web::to(handler::handler))
     })
-    .on_connect(|_, ext| {
-        // Count number of active connections
-        struct ConnectionCountGuard(ActiveCounterGuard);
-        ext.insert(ConnectionCountGuard(connections_counter_inc!()));
-    })
+    // TODO: Use alternative way
+    // .on_connect(|_, ext| {
+    //     // Count number of active connections
+    //     struct ConnectionCountGuard(ActiveCounterGuard);
+    //     ext.insert(ConnectionCountGuard(connections_counter_inc!()));
+    // })
     .listen(listener)?
-    .keep_alive(Duration::from_secs(30))
+    .keep_alive(30)
     .workers(config2.main.workers)
     .run()
     .await?;
@@ -138,7 +133,7 @@ fn main() {
     // Parse command line arguments
     let args = Args::parse();
 
-    let system = System::new();
+    let system = System::new("casper");
     if let Err(err) = system.block_on(main_inner(args)) {
         error!("{err:#}");
     }

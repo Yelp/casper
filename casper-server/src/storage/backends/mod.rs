@@ -1,7 +1,7 @@
-use actix_http::Response;
 use anyhow::{anyhow, bail, Context, Result};
 use futures::future::LocalBoxFuture;
 use memory::MemoryBackend;
+use ntex::http::Response;
 use redis::RedisBackend;
 
 use super::{Body, Item, ItemKey, Key, Storage};

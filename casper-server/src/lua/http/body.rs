@@ -1,24 +1,23 @@
 use std::error::Error as StdError;
 use std::fmt;
 use std::mem;
-use std::pin::Pin;
 use std::rc::{Rc, Weak};
 use std::task::{Context, Poll};
 use std::time::Duration;
 
-use actix_http::body::{self, BodySize, BodyStream, BoxBody, MessageBody};
-use actix_http::Payload;
-use bytes::Bytes;
-use futures::Stream;
+use futures::{Stream, TryStreamExt};
 use mlua::{
     AnyUserData, ExternalError, FromLua, Function, Lua, RegistryKey, Result as LuaResult,
     String as LuaString, UserData, Value,
 };
+use ntex::http::body::{self, BodySize, BoxedBodyStream, MessageBody, ResponseBody, SizedStream};
+use ntex::http::Payload;
+use ntex::util::{Bytes, BytesMut};
 use tokio::time;
 use tracing::error;
 
 use super::super::{LuaExt, WeakLuaExt};
-use crate::http::buffer_payload;
+use crate::http::buffer_body;
 
 // TODO: Limit number of fetched bytes
 
@@ -26,7 +25,7 @@ pub enum LuaBody {
     None,
     Bytes(Bytes),
     Body {
-        body: BoxBody,
+        body: Box<dyn MessageBody>,
         timeout: Option<Duration>,
     },
     Payload {
@@ -37,7 +36,7 @@ pub enum LuaBody {
 }
 
 impl LuaBody {
-    /// Returns timeout used to fetch whole body
+    /// Returns timeout used to fetch the whole body
     pub fn timeout(&self) -> Option<Duration> {
         match self {
             LuaBody::Body { timeout, .. } => *timeout,
@@ -46,7 +45,7 @@ impl LuaBody {
         }
     }
 
-    /// Sets timeout to fetch whole body
+    /// Sets timeout to fetch the whole body
     pub fn set_timeout(&mut self, dur: Option<Duration>) {
         match self {
             LuaBody::Body { timeout, .. } => *timeout = dur,
@@ -55,50 +54,29 @@ impl LuaBody {
         }
     }
 
-    /// Buffers the body into memory and returns the buffered data.
+    /// Buffers the whole body into memory and returns the buffered data.
     pub async fn buffer(&mut self) -> LuaResult<Option<Bytes>> {
         match self {
             LuaBody::None => Ok(None),
             LuaBody::Bytes(bytes) => Ok(Some(bytes.clone())),
-            LuaBody::Body { body, timeout } => {
-                let tmp_body = mem::replace(body, body::None::new().boxed());
-                let res = match *timeout {
-                    Some(timeout) => time::timeout(timeout, body::to_bytes(tmp_body)).await,
-                    None => Ok(body::to_bytes(tmp_body).await),
+            body => {
+                let tmp_body = mem::replace(body, LuaBody::None);
+                let buffer_fut = buffer_body(tmp_body);
+                let res = match body.timeout() {
+                    Some(timeout) => time::timeout(timeout, buffer_fut).await,
+                    None => Ok(buffer_fut.await),
                 };
                 match res {
                     Ok(Ok(bytes)) => {
-                        *self = LuaBody::Bytes(bytes.clone());
+                        *body = LuaBody::Bytes(bytes.clone());
                         Ok(Some(bytes))
                     }
                     Ok(Err(err)) => {
-                        *self = LuaBody::None;
+                        *body = LuaBody::None;
                         Err(err.to_string().into_lua_err())
                     }
                     Err(err) => {
-                        *self = LuaBody::None;
-                        Err(err.into_lua_err())
-                    }
-                }
-            }
-            LuaBody::Payload {
-                payload, timeout, ..
-            } => {
-                let res = match *timeout {
-                    Some(timeout) => time::timeout(timeout, buffer_payload(payload)).await,
-                    None => Ok(buffer_payload(payload).await),
-                };
-                match res {
-                    Ok(Ok(bytes)) => {
-                        *self = LuaBody::Bytes(bytes.clone());
-                        Ok(Some(bytes))
-                    }
-                    Ok(Err(err)) => {
-                        *self = LuaBody::None;
-                        Err(err.to_string().into_lua_err())
-                    }
-                    Err(err) => {
-                        *self = LuaBody::None;
+                        *body = LuaBody::None;
                         Err(err.into_lua_err())
                     }
                 }
@@ -134,8 +112,7 @@ impl EitherBody {
     pub(crate) fn as_userdata<'lua>(&mut self, lua: &'lua Lua) -> LuaResult<AnyUserData<'lua>> {
         match self {
             EitherBody::Body(tmp_body) => {
-                let mut body = LuaBody::None;
-                mem::swap(tmp_body, &mut body);
+                let body = mem::replace(tmp_body, LuaBody::None);
                 // Move body to Lua registry
                 let lua_body = lua.create_userdata(body)?;
                 let key = lua.create_registry_value(lua_body.clone())?;
@@ -188,6 +165,13 @@ impl From<String> for LuaBody {
     }
 }
 
+impl From<&'static str> for LuaBody {
+    #[inline(always)]
+    fn from(s: &'static str) -> Self {
+        LuaBody::Bytes(Bytes::from_static(s.as_bytes()))
+    }
+}
+
 impl From<Bytes> for LuaBody {
     #[inline(always)]
     fn from(bytes: Bytes) -> Self {
@@ -195,16 +179,14 @@ impl From<Bytes> for LuaBody {
     }
 }
 
-impl From<BoxBody> for LuaBody {
+impl<S> From<BoxedBodyStream<S>> for LuaBody
+where
+    S: Stream<Item = Result<Bytes, Box<dyn StdError>>> + Unpin + 'static,
+{
     #[inline(always)]
-    fn from(body: BoxBody) -> Self {
-        let body = match body.try_into_bytes() {
-            Ok(bytes) => return LuaBody::Bytes(bytes),
-            Err(body) => body,
-        };
-
+    fn from(body: BoxedBodyStream<S>) -> Self {
         LuaBody::Body {
-            body,
+            body: Box::new(body),
             timeout: None,
         }
     }
@@ -221,12 +203,56 @@ impl From<(Payload, Option<u64>)> for LuaBody {
     }
 }
 
-impl MessageBody for LuaBody {
-    type Error = Box<dyn StdError>;
+impl<B> From<ResponseBody<B>> for LuaBody
+where
+    B: MessageBody + 'static,
+{
+    #[inline(always)]
+    fn from(body: ResponseBody<B>) -> Self {
+        match body {
+            ResponseBody::Body(body) => LuaBody::Body {
+                body: Box::new(body),
+                timeout: None,
+            },
+            ResponseBody::Other(body::Body::None) => LuaBody::None,
+            ResponseBody::Other(body::Body::Empty) => LuaBody::Bytes(Bytes::new()),
+            ResponseBody::Other(body::Body::Bytes(bytes)) => LuaBody::Bytes(bytes),
+            ResponseBody::Other(body::Body::Message(body)) => LuaBody::Body {
+                body,
+                timeout: None,
+            },
+        }
+    }
+}
 
+impl From<LuaBody> for body::Body {
+    #[inline]
+    fn from(value: LuaBody) -> Self {
+        match value {
+            LuaBody::None => body::Body::None,
+            LuaBody::Bytes(bytes) if bytes.is_empty() => body::Body::Empty,
+            LuaBody::Bytes(bytes) => body::Body::Bytes(bytes),
+            LuaBody::Body { body, .. } => body::Body::Message(body),
+            LuaBody::Payload {
+                payload, length, ..
+            } => {
+                let payload = payload.map_err(|err| Box::new(err) as Box<dyn StdError>);
+                match length {
+                    Some(length) => {
+                        body::Body::Message(Box::new(SizedStream::new(length, payload)))
+                    }
+                    None => body::Body::Message(Box::new(BoxedBodyStream::new(payload))),
+                }
+            }
+        }
+    }
+}
+
+impl MessageBody for LuaBody {
     fn size(&self) -> BodySize {
         match self {
             LuaBody::None => BodySize::None,
+            LuaBody::Bytes(b) if b.len() == 0 => BodySize::Empty,
             LuaBody::Bytes(b) => BodySize::Sized(b.len() as u64),
             LuaBody::Body { body, .. } => body.size(),
             LuaBody::Payload { length, .. } => {
@@ -235,10 +261,10 @@ impl MessageBody for LuaBody {
         }
     }
 
-    fn poll_next(
-        mut self: Pin<&mut Self>,
+    fn poll_next_chunk(
+        &mut self,
         cx: &mut Context<'_>,
-    ) -> Poll<Option<Result<Bytes, Self::Error>>> {
+    ) -> Poll<Option<Result<Bytes, Box<dyn StdError>>>> {
         match *self {
             LuaBody::None => Poll::Ready(None),
             LuaBody::Bytes(ref bytes) => {
@@ -246,24 +272,14 @@ impl MessageBody for LuaBody {
                 *self = LuaBody::None;
                 Poll::Ready(Some(Ok(bytes)))
             }
-            LuaBody::Body { ref mut body, .. } => Pin::new(body).poll_next(cx),
+            LuaBody::Body { ref mut body, .. } => body.poll_next_chunk(cx),
             LuaBody::Payload {
                 ref mut payload, ..
-            } => match futures::ready!(Pin::new(payload).poll_next(cx)) {
+            } => match futures::ready!(payload.poll_recv(cx)) {
                 Some(Ok(bytes)) => Poll::Ready(Some(Ok(bytes))),
                 Some(Err(err)) => Poll::Ready(Some(Err(Box::new(err)))),
                 None => Poll::Ready(None),
             },
-        }
-    }
-
-    fn try_into_bytes(self) -> Result<Bytes, Self>
-    where
-        Self: Sized,
-    {
-        match self {
-            LuaBody::Bytes(bytes) => Ok(bytes),
-            _ => Err(self),
         }
     }
 }
@@ -274,11 +290,11 @@ impl<'lua> FromLua<'lua> for LuaBody {
             Value::Nil => Ok(LuaBody::None),
             Value::String(s) => Ok(LuaBody::Bytes(Bytes::from(s.as_bytes().to_vec()))),
             Value::Table(t) => {
-                let mut data = Vec::new();
+                let mut data = BytesMut::new();
                 for chunk in t.raw_sequence_values::<LuaString>() {
                     data.extend_from_slice(chunk?.as_bytes());
                 }
-                Ok(LuaBody::Bytes(Bytes::from(data)))
+                Ok(LuaBody::Bytes(data.freeze()))
             }
             Value::Function(f) => {
                 let lua = lua.strong();
@@ -292,12 +308,11 @@ impl<'lua> FromLua<'lua> for LuaBody {
                         Ok(None) => Poll::Ready(None),
                         Err(err) => {
                             error!("{err:#}");
-                            Poll::Ready(Some(Err(err)))
+                            Poll::Ready(Some(Err(Box::new(err) as Box<dyn StdError>)))
                         }
                     }
                 });
-                let stream = BodyStream::new(stream);
-                Ok(LuaBody::from(stream.boxed()))
+                Ok(LuaBody::from(BoxedBodyStream::new(stream)))
             }
             Value::UserData(ud) => {
                 if let Ok(body) = ud.take::<Self>() {
@@ -354,8 +369,7 @@ impl UserData for LuaBody {
                     let ud = lua.registry_value::<AnyUserData>(&body_key)?;
                     let mut this = ud.borrow_mut::<Self>()?;
                     let timeout = this.timeout();
-                    let next_chunk =
-                        futures::future::poll_fn(|cx| Pin::new(&mut *this).poll_next(cx));
+                    let next_chunk = futures::future::poll_fn(|cx| this.poll_next_chunk(cx));
                     let bytes = match timeout {
                         Some(timeout) => {
                             let start = time::Instant::now();
@@ -398,19 +412,18 @@ impl UserData for LuaBody {
 
 #[cfg(test)]
 mod tests {
+    use std::error::Error as StdError;
+    use std::io::{Error as IoError, ErrorKind};
     use std::rc::Rc;
-    use std::{
-        io::{Error as IoError, ErrorKind},
-        time::Duration,
-    };
+    use std::time::Duration;
 
-    use actix_http::body::{BodyStream, MessageBody};
     use mlua::{chunk, Lua, Result as LuaResult};
+    use ntex::http::body::BoxedBodyStream;
     use tokio_stream::{self as stream, StreamExt};
 
     use super::LuaBody;
 
-    #[actix_web::test]
+    #[ntex::test]
     async fn test_empty_body() -> LuaResult<()> {
         let lua = Lua::new();
 
@@ -428,12 +441,12 @@ mod tests {
         Ok(())
     }
 
-    #[actix_web::test]
+    #[ntex::test]
     async fn test_bytes_body() -> LuaResult<()> {
         let lua = Lua::new();
         super::super::super::bytes::register_types(&lua)?;
 
-        let body = LuaBody::Bytes("hello, world".into());
+        let body = LuaBody::from("hello, world");
         lua.load(chunk! {
             assert($body:to_string() == "hello, world")
             assert($body:to_string() == "hello, world")
@@ -446,7 +459,7 @@ mod tests {
         .await
         .unwrap();
 
-        let body = LuaBody::Bytes("hello, world".into());
+        let body = LuaBody::from("hello, world");
         lua.load(chunk! {
             local reader = $body:reader()
             assert(reader():to_string() == "hello, world")
@@ -459,19 +472,15 @@ mod tests {
         Ok(())
     }
 
-    #[actix_web::test]
+    #[ntex::test]
     async fn test_stream_body() -> LuaResult<()> {
         let lua = Lua::new();
         super::super::super::bytes::register_types(&lua)?;
 
         fn make_body_stream() -> LuaBody {
-            let chunks: Vec<Result<_, IoError>> =
-                vec![Ok("hello".into()), Ok(", ".into()), Ok("world".into())];
+            let chunks = vec![Ok("hello".into()), Ok(", ".into()), Ok("world".into())];
             let stream = stream::iter(chunks);
-            LuaBody::Body {
-                body: BodyStream::new(stream).boxed(),
-                timeout: None,
-            }
+            LuaBody::from(BoxedBodyStream::new(stream))
         }
 
         let body = make_body_stream();
@@ -502,12 +511,12 @@ mod tests {
         Ok(())
     }
 
-    #[actix_web::test]
+    #[ntex::test]
     async fn test_body_discard() -> LuaResult<()> {
         let lua = Lua::new();
         super::super::super::bytes::register_types(&lua)?;
 
-        let body = LuaBody::Bytes("hello, world".into());
+        let body = LuaBody::from("hello, world");
         lua.load(chunk! {
             $body:discard()
             assert($body:read() == nil)
@@ -519,21 +528,18 @@ mod tests {
         Ok(())
     }
 
-    #[actix_web::test]
+    #[ntex::test]
     async fn test_body_errors() -> LuaResult<()> {
         let lua = Lua::new();
         super::super::super::bytes::register_types(&lua)?;
 
         fn make_body_stream() -> LuaBody {
-            let chunks: Vec<Result<_, IoError>> = vec![
+            let chunks: Vec<Result<_, Box<dyn StdError>>> = vec![
                 Ok("hello".into()),
-                Err(IoError::new(ErrorKind::BrokenPipe, "broken pipe")),
+                Err(Box::new(IoError::new(ErrorKind::BrokenPipe, "broken pipe"))),
             ];
             let stream = stream::iter(chunks);
-            LuaBody::Body {
-                body: BodyStream::new(stream).boxed(),
-                timeout: None,
-            }
+            LuaBody::from(BoxedBodyStream::new(stream))
         }
 
         let body = make_body_stream();
@@ -568,7 +574,7 @@ mod tests {
         Ok(())
     }
 
-    #[actix_web::test]
+    #[ntex::test]
     async fn test_lua_body() -> LuaResult<()> {
         let lua = Rc::new(Lua::new());
         super::super::super::bytes::register_types(&lua)?;
@@ -603,7 +609,7 @@ mod tests {
         Ok(())
     }
 
-    #[actix_web::test]
+    #[ntex::test]
     async fn test_lua_body_error() -> LuaResult<()> {
         let lua = Rc::new(Lua::new());
         super::super::super::bytes::register_types(&lua)?;
@@ -628,18 +634,16 @@ mod tests {
         Ok(())
     }
 
-    #[actix_web::test]
+    #[ntex::test]
     async fn test_body_timeout() -> LuaResult<()> {
         let lua = Lua::new();
         super::super::super::bytes::register_types(&lua)?;
 
-        let chunks: Vec<Result<_, IoError>> =
+        let chunks: Vec<Result<_, Box<dyn StdError>>> =
             vec![Ok("hello".into()), Ok(", ".into()), Ok("world".into())];
         let stream = stream::iter(chunks).throttle(Duration::from_millis(15));
-        let body = LuaBody::Body {
-            body: BodyStream::new(Box::pin(stream)).boxed(),
-            timeout: Some(Duration::from_millis(10)),
-        };
+        let mut body = LuaBody::from(BoxedBodyStream::new(Box::pin(stream)));
+        body.set_timeout(Some(Duration::from_millis(10)));
 
         lua.load(chunk! {
             local reader = $body:reader()

@@ -1,16 +1,14 @@
+use std::error::Error as StdError;
 use std::io;
 use std::mem;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 
-use actix_http::body::{BodyStream, BoxBody, EitherBody, MessageBody, SizedStream};
-use actix_http::{Response, StatusCode};
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use base64::Engine as _;
 use bitflags::bitflags;
-use bytes::Bytes;
 use fred::error::RedisError;
 use fred::interfaces::KeysInterface;
 use fred::pool::RedisPool;
@@ -18,8 +16,11 @@ use fred::types::{
     Expiration, PerformanceConfig, ReconnectPolicy, RedisKey, RedisValue, SetOptions,
 };
 use futures::future::{try_join, try_join_all, TryFutureExt};
-use futures::stream::{self, StreamExt};
+use futures::stream::{self, StreamExt, TryStreamExt};
 use moka::future::Cache;
+use ntex::http::body::{Body, BoxedBodyStream, SizedStream};
+use ntex::http::{Response, StatusCode};
+use ntex::util::Bytes;
 use once_cell::sync::Lazy;
 use opentelemetry::{global, metrics::Counter};
 use serde::{Deserialize, Serialize};
@@ -27,7 +28,7 @@ use tokio::time::timeout;
 
 use super::Config;
 use crate::storage::{
-    compress_with_zstd, decode_headers, encode_headers, Body, Item, ItemKey, Key, Storage,
+    compress_with_zstd, decode_headers, encode_headers, Item, ItemKey, Key, Storage,
     MAX_CONCURRENCY,
 };
 use crate::utils::zstd::ZstdDecoder;
@@ -256,24 +257,20 @@ impl RedisBackend {
         // Decompress the body and headers if required
         let (body, headers);
         if response_item.flags.contains(Flags::COMPRESSED) {
+            let body_stream =
+                ZstdDecoder::new(body_stream).map_err(|err| Box::new(err) as Box<dyn StdError>);
             headers = zstd::stream::decode_all(response_item.headers.as_slice())?;
-            let decoded_body_stream = match response_item.body_length {
-                Some(length) => {
-                    SizedStream::new(length as u64, ZstdDecoder::new(body_stream)).boxed()
-                }
-                None => BodyStream::new(ZstdDecoder::new(body_stream)).boxed(),
-            };
-            body = Body::right(decoded_body_stream);
+            body = Body::Message(match response_item.body_length {
+                Some(length) => Box::new(SizedStream::new(length as u64, Box::pin(body_stream))),
+                None => Box::new(BoxedBodyStream::new(Box::pin(body_stream))),
+            })
         } else {
             headers = response_item.headers;
-            match response_item.body_length {
-                Some(length) => {
-                    body = Body::right(SizedStream::new(length as u64, body_stream).boxed());
-                }
-                None => {
-                    body = Body::right(BodyStream::new(body_stream).boxed());
-                }
-            }
+            let body_stream = body_stream.map_err(|err| Box::new(err) as Box<dyn StdError>);
+            body = Body::Message(match response_item.body_length {
+                Some(length) => Box::new(SizedStream::new(length as u64, Box::pin(body_stream))),
+                None => Box::new(BoxedBodyStream::new(Box::pin(body_stream))),
+            })
         }
 
         // Construct new Response object
@@ -437,7 +434,7 @@ impl RedisBackend {
 
 #[async_trait(?Send)]
 impl Storage for RedisBackend {
-    type Body = EitherBody<Bytes, BoxBody>;
+    type Body = Body;
     type Error = anyhow::Error;
 
     fn name(&self) -> String {
@@ -504,16 +501,16 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::Duration;
 
-    use actix_http::body::to_bytes;
-    use actix_http::header::{HeaderName, HeaderValue};
-    use actix_http::Response;
-    use bytes::Bytes;
+    use ntex::http::header::{HeaderName, HeaderValue};
+    use ntex::http::Response;
+    use ntex::util::Bytes;
 
     use super::{Config, RedisBackend};
+    use crate::http::buffer_body;
     use crate::storage::{Item, ItemKey, Key, Storage};
 
     fn make_response(body: impl Into<Bytes>) -> Response<Bytes> {
-        Response::ok().set_body(body.into())
+        Response::Ok().message_body(body.into())
     }
 
     fn make_uniq_key() -> Key {
@@ -521,7 +518,7 @@ mod tests {
         format!("key{}", N.fetch_add(1, Ordering::Relaxed)).into()
     }
 
-    #[actix_web::test]
+    #[ntex::test]
     async fn test_backend() {
         let backend = RedisBackend::new(Config::default(), None).unwrap();
         backend.connect().await.unwrap();
@@ -541,12 +538,12 @@ mod tests {
             .unwrap();
 
         // Fetch it back
-        let resp = backend.get_response(key.clone()).await.unwrap().unwrap();
+        let mut resp = backend.get_response(key.clone()).await.unwrap().unwrap();
         assert_eq!(
             resp.headers().get("Hello"),
             Some(&HeaderValue::from_static("World"))
         );
-        let body = to_bytes(resp.into_body()).await.unwrap().to_vec();
+        let body = buffer_body(resp.take_body()).await.unwrap().to_vec();
         assert_eq!(String::from_utf8(body).unwrap(), "hello, world");
 
         // Delete cached response
@@ -560,7 +557,7 @@ mod tests {
         assert!(matches!(resp, None));
     }
 
-    #[actix_web::test]
+    #[ntex::test]
     async fn test_chunked_body() {
         let mut config = Config::default();
         config.max_body_chunk_size = 2; // Set max chunk size to 2 bytes
@@ -577,12 +574,12 @@ mod tests {
             .unwrap();
 
         // Fetch it back
-        let resp = backend.get_response(key.clone()).await.unwrap().unwrap();
-        let body = to_bytes(resp.into_body()).await.unwrap().to_vec();
+        let mut resp = backend.get_response(key.clone()).await.unwrap().unwrap();
+        let body = buffer_body(resp.take_body()).await.unwrap().to_vec();
         assert_eq!(String::from_utf8(body).unwrap(), "hello, world");
     }
 
-    #[actix_web::test]
+    #[ntex::test]
     async fn test_chunked_compressed_body() {
         // Same as the above test, but with compression enabled
         let mut config = Config::default();
@@ -602,12 +599,12 @@ mod tests {
             .unwrap();
 
         // Fetch it back
-        let resp = backend.get_response(key.clone()).await.unwrap().unwrap();
-        let body = to_bytes(resp.into_body()).await.unwrap().to_vec();
+        let mut resp = backend.get_response(key.clone()).await.unwrap().unwrap();
+        let body = buffer_body(resp.take_body()).await.unwrap().to_vec();
         assert_eq!(String::from_utf8(body).unwrap(), "hello, world");
     }
 
-    #[actix_web::test]
+    #[ntex::test]
     async fn test_compressed_headers() {
         let mut config = Config::default();
         config.compression_level = Some(22);
@@ -636,7 +633,7 @@ mod tests {
         );
     }
 
-    #[actix_web::test]
+    #[ntex::test]
     async fn test_surrogate_keys() {
         let backend = RedisBackend::new(Config::default(), None).unwrap();
         backend.connect().await.unwrap();
@@ -656,8 +653,8 @@ mod tests {
             .unwrap();
 
         // Fetch it back
-        let resp = backend.get_response(key.clone()).await.unwrap().unwrap();
-        let body = to_bytes(resp.into_body()).await.unwrap().to_vec();
+        let mut resp = backend.get_response(key.clone()).await.unwrap().unwrap();
+        let body = buffer_body(resp.take_body()).await.unwrap().to_vec();
         assert_eq!(String::from_utf8(body).unwrap(), "hello, world");
 
         // Delete by surrogate key

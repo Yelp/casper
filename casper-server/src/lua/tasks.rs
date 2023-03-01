@@ -182,7 +182,7 @@ mod tests {
 
     use mlua::{chunk, Lua, Result};
 
-    #[actix_web::test]
+    #[ntex::test]
     async fn test_tasks() -> Result<()> {
         let lua = Rc::new(Lua::new());
         lua.set_app_data(Rc::downgrade(&lua));

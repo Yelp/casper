@@ -1,16 +1,17 @@
 use std::collections::HashMap;
+use std::future::{ready, Ready};
 use std::mem;
 
-use actix_http::body::MessageBody;
-use actix_http::header::{HeaderMap, CONTENT_LENGTH};
-use actix_http::{Extensions, HttpMessage, Method, Response, StatusCode, Version};
-use actix_web::{HttpRequest, HttpResponse, Responder};
-use awc::ClientResponse;
-use bytes::Bytes;
 use mlua::{
     AnyUserData, ExternalError, ExternalResult, FromLua, IntoLua, Lua, Result as LuaResult,
     String as LuaString, Table, UserData, UserDataFields, UserDataMethods, Value,
 };
+use ntex::http::body::MessageBody;
+use ntex::http::client::ClientResponse;
+use ntex::http::header::{HeaderMap, CONTENT_LENGTH};
+use ntex::http::{Method, Response, StatusCode, Version};
+use ntex::util::{Bytes, Extensions};
+use ntex::web::{HttpRequest, Responder};
 use opentelemetry::{Key as OTKey, Value as OTValue};
 
 use super::{EitherBody, LuaBody, LuaHttpHeaders, LuaHttpHeadersExt};
@@ -40,10 +41,6 @@ impl LuaResponse {
         self.version
     }
 
-    pub fn set_version(&mut self, version: Option<Version>) {
-        self.version = version;
-    }
-
     pub fn status(&self) -> StatusCode {
         self.status
     }
@@ -60,6 +57,7 @@ impl LuaResponse {
         &mut self.headers
     }
 
+    #[allow(unused)]
     pub fn extensions(&self) -> &Extensions {
         &self.extensions
     }
@@ -73,6 +71,7 @@ impl LuaResponse {
     }
 
     /// Returns labels attached to this request
+    #[allow(unused)]
     #[inline]
     pub fn labels(&self) -> Option<&HashMap<OTKey, OTValue>> {
         self.labels.as_ref()
@@ -137,9 +136,9 @@ where
         LuaResponse {
             version: None,
             status: response.status(),
-            headers: mem::replace(response.headers_mut(), HeaderMap::new()),
+            headers: mem::take(response.headers_mut()),
             extensions,
-            body: EitherBody::Body(LuaBody::from(response.into_body().boxed())),
+            body: EitherBody::Body(LuaBody::from(response.take_body())),
             labels: None,
             is_proxied: false,
             is_stored: false,
@@ -147,27 +146,10 @@ where
     }
 }
 
-impl From<LuaResponse> for Response<LuaBody> {
-    #[inline]
-    fn from(lua_resp: LuaResponse) -> Self {
-        let LuaResponse {
-            status,
-            headers,
-            extensions,
-            body,
-            ..
-        } = lua_resp;
-        let mut resp = Response::with_body(status, body.into());
-        *resp.headers_mut() = headers;
-        *resp.extensions_mut() = extensions;
-        resp
-    }
-}
-
 impl Responder for LuaResponse {
-    type Body = LuaBody;
+    type Future = Ready<Response>;
 
-    fn respond_to(self, req: &HttpRequest) -> HttpResponse<Self::Body> {
+    fn respond_to(self, req: &HttpRequest) -> Self::Future {
         let Self {
             status,
             headers,
@@ -175,7 +157,7 @@ impl Responder for LuaResponse {
             body,
             ..
         } = self;
-        let mut resp = HttpResponse::new(status);
+        let mut resp = Response::new(status);
         *resp.headers_mut() = headers;
         *resp.extensions_mut() = extensions;
 
@@ -188,7 +170,7 @@ impl Responder for LuaResponse {
             _ => {}
         }
 
-        resp.set_body(body)
+        ready(resp.set_body(body.into()))
     }
 }
 
@@ -352,7 +334,7 @@ mod tests {
 
     use super::*;
 
-    #[actix_web::test]
+    #[ntex::test]
     async fn test_response() -> Result<()> {
         let lua = Rc::new(Lua::new());
         lua.set_app_data(Rc::downgrade(&lua));

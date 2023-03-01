@@ -234,7 +234,7 @@ mod tests {
     use super::*;
     use crate::storage::Backend;
 
-    #[actix_web::test]
+    #[ntex::test]
     async fn test_storage() -> Result<()> {
         let lua = Rc::new(Lua::new());
         lua.set_app_data(Rc::downgrade(&lua));

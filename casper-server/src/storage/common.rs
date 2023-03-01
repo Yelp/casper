@@ -1,11 +1,14 @@
-use actix_http::header::HeaderMap;
+use ntex::http::header::HeaderMap;
 
 pub fn encode_headers(headers: &HeaderMap) -> Result<Vec<u8>, flexbuffers::SerializationError> {
-    // Covert actix headers to http headers
-    // TODO: Avoid conversion and serialize directly from actix's HeaderMap
+    // Covert ntex headers to http headers
+    // TODO: Avoid conversion and serialize directly from ntex's HeaderMap
     let mut http_headers = http::HeaderMap::with_capacity(headers.len());
     for (name, val) in headers {
-        http_headers.append(name.clone(), val.clone());
+        http_headers.append(
+            name.clone(),
+            http::HeaderValue::from_bytes(val.as_bytes()).unwrap(),
+        );
     }
     let mut serializer = flexbuffers::FlexbufferSerializer::new();
     http_serde::header_map::serialize(&http_headers, &mut serializer)?;

@@ -1,16 +1,12 @@
-use std::future::{self, Future, Ready};
-use std::marker::PhantomData;
-use std::pin::Pin;
 use std::rc::Rc;
-use std::task::{Context, Poll};
 
-use actix_web::body::EitherBody;
-use actix_web::dev::{forward_ready, Service, ServiceRequest, ServiceResponse, Transform};
-use actix_web::http::header::{HeaderValue, CONTENT_TYPE};
-use actix_web::{Error, HttpResponse};
-use bytes::Bytes;
-use futures::future::LocalBoxFuture;
-use pin_project_lite::pin_project;
+use ntex::http::header::{HeaderValue, CONTENT_TYPE};
+use ntex::http::Response;
+use ntex::service::{forward_poll_ready, forward_poll_shutdown, Middleware, Service};
+use ntex::util::Either;
+use ntex::web::{ErrorRenderer, WebRequest, WebResponse};
+
+use futures::future::{FutureExt, LocalBoxFuture};
 use prometheus::{Encoder, TextEncoder, TEXT_FORMAT};
 
 use crate::metrics::PROMETHEUS_EXPORTER;
@@ -28,36 +24,25 @@ impl Metrics {
     }
 }
 
-impl<S, B> Transform<S, ServiceRequest> for Metrics
-where
-    S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error>,
-    S::Future: 'static,
-    B: 'static,
-{
-    type Response = ServiceResponse<EitherBody<B>>;
-    type Error = Error;
-    type Transform = MetricsService<S, B>;
-    type InitError = ();
-    type Future = Ready<Result<Self::Transform, Self::InitError>>;
+impl<S> Middleware<S> for Metrics {
+    type Service = MetricsService<S>;
 
-    fn new_transform(&self, inner: S) -> Self::Future {
-        future::ready(Ok(MetricsService {
-            inner,
+    fn create(&self, service: S) -> Self::Service {
+        MetricsService {
+            inner: service,
             endpoint: self.endpoint.clone(),
-            _phantom: PhantomData,
-        }))
+        }
     }
 }
 
 #[derive(Debug, Clone)]
-pub struct MetricsService<S, B> {
+pub struct MetricsService<S> {
     inner: S,
     endpoint: Rc<String>,
-    _phantom: PhantomData<B>,
 }
 
-impl<S, B> MetricsService<S, B> {
-    async fn metrics_handler(request: ServiceRequest) -> ServiceResponse<Bytes> {
+impl<S> MetricsService<S> {
+    async fn metrics_handler<E>(request: WebRequest<E>) -> WebResponse {
         let data = tokio::task::spawn_blocking(move || {
             let mut buffer = Vec::<u8>::with_capacity(16384);
             let metric_families = PROMETHEUS_EXPORTER.registry().gather();
@@ -69,70 +54,32 @@ impl<S, B> MetricsService<S, B> {
         .await
         .expect("Failed to render metrics");
 
-        let response = HttpResponse::Ok()
-            .append_header((CONTENT_TYPE, HeaderValue::from_static(TEXT_FORMAT)))
-            .message_body(Bytes::from(data))
-            .unwrap();
+        let response = Response::Ok()
+            .header(CONTENT_TYPE, HeaderValue::from_static(TEXT_FORMAT))
+            .body(data);
 
         request.into_response(response)
     }
 }
 
-impl<S, B> Service<ServiceRequest> for MetricsService<S, B>
+impl<S, E> Service<WebRequest<E>> for MetricsService<S>
 where
-    S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error>,
-    S::Future: 'static,
-    B: 'static,
+    S: Service<WebRequest<E>, Response = WebResponse>,
+    E: ErrorRenderer,
 {
-    type Response = ServiceResponse<EitherBody<B>>;
-    type Error = Error;
-    type Future = ResponseFuture<S::Future, B>;
+    type Response = WebResponse;
+    type Error = S::Error;
+    type Future<'f> = Either<LocalBoxFuture<'f, Result<WebResponse, S::Error>>, S::Future<'f>> where S: 'f;
 
-    forward_ready!(inner);
+    forward_poll_ready!(inner);
+    forward_poll_shutdown!(inner);
 
-    fn call(&self, req: ServiceRequest) -> Self::Future {
+    #[inline]
+    fn call(&self, req: WebRequest<E>) -> Self::Future<'_> {
         if req.uri().path() == *self.endpoint {
-            let fut = Box::pin(async move {
-                Ok(Self::metrics_handler(req)
-                    .await
-                    .map_into_boxed_body()
-                    .map_into_right_body())
-            });
-            return ResponseFuture::MetricsFuture { fut };
+            return Either::Left(Box::pin(Self::metrics_handler(req).map(Ok)));
         }
 
-        let fut = self.inner.call(req);
-        ResponseFuture::ServiceFuture { fut }
-    }
-}
-
-pin_project! {
-    /// [`Metrics`] response future
-    #[project = ResponseFutureProj]
-    pub enum ResponseFuture<Fut, B> {
-        ServiceFuture {
-            #[pin]
-            fut: Fut,
-        },
-        MetricsFuture {
-            fut: LocalBoxFuture<'static, Result<ServiceResponse<EitherBody<B>>, Error>>,
-        }
-    }
-}
-
-impl<Fut, B> Future for ResponseFuture<Fut, B>
-where
-    Fut: Future<Output = Result<ServiceResponse<B>, Error>>,
-{
-    type Output = Result<ServiceResponse<EitherBody<B>>, Error>;
-
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        match self.as_mut().project() {
-            ResponseFutureProj::ServiceFuture { fut } => {
-                let res = futures::ready!(fut.poll(cx))?;
-                Poll::Ready(Ok(res.map_into_left_body()))
-            }
-            ResponseFutureProj::MetricsFuture { fut } => fut.as_mut().poll(cx),
-        }
+        Either::Right(self.inner.call(req))
     }
 }

@@ -1,20 +1,20 @@
-use std::convert::TryFrom;
+use std::collections::HashMap;
+use std::convert::{Infallible, TryFrom};
 use std::mem;
 use std::net::SocketAddr;
 use std::time::Duration;
-use std::{collections::HashMap, convert::Infallible};
 
-use actix_http::header::{HeaderMap, CONTENT_LENGTH};
-use actix_http::uri::PathAndQuery;
-use actix_http::{Method, Payload, Request, Uri, Version};
-use actix_web::{FromRequest, HttpMessage, HttpRequest};
 use futures::future::{self, Ready};
 use mlua::{
     AnyUserData, ExternalError, ExternalResult, FromLua, IntoLua, Lua, LuaSerdeExt,
     Result as LuaResult, String as LuaString, Table, UserData, UserDataFields, UserDataMethods,
     Value,
 };
-use reqwest::Client as HttpClient;
+use ntex::http::client::Client as HttpClient;
+use ntex::http::header::{HeaderMap, CONTENT_LENGTH};
+use ntex::http::uri::PathAndQuery;
+use ntex::http::{Method, Payload, Uri, Version};
+use ntex::web::{FromRequest, HttpRequest};
 use serde_json::Value as JsonValue;
 
 use super::{EitherBody, LuaBody, LuaHttpHeaders, LuaHttpHeadersExt};
@@ -144,29 +144,8 @@ impl LuaRequest {
     }
 }
 
-impl From<Request> for LuaRequest {
-    #[inline]
-    fn from(mut request: Request) -> Self {
-        let content_length = request
-            .headers()
-            .get(CONTENT_LENGTH)
-            .and_then(|len| len.to_str().ok())
-            .and_then(|len| len.parse::<u64>().ok());
-
-        LuaRequest {
-            uri: request.uri().clone(),
-            method: request.method().clone(),
-            version: request.version(),
-            headers: mem::replace(request.headers_mut(), HeaderMap::new()),
-            body: EitherBody::Body(LuaBody::from((request.take_payload(), content_length))),
-            remote_addr: request.peer_addr(),
-            timeout: None,
-        }
-    }
-}
-
-/// Provides an Extractor to make LuaRequest from actix request
-impl FromRequest for LuaRequest {
+/// Provides an Extractor to make LuaRequest from ntex request
+impl<Err> FromRequest<Err> for LuaRequest {
     type Error = Infallible;
     type Future = Ready<Result<Self, Self::Error>>;
 
@@ -395,7 +374,7 @@ mod tests {
 
     use super::*;
 
-    #[actix_web::test]
+    #[ntex::test]
     async fn test_request() -> Result<()> {
         let lua = Rc::new(Lua::new());
         lua.set_app_data(Rc::downgrade(&lua));
@@ -511,7 +490,7 @@ mod tests {
         Ok(())
     }
 
-    #[actix_web::test]
+    #[ntex::test]
     async fn test_proxy_to_upstream() -> Result<()> {
         let lua = Rc::new(Lua::new());
         lua.set_app_data(Rc::downgrade(&lua));
@@ -522,7 +501,7 @@ mod tests {
         // Attach HTTP client
         lua.set_app_data(HttpClient::new());
 
-        // TODO: Use actix test server?
+        // TODO: Use ntex test server?
         let mock_server = MockServer::start().await;
         let upstream = mock_server.uri();
         Mock::given(method("GET"))

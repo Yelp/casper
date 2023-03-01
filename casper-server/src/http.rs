@@ -1,18 +1,14 @@
 use std::error::Error as StdError;
-use std::io;
 use std::mem;
-use std::pin::Pin;
 
-use actix_http::body::{BodySize, MessageBody};
-use actix_http::error::PayloadError;
-use actix_http::header::{self, HeaderMap, HeaderName, HeaderValue};
-use actix_http::uri::{InvalidUri, InvalidUriParts, Scheme, Uri};
-use actix_http::{Method, Payload, StatusCode};
-use bytes::{Bytes, BytesMut};
-use futures::future::poll_fn;
-use futures::{StreamExt, TryStreamExt};
 use mlua::{ExternalError, ExternalResult, Result as LuaResult};
-use reqwest::Client as HttpClient;
+use ntex::http::body::MessageBody;
+use ntex::http::client::error::SendRequestError;
+use ntex::http::client::Client as HttpClient;
+use ntex::http::header::{self, HeaderMap, HeaderName, HeaderValue};
+use ntex::http::uri::{InvalidUri, InvalidUriParts, Scheme, Uri};
+use ntex::http::StatusCode;
+use ntex::util::{Bytes, BytesMut};
 
 use crate::lua::{LuaBody, LuaRequest, LuaResponse};
 
@@ -70,108 +66,27 @@ fn merge_uri(src: Uri, dst: &str) -> Result<Uri, UriError> {
 async fn send_to_upstream(
     client: HttpClient,
     mut req: LuaRequest,
-) -> Result<LuaResponse, reqwest::Error> {
-    let mut client_req = client.request(req.method().clone(), req.uri().to_string());
+) -> Result<LuaResponse, SendRequestError> {
+    let mut client_req = client.request(req.method().clone(), req.uri());
 
     if let Some(timeout) = req.timeout() {
         client_req = client_req.timeout(timeout);
     }
 
+    // Do not decompress response
+    client_req = client_req.no_decompress();
+
     // Add headers
     let mut headers = mem::take(req.headers_mut());
-    let mut has_content_length = false;
     filter_hop_headers(&mut headers);
-    for (key, value) in headers {
-        if key == header::CONTENT_LENGTH {
-            has_content_length = true;
-        }
-        client_req = client_req.header(key, value);
-    }
-
-    // Set body
-    let mut content_length = None;
-    match req.take_body().into() {
-        LuaBody::None => {}
-        LuaBody::Bytes(bytes) => {
-            content_length = Some(bytes.len() as u64);
-            client_req = client_req.body(bytes);
-        }
-        mut stream => {
-            if let BodySize::Sized(length) = stream.size() {
-                content_length = Some(length);
-            }
-
-            let (mut body_tx, body_rx) = futures::channel::mpsc::channel(2);
-            tokio::task::spawn_local(async move {
-                loop {
-                    poll_fn(|cx| body_tx.poll_ready(cx)).await?;
-                    let chunk = poll_fn(|cx| Pin::new(&mut stream).poll_next(cx)).await;
-                    match chunk {
-                        None => {
-                            body_tx.disconnect();
-                            return anyhow::Ok(());
-                        }
-                        Some(Ok(bytes)) => body_tx.start_send(Ok(bytes))?,
-                        Some(Err(err)) => {
-                            body_tx.start_send(Err(err.to_string()))?;
-                            body_tx.disconnect();
-                            return anyhow::Ok(());
-                        }
-                    }
-                }
-            });
-            client_req = client_req.body(reqwest::Body::wrap_stream(body_rx));
-        }
-    };
-
-    // Add content-length header to request if it does not exists
-    if req.method() != Method::GET && !has_content_length {
-        if let Some(length) = content_length {
-            client_req = client_req.header(header::CONTENT_LENGTH, length);
-        }
-    }
+    *client_req.headers_mut() = headers;
 
     // Proxy to an upstream service
-    let mut upstream_resp = client_req.send().await?;
+    let body: LuaBody = req.take_body().into();
+    let upstream_resp = client_req.send_body(body).await?;
 
-    let status = upstream_resp.status();
-    let version = upstream_resp.version();
-
-    // Take headers
-    let mut headers = HeaderMap::with_capacity(upstream_resp.headers().len());
-    let mut name = None;
-    for (key, value) in upstream_resp.headers_mut().drain() {
-        if key.is_some() {
-            name = key;
-        }
-        headers.append(name.clone().unwrap(), value);
-    }
-    filter_hop_headers(&mut headers);
-
-    // Make LuaResponse
-    let mut resp = LuaResponse::new({
-        let length = upstream_resp.content_length();
-        LuaBody::Payload {
-            payload: Payload::Stream {
-                payload: upstream_resp
-                    .bytes_stream()
-                    .map_err(|err| match err {
-                        _ if err.is_timeout() => {
-                            PayloadError::Io(io::Error::new(io::ErrorKind::TimedOut, err))
-                        }
-                        _ => PayloadError::Io(io::Error::new(io::ErrorKind::Other, err)),
-                    })
-                    .boxed(),
-            },
-            length,
-            timeout: None,
-        }
-    });
-
-    *resp.status_mut() = status;
-    resp.set_version(Some(version));
-    *resp.headers_mut() = headers;
-    resp.is_proxied = true;
+    let mut resp = LuaResponse::from(upstream_resp);
+    filter_hop_headers(&mut resp.headers_mut());
 
     Ok(resp)
 }
@@ -191,10 +106,13 @@ pub async fn proxy_to_upstream(
         Ok(resp) => Ok(resp),
         Err(err) => {
             let status = match err {
-                _ if err.is_timeout() => StatusCode::GATEWAY_TIMEOUT,
-                _ if err.is_connect() => StatusCode::SERVICE_UNAVAILABLE,
-                _ if err.is_request() => StatusCode::BAD_GATEWAY,
-                _ => return Err(err.into_lua_err()),
+                SendRequestError::Connect(_) => StatusCode::SERVICE_UNAVAILABLE,
+                SendRequestError::Timeout => StatusCode::GATEWAY_TIMEOUT,
+                SendRequestError::Send(_)
+                | SendRequestError::Response(_)
+                | SendRequestError::Http(_)
+                | SendRequestError::H2(_) => StatusCode::BAD_GATEWAY,
+                _ => return Err(err.to_string().into_lua_err()),
             };
             let mut resp = LuaResponse::new(LuaBody::from(err.to_string()));
             *resp.status_mut() = status;
@@ -205,9 +123,9 @@ pub async fn proxy_to_upstream(
     }
 }
 
-pub async fn buffer_payload(payload: &mut Payload) -> Result<Bytes, Box<dyn StdError>> {
+pub async fn buffer_body(mut body: impl MessageBody) -> Result<Bytes, Box<dyn StdError>> {
     let mut bytes = BytesMut::new();
-    while let Some(item) = payload.next().await {
+    while let Some(item) = futures::future::poll_fn(|cx| body.poll_next_chunk(cx)).await {
         bytes.extend_from_slice(&item?);
     }
     Ok(bytes.freeze())
