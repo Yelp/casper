@@ -256,7 +256,7 @@ impl MessageBody for LuaBody {
     fn size(&self) -> BodySize {
         match self {
             LuaBody::None => BodySize::None,
-            LuaBody::Bytes(b) if b.len() == 0 => BodySize::Empty,
+            LuaBody::Bytes(b) if b.is_empty() => BodySize::Empty,
             LuaBody::Bytes(b) => BodySize::Sized(b.len() as u64),
             LuaBody::Body { body, .. } => body.size(),
             LuaBody::Payload { length, .. } => {

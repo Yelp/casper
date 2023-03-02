@@ -86,7 +86,7 @@ async fn send_to_upstream(
     let upstream_resp = client_req.send_body(body).await?;
 
     let mut resp = LuaResponse::from(upstream_resp);
-    filter_hop_headers(&mut resp.headers_mut());
+    filter_hop_headers(resp.headers_mut());
 
     Ok(resp)
 }
