@@ -1,8 +1,12 @@
+use std::pin::Pin;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
+use std::task::{Context, Poll};
 use std::time::Duration;
 
 use clap::Parser;
+use futures::Future;
+use metrics::ActiveCounterGuard;
 use ntex::http::client::Client as HttpClient;
 use ntex::http::HttpService;
 use ntex::io::Io;
@@ -12,6 +16,7 @@ use ntex::service::{apply_fn_factory, Service};
 use ntex::time::Seconds;
 use ntex::util::PoolId;
 use ntex::web::{self, App};
+use pin_project_lite::pin_project;
 use tracing::error;
 use tracing_log::LogTracer;
 
@@ -123,8 +128,8 @@ async fn main_inner(args: Args) -> anyhow::Result<()> {
 
             apply_fn_factory(service, |io: Io, handler| {
                 // Count number of active connections
-                let _conn_guard = connections_counter_inc!();
-                handler.call(io)
+                let guard = connections_counter_inc!();
+                IoServiceWrapper::new(guard, handler.call(io))
             })
         })?
         .backlog(2048)
@@ -148,6 +153,29 @@ fn main() {
     let system = System::new("casper");
     if let Err(err) = system.block_on(main_inner(args)) {
         error!("{err:#}");
+    }
+}
+
+pin_project! {
+    struct IoServiceWrapper<S> {
+        guard: ActiveCounterGuard,
+        #[pin]
+        inner: S,
+    }
+}
+
+impl<S> IoServiceWrapper<S> {
+    const fn new(guard: ActiveCounterGuard, inner: S) -> Self {
+        IoServiceWrapper { guard, inner }
+    }
+}
+
+impl<S: Future> Future for IoServiceWrapper<S> {
+    type Output = <S as Future>::Output;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let this = self.project();
+        this.inner.poll(cx)
     }
 }
 
