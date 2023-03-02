@@ -29,3 +29,11 @@ where
         tokio::task::spawn_blocking(move || zstd::stream::encode_all(data.as_ref(), level)).await;
     Ok(result??)
 }
+
+pub async fn decompress_with_zstd<B>(data: B) -> Result<Vec<u8>, anyhow::Error>
+where
+    B: AsRef<[u8]> + Send + 'static,
+{
+    let result = tokio::task::spawn_blocking(move || zstd::stream::decode_all(data.as_ref())).await;
+    Ok(result??)
+}

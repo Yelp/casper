@@ -18,7 +18,7 @@ use fred::types::{
 use futures::future::{try_join, try_join_all, TryFutureExt};
 use futures::stream::{self, StreamExt, TryStreamExt};
 use moka::future::Cache;
-use ntex::http::body::{Body, BoxedBodyStream, SizedStream};
+use ntex::http::body::{Body, SizedStream};
 use ntex::http::{Response, StatusCode};
 use ntex::util::Bytes;
 use once_cell::sync::Lazy;
@@ -28,8 +28,8 @@ use tokio::time::timeout;
 
 use super::Config;
 use crate::storage::{
-    compress_with_zstd, decode_headers, encode_headers, Item, ItemKey, Key, Storage,
-    MAX_CONCURRENCY,
+    compress_with_zstd, decode_headers, decompress_with_zstd, encode_headers, Item, ItemKey, Key,
+    Storage, MAX_CONCURRENCY,
 };
 use crate::utils::zstd::ZstdDecoder;
 
@@ -55,8 +55,7 @@ struct ResponseItem {
     surrogate_keys: Vec<Key>,
     body: Bytes,
     // Total original body length (before compression)
-    #[serde(default)]
-    body_length: Option<usize>,
+    body_length: usize,
     num_chunks: u32,
     flags: Flags,
 }
@@ -233,6 +232,26 @@ impl RedisBackend {
             }
         }
 
+        let status = StatusCode::from_u16(response_item.status_code)?;
+        let headers = match response_item.flags.contains(Flags::COMPRESSED) {
+            true => zstd::stream::decode_all(response_item.headers.as_slice())?,
+            false => response_item.headers,
+        };
+        let headers = decode_headers(&headers)?;
+
+        // If we have only one chunk, decode it in-place
+        if response_item.num_chunks == 1 {
+            let body = match response_item.flags.contains(Flags::COMPRESSED) {
+                true => Bytes::from(decompress_with_zstd(response_item.body).await?),
+                false => response_item.body,
+            };
+
+            // Construct new Response object
+            let mut resp = Response::with_body(status, Body::Bytes(body));
+            *resp.headers_mut() = headers;
+            return Ok(Some(resp));
+        }
+
         // Make body stream to fetch chunks from Redis
         let num_chunks = response_item.num_chunks as usize;
         // First chunk is stored in the response item, skip it
@@ -255,29 +274,19 @@ impl RedisBackend {
         let body_stream = stream::iter(vec![Ok(response_item.body)]).chain(chunks_stream);
 
         // Decompress the body and headers if required
-        let (body, headers);
-        if response_item.flags.contains(Flags::COMPRESSED) {
+        let body_size = response_item.body_length as u64;
+        let body = if response_item.flags.contains(Flags::COMPRESSED) {
             let body_stream =
                 ZstdDecoder::new(body_stream).map_err(|err| Box::new(err) as Box<dyn StdError>);
-            headers = zstd::stream::decode_all(response_item.headers.as_slice())?;
-            body = Body::Message(match response_item.body_length {
-                Some(length) => Box::new(SizedStream::new(length as u64, Box::pin(body_stream))),
-                None => Box::new(BoxedBodyStream::new(Box::pin(body_stream))),
-            })
+            Body::Message(Box::new(SizedStream::new(body_size, Box::pin(body_stream))))
         } else {
-            headers = response_item.headers;
             let body_stream = body_stream.map_err(|err| Box::new(err) as Box<dyn StdError>);
-            body = Body::Message(match response_item.body_length {
-                Some(length) => Box::new(SizedStream::new(length as u64, Box::pin(body_stream))),
-                None => Box::new(BoxedBodyStream::new(Box::pin(body_stream))),
-            })
-        }
+            Body::Message(Box::new(SizedStream::new(body_size, Box::pin(body_stream))))
+        };
 
         // Construct new Response object
-        let status = StatusCode::from_u16(response_item.status_code)?;
         let mut resp = Response::with_body(status, body);
-        *resp.headers_mut() = decode_headers(&headers)?;
-
+        *resp.headers_mut() = headers;
         Ok(Some(resp))
     }
 
@@ -359,7 +368,7 @@ impl RedisBackend {
             surrogate_keys: item.surrogate_keys.clone(),
             headers,
             body,
-            body_length: Some(body_length), // Original length before compression
+            body_length, // Original length before compression
             num_chunks,
             flags,
         };
