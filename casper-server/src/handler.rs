@@ -66,7 +66,7 @@ pub(crate) async fn handler_inner(
     let lua = app_ctx.lua.clone();
 
     // Get Lua context table
-    let ctx = lua_ctx.get(&lua);
+    let ctx = lua_ctx.as_ref();
 
     let lua_req = lua.create_userdata(req)?;
     let mut early_resp = None;
@@ -85,7 +85,7 @@ pub(crate) async fn handler_inner(
             filter_histogram_rec!(start, "name" => name.clone(), "phase" => "on_request");
         }
 
-        let on_request: Function = lua.registry_value(on_request)?;
+        let on_request: Function = on_request.as_ref();
         match on_request
             .call_async::<_, Value>((lua_req.clone(), ctx.clone()))
             .await
@@ -116,8 +116,8 @@ pub(crate) async fn handler_inner(
     // Otherwise call handler function
     let lua_resp = match (early_resp, &app_ctx.handler) {
         (Some(resp), _) => resp,
-        (None, Some(handler_key)) => {
-            let handler: Function = lua.registry_value(handler_key)?;
+        (None, Some(handler)) => {
+            let handler = handler.as_ref();
             match handler.call_async((lua_req, ctx.clone())).await {
                 Ok(Value::UserData(resp)) if resp.is::<LuaResponse>() => resp,
                 Ok(r) => {
@@ -155,7 +155,7 @@ pub(crate) async fn handler_inner(
             filter_histogram_rec!(start, "name" => name.clone(), "phase" => "on_response");
         }
 
-        let on_response: Function = lua.registry_value(on_response)?;
+        let on_response: Function = on_response.as_ref();
         if let Err(err) = on_response
             .call_async::<_, ()>((lua_resp.clone(), ctx.clone()))
             .await

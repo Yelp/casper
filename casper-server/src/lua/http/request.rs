@@ -375,8 +375,6 @@ impl UserData for LuaRequest {
 
 #[cfg(test)]
 mod tests {
-    use std::rc::Rc;
-
     use mlua::{chunk, Lua, Result};
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -385,8 +383,7 @@ mod tests {
 
     #[ntex::test]
     async fn test_request() -> Result<()> {
-        let lua = Rc::new(Lua::new());
-        lua.set_app_data(Rc::downgrade(&lua));
+        let lua = Lua::new();
 
         lua.globals()
             .set("Request", lua.create_proxy::<LuaRequest>()?)?;
@@ -501,8 +498,7 @@ mod tests {
 
     #[ntex::test]
     async fn test_proxy_to_upstream() -> Result<()> {
-        let lua = Rc::new(Lua::new());
-        lua.set_app_data(Rc::downgrade(&lua));
+        let lua = Lua::new();
 
         lua.globals()
             .set("Request", lua.create_proxy::<LuaRequest>()?)?;

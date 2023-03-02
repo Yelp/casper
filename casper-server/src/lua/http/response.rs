@@ -328,16 +328,13 @@ impl UserData for LuaResponse {
 
 #[cfg(test)]
 mod tests {
-    use std::rc::Rc;
-
     use mlua::{chunk, Lua, Result};
 
     use super::*;
 
     #[ntex::test]
     async fn test_response() -> Result<()> {
-        let lua = Rc::new(Lua::new());
-        lua.set_app_data(Rc::downgrade(&lua));
+        let lua = Lua::new();
 
         lua.globals()
             .set("Response", lua.create_proxy::<LuaResponse>()?)?;

@@ -2,8 +2,8 @@ use std::rc::Rc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use mlua::{
-    AnyUserData, ExternalError, ExternalResult, Function, Lua, RegistryKey, Result, Table,
-    UserData, Value,
+    AnyUserData, ExternalError, ExternalResult, Function, Lua, OwnedFunction, RegistryKey, Result,
+    Table, UserData, Value,
 };
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 use tokio::sync::oneshot;
@@ -13,6 +13,7 @@ use tracing::warn;
 
 // TODO: Support task timeout
 // TODO: Support recurring tasks
+// TODO: Limit number of in-flight tasks
 
 type TaskJoinHandle = JoinHandle<Result<RegistryKey>>;
 
@@ -20,7 +21,7 @@ type TaskJoinHandle = JoinHandle<Result<RegistryKey>>;
 struct Task {
     id: u64,
     name: Option<String>,
-    handler: RegistryKey,
+    handler: OwnedFunction,
     join_handle_tx: oneshot::Sender<TaskJoinHandle>,
 }
 
@@ -81,11 +82,11 @@ fn spawn_task(lua: &Lua, arg: Value) -> Result<TaskHandle> {
 
     let mut name = None;
     let handler = match arg {
-        Value::Function(task_fn) => lua.create_registry_value(task_fn)?,
+        Value::Function(task_fn) => task_fn.into_owned(),
         Value::Table(params) => {
             name = params.get::<_, Option<String>>("name")?;
             let task_fn = params.get::<_, Function>("handler")?;
-            lua.create_registry_value(task_fn)?
+            task_fn.into_owned()
         }
         v => {
             let err = format!(
@@ -104,6 +105,7 @@ fn spawn_task(lua: &Lua, arg: Value) -> Result<TaskHandle> {
             handler,
             join_handle_tx,
         })
+        .map_err(|err| format!("cannot spawn task: {err}"))
         .into_lua_err()?;
 
     Ok(TaskHandle {
@@ -114,26 +116,23 @@ fn spawn_task(lua: &Lua, arg: Value) -> Result<TaskHandle> {
     })
 }
 
-pub fn start_task_scheduler(lua: &Rc<Lua>) {
+pub fn start_task_scheduler(lua: Rc<Lua>) {
     let mut task_rx = lua
         .remove_app_data::<UnboundedReceiver<Task>>()
         .expect("Failed to get task receiver");
 
-    let lua = lua.clone();
     tokio::task::spawn_local(async move {
         while let Some(task) = task_rx.recv().await {
-            let lua2 = lua.clone();
+            let lua = lua.clone();
             let join_handle = tokio::task::spawn_local(async move {
                 let start = Instant::now();
                 let _task_count_guard = tasks_counter_inc!();
 
-                let task_fn = lua2
-                    .registry_value::<Function>(&task.handler)
-                    .expect("Failed to get task function from Lua registry");
+                let task_fn = task.handler.as_ref();
                 let result = task_fn
                     .call_async::<_, Value>(())
                     .await
-                    .and_then(|v| lua2.create_registry_value(v));
+                    .and_then(|v| lua.create_registry_value(v));
 
                 // Record task metrics
                 match task.name {
@@ -185,7 +184,6 @@ mod tests {
     #[ntex::test]
     async fn test_tasks() -> Result<()> {
         let lua = Rc::new(Lua::new());
-        lua.set_app_data(Rc::downgrade(&lua));
 
         lua.globals().set("tasks", super::create_module(&lua)?)?;
         lua.globals().set(
@@ -196,7 +194,7 @@ mod tests {
             })?,
         )?;
 
-        super::start_task_scheduler(&lua);
+        super::start_task_scheduler(lua.clone());
 
         // Test normal task run and result collection
         lua.load(chunk! {

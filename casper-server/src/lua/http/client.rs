@@ -118,8 +118,6 @@ impl UserData for LuaHttpClient {
 
 #[cfg(test)]
 mod tests {
-    use std::rc::Rc;
-
     use mlua::{chunk, Lua, Result};
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -128,8 +126,7 @@ mod tests {
 
     #[ntex::test]
     async fn test_client() -> Result<()> {
-        let lua = Rc::new(Lua::new());
-        lua.set_app_data(Rc::downgrade(&lua));
+        let lua = Lua::new();
 
         lua.globals()
             .set("Client", lua.create_proxy::<LuaHttpClient>()?)?;

@@ -57,7 +57,7 @@ wiremock = "0.5"
 [dependencies.mlua]
 features = ["luau", "async", "serialize", "macros", "unstable"]
 git = "https://github.com/khvzak/mlua"
-rev = "949906f9f7b8e68ac898ad64c8102b3469b59d12"
+rev = "5394faca161c969208defbd953a2bfb7690cac7c"
 
 [dependencies.fred]
 features = ["enable-native-tls"]

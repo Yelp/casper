@@ -6,7 +6,7 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 
-use mlua::{Function, LuaSerdeExt};
+use mlua::LuaSerdeExt;
 use ntex::http::body::{Body, BodySize, MessageBody, ResponseBody};
 use ntex::service::{forward_poll_ready, forward_poll_shutdown, Middleware, Service};
 use ntex::util::Bytes;
@@ -61,11 +61,11 @@ impl LoggerMiddleware<()> {
         let log = async move {
             let lua = &app_ctx.lua;
             let log_data = lua.to_value(&log_data);
-            let access_log_key = app_ctx.access_log.as_ref().unwrap(); // never fails
-            let access_logger = lua.registry_value::<Function>(access_log_key)?;
-            let lua_ctx = lua_ctx.get(lua);
+            let access_log_handler = app_ctx.access_log.as_ref().unwrap(); // never fails
+            let access_log_handler = access_log_handler.as_ref();
+            let lua_ctx = lua_ctx.as_ref();
 
-            access_logger
+            access_log_handler
                 .call_async::<_, ()>((log_data?, lua_ctx))
                 .await
         };

@@ -1,13 +1,12 @@
 use std::ops::Deref;
-use std::rc::Rc;
 
-use mlua::{Lua, RegistryKey, Table};
+use mlua::{Lua, OwnedTable};
 
 #[derive(Clone, Debug)]
-pub(crate) struct LuaContext(pub(crate) Rc<RegistryKey>);
+pub(crate) struct LuaContext(pub(crate) OwnedTable);
 
 impl Deref for LuaContext {
-    type Target = RegistryKey;
+    type Target = OwnedTable;
 
     #[inline]
     fn deref(&self) -> &Self::Target {
@@ -20,14 +19,6 @@ impl LuaContext {
         let ctx = lua
             .create_table()
             .expect("Failed to create Lua context table");
-        let key = lua
-            .create_registry_value(ctx)
-            .expect("Failed to store Lua context table in the registry");
-        LuaContext(Rc::new(key))
-    }
-
-    pub(crate) fn get<'lua>(&self, lua: &'lua Lua) -> Table<'lua> {
-        lua.registry_value::<Table>(&self.0)
-            .expect("Unable to get Lua context table from the registry")
+        LuaContext(ctx.into_owned())
     }
 }

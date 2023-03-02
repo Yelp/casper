@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
-use mlua::{Function, Lua, LuaOptions, RegistryKey, StdLib as LuaStdLib, Table};
+use mlua::{Function, Lua, LuaOptions, OwnedFunction, StdLib as LuaStdLib, Table};
 
 use crate::config::Config;
 use crate::lua::{self, LuaStorage};
@@ -27,8 +27,8 @@ pub struct AppContextBuilder {
 
 pub struct Filter {
     pub name: String,
-    pub on_request: Option<RegistryKey>,
-    pub on_response: Option<RegistryKey>,
+    pub on_request: Option<OwnedFunction>,
+    pub on_response: Option<OwnedFunction>,
 }
 
 pub struct AppContextInner {
@@ -37,9 +37,9 @@ pub struct AppContextInner {
 
     pub lua: Rc<Lua>,
     pub filters: Vec<Filter>,
-    pub handler: Option<RegistryKey>,
-    pub access_log: Option<RegistryKey>,
-    pub error_log: Option<RegistryKey>,
+    pub handler: Option<OwnedFunction>,
+    pub access_log: Option<OwnedFunction>,
+    pub error_log: Option<OwnedFunction>,
 
     storage_backends: Vec<Backend>,
 }
@@ -98,8 +98,6 @@ impl AppContextInner {
         let lua = Lua::new_with(LuaStdLib::ALL_SAFE, lua_options)
             .with_context(|| "Failed to create Lua instance")?;
         let lua = Rc::new(lua);
-        // Store weak reference to self
-        lua.set_app_data(Rc::downgrade(&lua));
 
         let mut worker_ctx = AppContextInner {
             id: NEXT_ID.fetch_add(1, Ordering::SeqCst),
@@ -139,7 +137,7 @@ impl AppContextInner {
         core.set("storage", storage)?;
 
         // Start task scheduler
-        lua::tasks::start_task_scheduler(lua);
+        lua::tasks::start_task_scheduler(lua.clone());
 
         // Load filters code
         for filter in &self.config.http.filters {
@@ -149,35 +147,27 @@ impl AppContextInner {
 
             self.filters.push(Filter {
                 name: filter.name.clone(),
-                on_request: on_request
-                    .map(|x| lua.create_registry_value(x))
-                    .transpose()?,
-                on_response: on_response
-                    .map(|x| lua.create_registry_value(x))
-                    .transpose()?,
+                on_request: on_request.map(|x| x.into_owned()),
+                on_response: on_response.map(|x| x.into_owned()),
             });
         }
 
         // Load main handler
         if let Some(handler) = &self.config.http.handler {
             let handler: Option<Function> = lua.load(handler.code.trim()).eval()?;
-            self.handler = handler.map(|x| lua.create_registry_value(x)).transpose()?;
+            self.handler = handler.map(|x| x.into_owned());
         }
 
         // Load access logger
         if let Some(logger) = &self.config.http.access_log {
             let access_log: Option<Function> = lua.load(logger.code.trim()).eval()?;
-            self.access_log = access_log
-                .map(|x| lua.create_registry_value(x))
-                .transpose()?;
+            self.access_log = access_log.map(|x| x.into_owned());
         }
 
         // Load error logger
         if let Some(logger) = &self.config.http.error_log {
             let error_log: Option<Function> = lua.load(&logger.code).eval()?;
-            self.error_log = error_log
-                .map(|x| lua.create_registry_value(x))
-                .transpose()?;
+            self.error_log = error_log.map(|x| x.into_owned());
         }
 
         // Enable sandboxing

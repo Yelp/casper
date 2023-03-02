@@ -227,8 +227,6 @@ fn calculate_primary_key(lua: &Lua, key: Value) -> LuaResult<Key> {
 
 #[cfg(test)]
 mod tests {
-    use std::rc::Rc;
-
     use mlua::{chunk, Lua, Result};
 
     use super::*;
@@ -236,8 +234,7 @@ mod tests {
 
     #[ntex::test]
     async fn test_storage() -> Result<()> {
-        let lua = Rc::new(Lua::new());
-        lua.set_app_data(Rc::downgrade(&lua));
+        let lua = Lua::new();
 
         let backend_config = serde_yaml::from_str(
             r#"

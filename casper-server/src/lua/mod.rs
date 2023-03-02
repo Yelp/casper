@@ -4,8 +4,6 @@ pub use {
     storage::LuaStorage,
 };
 
-pub(crate) use traits::{LuaExt, WeakLuaExt};
-
 #[macro_use]
 mod macros;
 
@@ -24,5 +22,3 @@ pub mod tasks;
 pub mod udp;
 pub mod uri;
 pub mod utils;
-
-pub(crate) mod traits;

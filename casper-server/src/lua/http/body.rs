@@ -1,13 +1,13 @@
 use std::error::Error as StdError;
 use std::fmt;
 use std::mem;
-use std::rc::{Rc, Weak};
+use std::rc::Rc;
 use std::task::{Context, Poll};
 use std::time::Duration;
 
 use futures::{Stream, TryStreamExt};
 use mlua::{
-    AnyUserData, ExternalError, FromLua, Function, Lua, RegistryKey, Result as LuaResult,
+    AnyUserData, ExternalError, FromLua, Lua, OwnedAnyUserData, Result as LuaResult,
     String as LuaString, UserData, Value,
 };
 use ntex::http::body::{self, BodySize, BoxedBodyStream, MessageBody, ResponseBody, SizedStream};
@@ -16,7 +16,6 @@ use ntex::util::{Bytes, BytesMut};
 use tokio::time;
 use tracing::error;
 
-use super::super::{LuaExt, WeakLuaExt};
 use crate::http::buffer_body;
 
 // TODO: Limit number of fetched bytes
@@ -88,15 +87,15 @@ impl LuaBody {
 pub enum EitherBody {
     /// The body is available directly
     Body(LuaBody),
-    /// The body is stored in Lua Registry
-    Registry(Weak<Lua>, RegistryKey),
+    /// The body is stored in Lua in UserData
+    UserData(OwnedAnyUserData),
 }
 
 impl fmt::Debug for EitherBody {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             EitherBody::Body(_) => f.write_str("EitherBody::Body"),
-            EitherBody::Registry(_, _) => f.write_str("EitherBody::Registry"),
+            EitherBody::UserData(_) => f.write_str("EitherBody::Lua"),
         }
     }
 }
@@ -115,11 +114,13 @@ impl EitherBody {
                 let body = mem::replace(tmp_body, LuaBody::None);
                 // Move body to Lua registry
                 let lua_body = lua.create_userdata(body)?;
-                let key = lua.create_registry_value(lua_body.clone())?;
-                *self = EitherBody::Registry(lua.weak(), key);
+                *self = EitherBody::UserData(lua_body.clone().into_owned());
                 Ok(lua_body)
             }
-            EitherBody::Registry(_, key) => lua.registry_value::<AnyUserData>(key),
+            EitherBody::UserData(ud) => match lua.pack(ud.clone())? {
+                Value::UserData(ud) => Ok(ud),
+                _ => unreachable!(),
+            },
         }
     }
 
@@ -127,11 +128,8 @@ impl EitherBody {
     pub(crate) async fn buffer(&mut self) -> LuaResult<Option<Bytes>> {
         match self {
             EitherBody::Body(body) => body.buffer().await,
-            EitherBody::Registry(lua, key) => {
-                let lua = lua.to_strong();
-                let ud = lua
-                    .registry_value::<AnyUserData>(key)
-                    .expect("Failed to get body from Lua Registry");
+            EitherBody::UserData(ud) => {
+                let ud = ud.as_ref();
                 let mut body = ud
                     .borrow_mut::<LuaBody>()
                     .expect("Failed to borrow body from Lua UserData");
@@ -146,11 +144,8 @@ impl From<EitherBody> for LuaBody {
     fn from(body: EitherBody) -> Self {
         match body {
             EitherBody::Body(inner) => inner,
-            EitherBody::Registry(lua, key) => {
-                let lua = lua.to_strong();
-                let ud = lua
-                    .registry_value::<AnyUserData>(&key)
-                    .expect("Failed to get body from Lua Registry");
+            EitherBody::UserData(ud) => {
+                let ud = ud.as_ref();
                 ud.take::<LuaBody>()
                     .expect("Failed to take out body from Lua UserData")
             }
@@ -289,7 +284,7 @@ impl MessageBody for LuaBody {
 }
 
 impl<'lua> FromLua<'lua> for LuaBody {
-    fn from_lua(lua_value: Value<'lua>, lua: &'lua Lua) -> LuaResult<Self> {
+    fn from_lua(lua_value: Value<'lua>, _: &'lua Lua) -> LuaResult<Self> {
         match lua_value {
             Value::Nil => Ok(LuaBody::None),
             Value::String(s) => Ok(LuaBody::Bytes(Bytes::from(s.as_bytes().to_vec()))),
@@ -301,10 +296,9 @@ impl<'lua> FromLua<'lua> for LuaBody {
                 Ok(LuaBody::Bytes(data.freeze()))
             }
             Value::Function(f) => {
-                let lua = lua.strong();
-                let func_key = lua.create_registry_value(f)?;
+                let func = f.into_owned();
                 let stream = futures::stream::poll_fn(move |_| {
-                    let func = lua.registry_value::<Function>(&func_key).unwrap();
+                    let func = func.as_ref();
                     match func.call::<_, Option<LuaString>>(()) {
                         Ok(Some(chunk)) => {
                             Poll::Ready(Some(Ok(Bytes::from(chunk.as_bytes().to_vec()))))
@@ -418,7 +412,6 @@ impl UserData for LuaBody {
 mod tests {
     use std::error::Error as StdError;
     use std::io::{Error as IoError, ErrorKind};
-    use std::rc::Rc;
     use std::time::Duration;
 
     use mlua::{chunk, Lua, Result as LuaResult};
@@ -580,9 +573,8 @@ mod tests {
 
     #[ntex::test]
     async fn test_lua_body() -> LuaResult<()> {
-        let lua = Rc::new(Lua::new());
+        let lua = Lua::new();
         super::super::super::bytes::register_types(&lua)?;
-        lua.set_app_data(Rc::downgrade(&lua));
 
         lua.globals().set("Body", lua.create_proxy::<LuaBody>()?)?;
 
@@ -615,9 +607,8 @@ mod tests {
 
     #[ntex::test]
     async fn test_lua_body_error() -> LuaResult<()> {
-        let lua = Rc::new(Lua::new());
+        let lua = Lua::new();
         super::super::super::bytes::register_types(&lua)?;
-        lua.set_app_data(Rc::downgrade(&lua));
 
         lua.globals().set("Body", lua.create_proxy::<LuaBody>()?)?;
 
