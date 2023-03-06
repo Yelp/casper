@@ -38,7 +38,7 @@ scopeguard = "1.1.0"
 serde = { version = "1", features = ["derive"] }
 serde_bytes = "0.11"
 serde_json = "1"
-serde_qs = "0.11"
+serde_qs = "0.12"
 serde_yaml = "0.9"
 sys-info = "0.9"
 thiserror = "1"
@@ -57,12 +57,12 @@ wiremock = "0.5"
 [dependencies.mlua]
 features = ["luau", "async", "serialize", "macros", "unstable"]
 git = "https://github.com/khvzak/mlua"
-rev = "5394faca161c969208defbd953a2bfb7690cac7c"
+rev = "33c276d0b4904f5f7c00502d46422cb9e84555e4"
 
 [dependencies.fred]
 features = ["enable-native-tls"]
 git = "https://github.com/aembke/fred.rs"
-rev = "32d81433394a88dd8eb97dbbe73f82d53dff3d6c"
+rev = "32d20595b279058858cc47fae11480c846030335"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 tikv-jemallocator = "0.5"
