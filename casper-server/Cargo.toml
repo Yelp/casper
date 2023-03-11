@@ -48,7 +48,7 @@ tracing = "0.1"
 tracing-log = "0.1"
 tracing-subscriber = "0.3"
 zstd = "0.12"
-ntex = { version = "0.6.3", features = ["tokio"] }
+ntex = { version = "0.6.4", features = ["tokio"] }
 
 [dev-dependencies]
 tokio-stream = { version = "0.1", features = ["time"] }
@@ -57,7 +57,7 @@ wiremock = "0.5"
 [dependencies.mlua]
 features = ["luau", "async", "serialize", "macros", "unstable"]
 git = "https://github.com/khvzak/mlua"
-rev = "33c276d0b4904f5f7c00502d46422cb9e84555e4"
+rev = "304880bfd18c7d4ca6ea7b2e83b2022fd1003bcd"
 
 [dependencies.fred]
 features = ["enable-native-tls"]
