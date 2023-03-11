@@ -115,8 +115,7 @@ impl From<ClientResponse> for LuaResponse {
         LuaResponse {
             version: Some(response.version()),
             status: response.status(),
-            // TODO: Avoid clone
-            headers: response.headers().clone(),
+            headers: mem::take(response.headers_mut()),
             extensions,
             body: EitherBody::Body(LuaBody::from((response.take_payload(), content_length))),
             labels: None,
