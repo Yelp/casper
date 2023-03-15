@@ -1,24 +1,16 @@
 use ntex::http::header::HeaderMap;
 
+use crate::http::serde as http_serde;
+
 pub fn encode_headers(headers: &HeaderMap) -> Result<Vec<u8>, flexbuffers::SerializationError> {
-    // Covert ntex headers to http headers
-    // TODO: Avoid conversion and serialize directly from ntex's HeaderMap
-    let mut http_headers = http::HeaderMap::with_capacity(headers.len());
-    for (name, val) in headers {
-        http_headers.append(
-            name.clone(),
-            http::HeaderValue::from_bytes(val.as_bytes()).unwrap(),
-        );
-    }
     let mut serializer = flexbuffers::FlexbufferSerializer::new();
-    http_serde::header_map::serialize(&http_headers, &mut serializer)?;
+    http_serde::header_map::serialize(headers, &mut serializer)?;
     Ok(serializer.take_buffer())
 }
 
 pub fn decode_headers(data: &[u8]) -> Result<HeaderMap, flexbuffers::DeserializationError> {
     let deserializer = flexbuffers::Reader::get_root(data)?;
-    (http_serde::header_map::deserialize(deserializer) as Result<http::HeaderMap, _>)
-        .map(Into::into)
+    http_serde::header_map::deserialize(deserializer)
 }
 
 pub async fn compress_with_zstd<B>(data: B, level: i32) -> Result<Vec<u8>, anyhow::Error>

@@ -130,3 +130,5 @@ pub async fn buffer_body(mut body: impl MessageBody) -> Result<Bytes, Box<dyn St
     }
     Ok(bytes.freeze())
 }
+
+pub(crate) mod serde;

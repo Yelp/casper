@@ -251,8 +251,6 @@ dependencies = [
  "futures",
  "futures-util",
  "hex",
- "http",
- "http-serde",
  "linked-hash-map",
  "mlua",
  "moka",
@@ -898,16 +896,6 @@ dependencies = [
  "bytes",
  "http",
  "pin-project-lite",
-]
-
-[[package]]
-name = "http-serde"
-version = "1.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0e272971f774ba29341db2f686255ff8a979365a26fb9e4277f6b6d9ec0cdd5e"
-dependencies = [
- "http",
- "serde",
 ]
 
 [[package]]

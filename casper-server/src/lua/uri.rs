@@ -1,4 +1,4 @@
-use http::uri::Uri;
+use ntex::http::uri::Uri;
 use mlua::{ExternalResult, Lua, Result as LuaResult, String as LuaString, Table};
 use percent_encoding::{AsciiSet, NON_ALPHANUMERIC};
 
