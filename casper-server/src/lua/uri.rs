@@ -1,5 +1,5 @@
-use ntex::http::uri::Uri;
 use mlua::{ExternalResult, Lua, Result as LuaResult, String as LuaString, Table};
+use ntex::http::uri::Uri;
 use percent_encoding::{AsciiSet, NON_ALPHANUMERIC};
 
 const URI_COMPONENT_SET: AsciiSet = NON_ALPHANUMERIC
