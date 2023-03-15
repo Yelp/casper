@@ -119,8 +119,7 @@ impl UserData for LuaHttpClient {
 #[cfg(test)]
 mod tests {
     use mlua::{chunk, Lua, Result};
-    use wiremock::matchers::{method, path};
-    use wiremock::{Mock, MockServer, ResponseTemplate};
+    use ntex::web::{self, test, App};
 
     use super::*;
 
@@ -131,17 +130,14 @@ mod tests {
         lua.globals()
             .set("Client", lua.create_proxy::<LuaHttpClient>()?)?;
 
-        let mock_server = MockServer::start().await;
-        let uri = mock_server.uri();
-        Mock::given(method("GET"))
-            .and(path("/status"))
-            .respond_with(
-                ResponseTemplate::new(200)
-                    .append_header("x-test", "abc")
-                    .set_body_string("hello, world!"),
-            )
-            .mount(&mock_server)
-            .await;
+        let mock_server = test::server(|| {
+            App::new().service(web::resource("/status").to(|| async move {
+                web::HttpResponse::Ok()
+                    .header("x-test", "abc")
+                    .body("hello, world!")
+            }))
+        });
+        let uri = format!("http://{}", mock_server.addr());
 
         lua.load(chunk! {
             local client = Client.new()
