@@ -4,8 +4,8 @@ use std::time::{Duration, Instant};
 use std::{borrow::Cow, ops::Deref};
 
 use mlua::{
-    AnyUserData, FromLua, Lua, Result as LuaResult, String as LuaString, Table, UserData,
-    UserDataMethods, Value,
+    FromLua, Lua, Result as LuaResult, String as LuaString, Table, UserData, UserDataMethods,
+    UserDataRef, UserDataRefMut, Value,
 };
 use ripemd::{Digest, Ripemd160};
 
@@ -42,8 +42,7 @@ where
         //
         methods.add_async_function(
             "get_response",
-            |lua, (this, key): (AnyUserData, Value)| async move {
-                let this = this.borrow::<Self>()?;
+            |lua, (this, key): (UserDataRef<Self>, Value)| async move {
                 let start = Instant::now();
 
                 let key = calculate_primary_key(lua, key)?;
@@ -64,8 +63,7 @@ where
 
         methods.add_async_function(
             "get_responses",
-            |lua, (this, keys): (AnyUserData, Table)| async move {
-                let this = this.borrow::<Self>()?;
+            |lua, (this, keys): (UserDataRef<Self>, Table)| async move {
                 let start = Instant::now();
 
                 let keys = keys
@@ -103,8 +101,7 @@ where
         //
         methods.add_async_function(
             "delete_response",
-            |lua, (this, key): (AnyUserData, Value)| async move {
-                let this = this.borrow::<Self>()?;
+            |lua, (this, key): (UserDataRef<Self>, Value)| async move {
                 let start = Instant::now();
 
                 let key = calculate_primary_key(lua, key)?;
@@ -120,8 +117,7 @@ where
 
         methods.add_async_function(
             "delete_responses",
-            |lua, (this, keys): (AnyUserData, Table)| async move {
-                let this = this.borrow::<Self>()?;
+            |lua, (this, keys): (UserDataRef<Self>, Table)| async move {
                 let start = Instant::now();
 
                 let primary_keys: Option<Vec<Value>> = keys.raw_get("primary_keys")?;
@@ -162,16 +158,13 @@ where
         //
         methods.add_async_function(
             "store_response",
-            |lua, (this, item): (AnyUserData, Table)| async move {
-                let this = this.borrow::<Self>()?;
+            |lua, (this, item): (UserDataRef<Self>, Table)| async move {
                 let start = Instant::now();
 
                 let key: Value = item.raw_get("key")?;
-                let resp: AnyUserData = item.raw_get("response")?;
+                let mut resp: UserDataRefMut<LuaResponse> = item.raw_get("response")?;
                 let surrogate_keys: Option<Vec<LuaString>> = item.raw_get("surrogate_keys")?;
                 let ttl: f32 = item.raw_get("ttl")?;
-
-                let mut resp = resp.borrow_mut::<LuaResponse>()?;
 
                 // Read Response body (it's consumed and saved)
                 let body = lua_try!(resp.body_mut().buffer().await).unwrap_or_default();

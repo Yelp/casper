@@ -2,7 +2,7 @@ use std::mem;
 use std::time::Duration;
 
 use mlua::{
-    AnyUserData, ExternalResult, FromLua, Result as LuaResult, Table, UserData, UserDataMethods,
+    ExternalResult, FromLua, Result as LuaResult, Table, UserData, UserDataMethods, UserDataRef,
     Value,
 };
 use ntex::http::client::{Client, Connector};
@@ -107,8 +107,7 @@ impl UserData for LuaHttpClient {
 
         methods.add_async_function(
             "request",
-            |lua, (this, params): (AnyUserData, Value)| async move {
-                let this = this.borrow::<Self>()?;
+            |lua, (this, params): (UserDataRef<Self>, Value)| async move {
                 let req = LuaRequest::from_lua(params, lua)?;
                 Ok(Ok(lua_try!(this.request(req).await)))
             },

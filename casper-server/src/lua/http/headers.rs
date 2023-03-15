@@ -3,8 +3,8 @@ use std::ops::{Deref, DerefMut};
 
 use mlua::{
     AnyUserData, ExternalError, ExternalResult, FromLua, Function, IntoLua, Lua, MetaMethod,
-    RegistryKey, Result as LuaResult, String as LuaString, Table, UserData, UserDataMethods, Value,
-    Variadic,
+    RegistryKey, Result as LuaResult, String as LuaString, Table, UserData, UserDataMethods,
+    UserDataRef, UserDataRefMut, Value, Variadic,
 };
 use ntex::http::header::{HeaderMap, HeaderName, HeaderValue};
 
@@ -202,10 +202,8 @@ impl UserData for LuaHttpHeaders {
             };
 
             let next = lua.create_function(move |lua, ud: Table| {
-                let this = ud.raw_get::<_, AnyUserData>(1)?;
-                let this = this.borrow_mut::<Self>()?;
-                let it = ud.raw_get::<_, AnyUserData>(2)?;
-                let mut it = it.borrow_mut::<LuaHttpHeadersIter>()?;
+                let this = ud.raw_get::<_, UserDataRef<Self>>(1)?;
+                let mut it = ud.raw_get::<_, UserDataRefMut<LuaHttpHeadersIter>>(2)?;
 
                 it.next += 1;
                 match it.names.get(it.next - 1) {

@@ -8,7 +8,7 @@ use std::time::Duration;
 use futures::{Stream, TryStreamExt};
 use mlua::{
     AnyUserData, ExternalError, FromLua, Lua, OwnedAnyUserData, Result as LuaResult,
-    String as LuaString, UserData, Value,
+    String as LuaString, UserData, UserDataRefMut, Value,
 };
 use ntex::http::body::{self, BodySize, BoxedBodyStream, MessageBody, ResponseBody, SizedStream};
 use ntex::http::Payload;
@@ -342,16 +342,14 @@ impl UserData for LuaBody {
         });
 
         // Discards the body without reading it
-        methods.add_async_function("discard", |_, ud: AnyUserData| async move {
-            let mut this = ud.borrow_mut::<Self>()?;
+        methods.add_async_function("discard", |_, mut this: UserDataRefMut<Self>| async move {
             *this = LuaBody::None;
             Ok(())
         });
 
         // Reads the body
         // Returns `bytes` (userdata) or `nil, error`
-        methods.add_async_function("read", |lua, ud: AnyUserData| async move {
-            let mut this = ud.borrow_mut::<Self>()?;
+        methods.add_async_function("read", |lua, mut this: UserDataRefMut<Self>| async move {
             let bytes = lua_try!(this.buffer().await);
             let data = bytes.map(|b| lua.create_any_userdata(b)).transpose()?;
             *this = LuaBody::None; // Drop saved data
@@ -392,19 +390,20 @@ impl UserData for LuaBody {
         });
 
         // Buffers the body into memory (if not already) and returns the buffered data
-        methods.add_async_function("data", |lua, this: AnyUserData| async move {
-            let mut this = this.borrow_mut::<Self>()?;
+        methods.add_async_function("data", |lua, mut this: UserDataRefMut<Self>| async move {
             let bytes = lua_try!(this.buffer().await);
             let data = bytes.map(|b| lua.create_any_userdata(b)).transpose()?;
             Ok(Ok(data))
         });
 
-        methods.add_async_function("to_string", |lua, this: AnyUserData| async move {
-            let mut this = this.borrow_mut::<Self>()?;
-            let bytes = lua_try!(this.buffer().await);
-            let data = bytes.map(|b| lua.create_string(&b)).transpose()?;
-            Ok(Ok(data))
-        });
+        methods.add_async_function(
+            "to_string",
+            |lua, mut this: UserDataRefMut<Self>| async move {
+                let bytes = lua_try!(this.buffer().await);
+                let data = bytes.map(|b| lua.create_string(&b)).transpose()?;
+                Ok(Ok(data))
+            },
+        );
     }
 }
 

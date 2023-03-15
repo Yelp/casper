@@ -3,8 +3,8 @@ use std::future::{ready, Ready};
 use std::mem;
 
 use mlua::{
-    AnyUserData, ExternalError, ExternalResult, FromLua, IntoLua, Lua, Result as LuaResult,
-    String as LuaString, Table, UserData, UserDataFields, UserDataMethods, Value,
+    ExternalError, ExternalResult, FromLua, IntoLua, Lua, Result as LuaResult, String as LuaString,
+    Table, UserData, UserDataFields, UserDataMethods, UserDataRefMut, Value,
 };
 use ntex::http::body::MessageBody;
 use ntex::http::client::ClientResponse;
@@ -241,8 +241,7 @@ impl UserData for LuaResponse {
             LuaResponse::from_lua(params, lua)
         });
 
-        methods.add_async_function("clone", |_, this: AnyUserData| async move {
-            let mut this = this.borrow_mut::<Self>()?;
+        methods.add_async_function("clone", |_, mut this: UserDataRefMut<Self>| async move {
             this.clone().await
         });
 
@@ -327,7 +326,7 @@ impl UserData for LuaResponse {
 
 #[cfg(test)]
 mod tests {
-    use mlua::{chunk, Lua, Result};
+    use mlua::{chunk, AnyUserData, Lua, Result};
 
     use super::*;
 

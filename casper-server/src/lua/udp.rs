@@ -2,7 +2,7 @@ use std::io::Result as IoResult;
 use std::ops::Deref;
 
 use mlua::{
-    AnyUserData, Lua, Result, String as LuaString, Table, UserData, UserDataMethods, Value,
+    Lua, Result, String as LuaString, Table, UserData, UserDataMethods, UserDataRef, Value,
 };
 use tokio::net::{ToSocketAddrs, UdpSocket};
 
@@ -28,8 +28,7 @@ impl UserData for LuaUdpSocket {
     fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
         methods.add_async_function(
             "connect",
-            |_, (this, addr): (AnyUserData, String)| async move {
-                let this = this.borrow::<Self>()?;
+            |_, (this, addr): (UserDataRef<Self>, String)| async move {
                 lua_try!(this.connect(addr).await);
                 Ok(Ok(Value::Boolean(true)))
             },
@@ -41,8 +40,7 @@ impl UserData for LuaUdpSocket {
 
         methods.add_async_function(
             "send",
-            |_, (this, buf): (AnyUserData, Option<LuaString>)| async move {
-                let this = this.borrow::<Self>()?;
+            |_, (this, buf): (UserDataRef<Self>, Option<LuaString>)| async move {
                 let n = match buf {
                     Some(buf) => lua_try!(this.send(buf.as_bytes()).await),
                     None => 0,
@@ -53,8 +51,7 @@ impl UserData for LuaUdpSocket {
 
         methods.add_async_function(
             "send_to",
-            |_, (this, dst, buf): (AnyUserData, String, Option<LuaString>)| async move {
-                let this = this.borrow::<Self>()?;
+            |_, (this, dst, buf): (UserDataRef<Self>, String, Option<LuaString>)| async move {
                 let n = match buf {
                     Some(buf) => lua_try!(this.send_to(buf.as_bytes(), dst).await),
                     None => 0,

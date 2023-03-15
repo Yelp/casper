@@ -1028,8 +1028,8 @@ dependencies = [
 
 [[package]]
 name = "mlua"
-version = "0.8.6"
-source = "git+https://github.com/khvzak/mlua?rev=304880bfd18c7d4ca6ea7b2e83b2022fd1003bcd#304880bfd18c7d4ca6ea7b2e83b2022fd1003bcd"
+version = "0.8.8"
+source = "git+https://github.com/khvzak/mlua?rev=03787668fd35419cdc2111431a3c6f3db01c0c55#03787668fd35419cdc2111431a3c6f3db01c0c55"
 dependencies = [
  "bstr",
  "cc",
@@ -1050,7 +1050,7 @@ dependencies = [
 [[package]]
 name = "mlua_derive"
 version = "0.8.0"
-source = "git+https://github.com/khvzak/mlua?rev=304880bfd18c7d4ca6ea7b2e83b2022fd1003bcd#304880bfd18c7d4ca6ea7b2e83b2022fd1003bcd"
+source = "git+https://github.com/khvzak/mlua?rev=03787668fd35419cdc2111431a3c6f3db01c0c55#03787668fd35419cdc2111431a3c6f3db01c0c55"
 dependencies = [
  "itertools",
  "once_cell",
