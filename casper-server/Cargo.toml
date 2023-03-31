@@ -18,7 +18,8 @@ futures = "0.3"
 futures-util = "0.3"
 hex = "0.4.3"
 linked-hash-map = "0.5.4"
-moka = { version = "0.9", features = ["future"] }
+mini-moka = "0.10"
+moka = { version = "0.10", features = ["future"] }
 ntex = { version = "0.6.4", features = ["tokio"] }
 num_cpus = "1.13"
 num_threads = "0.1"

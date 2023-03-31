@@ -1,7 +1,7 @@
 use std::ops::Deref;
 
 use mlua::{Lua, MetaMethod, Result as LuaResult, Table, UserData, UserDataMethods, Value};
-use moka::unsync::Cache;
+use mini_moka::unsync::Cache;
 use ouroboros::self_referencing;
 
 const REGEX_CACHE_SIZE: u64 = 512;
