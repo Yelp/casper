@@ -128,7 +128,7 @@ pub fn start_task_scheduler(lua: Rc<Lua>) {
                 let start = Instant::now();
                 let _task_count_guard = tasks_counter_inc!();
 
-                let task_fn = task.handler.as_ref();
+                let task_fn = task.handler.to_ref();
                 let result = task_fn
                     .call_async::<_, Value>(())
                     .await
