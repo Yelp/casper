@@ -28,13 +28,10 @@ pub(crate) static PROMETHEUS_EXPORTER: Lazy<PrometheusExporter> = Lazy::new(|| {
     if let Ok(service_instance) = env::var("SERVICE_INSTANCE") {
         attrs.push(KeyValue::new("service.instance", service_instance));
     }
-    let controller = controllers::basic(
-        processors::factory(
-            selectors::simple::histogram(boundaries),
-            aggregation::cumulative_temporality_selector(),
-        )
-        .with_memory(true),
-    )
+    let controller = controllers::basic(processors::factory(
+        selectors::simple::histogram(boundaries),
+        aggregation::cumulative_temporality_selector(),
+    ))
     .with_resource(Resource::new(attrs))
     .build();
 
