@@ -139,6 +139,13 @@ impl EitherBody {
     }
 }
 
+impl From<LuaBody> for EitherBody {
+    #[inline(always)]
+    fn from(body: LuaBody) -> Self {
+        EitherBody::Body(body)
+    }
+}
+
 impl From<EitherBody> for LuaBody {
     #[inline(always)]
     fn from(body: EitherBody) -> Self {

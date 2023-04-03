@@ -22,6 +22,10 @@ use crate::http::proxy_to_upstream;
 
 #[derive(Default)]
 pub struct LuaRequest {
+    // Original (incoming) http request
+    // It's cheap to clone as reference-counted but read only
+    orig_req: Option<HttpRequest>,
+
     uri: Uri,
     method: Method,
     version: Version,
@@ -42,6 +46,10 @@ impl LuaRequest {
             body: EitherBody::Body(body.into()),
             ..Default::default()
         }
+    }
+
+    pub(crate) fn orig_req(&self) -> Option<ntex::web::HttpRequest> {
+        self.orig_req.clone()
     }
 
     pub fn uri(&self) -> &Uri {
@@ -133,6 +141,7 @@ impl LuaRequest {
         let body = body.map(LuaBody::Bytes).unwrap_or(LuaBody::None);
 
         Ok(LuaRequest {
+            orig_req: self.orig_req.clone(),
             uri: self.uri.clone(),
             method: self.method.clone(),
             version: self.version,
@@ -167,6 +176,7 @@ impl<Err> FromRequest<Err> for LuaRequest {
         };
 
         future::ready(Ok(LuaRequest {
+            orig_req: Some(request.clone()),
             uri: request.uri().clone(),
             method: request.method().clone(),
             version: request.version(),
@@ -361,7 +371,6 @@ impl UserData for LuaRequest {
         methods.add_async_function(
             "proxy_to_upstream",
             |lua, (this, upstream): (AnyUserData, Option<String>)| async move {
-                // Merge request uri with the upstream uri
                 let req = this.take::<LuaRequest>()?;
                 let client = lua
                     .app_data_ref::<HttpClient>()

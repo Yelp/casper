@@ -1240,6 +1240,7 @@ dependencies = [
  "ntex-tokio",
  "ntex-util",
  "num_cpus",
+ "openssl",
  "percent-encoding",
  "pin-project-lite",
  "polling",
@@ -1288,6 +1289,7 @@ dependencies = [
  "ntex-tls",
  "ntex-tokio",
  "ntex-util",
+ "openssl",
  "thiserror",
 ]
 
@@ -1397,6 +1399,7 @@ dependencies = [
  "ntex-io",
  "ntex-service",
  "ntex-util",
+ "openssl",
  "pin-project-lite",
 ]
 

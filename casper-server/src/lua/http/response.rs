@@ -9,7 +9,7 @@ use mlua::{
 use ntex::http::body::MessageBody;
 use ntex::http::client::ClientResponse;
 use ntex::http::header::{HeaderMap, CONTENT_LENGTH};
-use ntex::http::{Method, Response, StatusCode, Version};
+use ntex::http::{Method, Response, ResponseHead, StatusCode, Version};
 use ntex::util::{Bytes, Extensions};
 use ntex::web::{HttpRequest, Responder};
 use opentelemetry::{Key as OTKey, Value as OTValue};
@@ -70,6 +70,10 @@ impl LuaResponse {
         &mut self.body
     }
 
+    pub(crate) fn set_proxied(&mut self, proxied: bool) {
+        self.is_proxied = proxied;
+    }
+
     /// Returns labels attached to this request
     #[allow(unused)]
     #[inline]
@@ -120,6 +124,23 @@ impl From<ClientResponse> for LuaResponse {
             body: EitherBody::Body(LuaBody::from((response.take_payload(), content_length))),
             labels: None,
             is_proxied: true,
+            is_stored: false,
+        }
+    }
+}
+
+impl From<ResponseHead> for LuaResponse {
+    #[inline]
+    fn from(head: ResponseHead) -> Self {
+        let extensions = mem::take(&mut *head.extensions_mut());
+        LuaResponse {
+            version: Some(head.version),
+            status: head.status,
+            headers: head.headers,
+            extensions,
+            body: EitherBody::Body(LuaBody::None),
+            labels: None,
+            is_proxied: false,
             is_stored: false,
         }
     }
