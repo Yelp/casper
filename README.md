@@ -1,81 +1,11 @@
-# Casper (a friendly Spectre)
+[![Build Status]][github-actions]
 
-[![Build Status](https://travis-ci.org/Yelp/casper.svg?branch=master)](https://travis-ci.org/Yelp/casper)
+[Build Status]: https://github.com/Yelp/casper/workflows/CI/badge.svg
+[github-actions]: https://github.com/Yelp/casper/actions
 
-This repo contains Casper, a caching proxy internal to Yelp. It is built with
-Nginx and Openresty at its core and contains some logic in Lua to fit in our
-ecosystem.
+# Casper
 
-_Important note about naming: Casper was initially baptized "Spectre"
-internally._ It's only after the [Spectre/Meltdown](https://spectreattack.com/)
-vulnerabilities were published that we decided to change the name to "Casper", a
-more friendly and less confusing name for the outside world. If you see
-remnants of "Spectre" in the code, that's why!
+Casper is fast web application platform built in Rust and Luau. Previously it used to be a Yelp's internal caching proxy
+which has evolved into a generic platform to build web applications.
 
-## Requirements
-
-* `docker`: make sure it's installed on your system by following the
-instruction for your platform [here](https://docs.docker.com/install/).
-* `make`: ensure you can run `make` targets with your OS (on Windows, use `nmake`.)
-* `lua 5.1`
-* `luarocks`
-* `openresty`: follow the instructions at https://openresty.org/en/installation.html
-
-On macos you can install most of those packages easily via homebrew (https://brew.sh/).
-Just run `brew install lua@5.1 openresty/brew/openresty luarocks make`.
-
-## Building locally
-
-To start Casper, run
-
-    $ make dev
-
-To make sure it's up (change the port accordingly if you change the default):
-
-    $ curl -v localhost:8888/status
-
-For basic debugging (is it missing/hitting the cache? Am I being correctly
-proxied? etc), curl, and pay attention to the "Spectre-Cache-Status" header:
-
-    $ curl -o /dev/null -iv -H 'X-Source-Id: test' -H 'X-Smartstack-Destination: yelp-main.internalapi' -H 'X-Smartstack-Source: spectre.main' -H 'Host: internalapi' 'localhost:32927/category_yelp/?locale=en_US' 2>&1 | grep 'Spectre-Cache-Status'
-    < Spectre-Cache-Status: hit
-
-It can help, to get as much information as possible, to set nginx logging to
-debug granularity. In `nginx.conf`, replace the `error_log` directive by:
-
-    error_log /var/log/nginx.debug.log debug;
-
-## Running Tests
-
-To run unit tests:
-
-    $ make test
-
-To run integration tests:
-
-    $ make itest
-
-## Contributors
-
-Casper was built and developed internally for about a year before being
-opensourced. In addition to the [contributors listed on
-Github](https://github.com/Yelp/casper/graphs/contributors), here is a list
-of people who contributed to Casper before its public life:
-
-* Angelo Licastro ([@angelolicastro](https://github.com/angelolicastro))
-* Anthony Tan ([@DevelopingCoder](https://github.com/DevelopingCoder))
-* Arnaud Brousseau ([@arnaudbrousseau](https://github.com/arnaudbrousseau))
-* Avadhut Phatarpekar ([@avadhutp](https://github.com/avadhutp))
-* Bai Li ([@luckytoilet](https://github.com/luckytoilet))
-* Ben Plotnick ([@bplotnick](https://github.com/bplotnick))
-* Chris Kuehl ([@chriskuehl](https://github.com/chriskuehl))
-* Daniele Rolando ([@drolando](https://github.com/drolando))
-* Ishan Vashishtha ([@ishanvas](https://github.com/ishanvas))
-* Mayank Sindwani ([@msindwan](https://github.com/msindwan))
-* Michael Bryant ([@mjbryant](https://github.com/mjbryant))
-
-## Contributing
-
-We welcome contributions to Casper, but keep in mind that this is a production
-system run inside of Yelp's infrastructure. Please get in touch with us to
-discuss your feature request, bug fix or enhancement by opening a Github issue.
+Currently the project is WIP and has experimental status.
