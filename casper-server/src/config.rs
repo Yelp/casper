@@ -12,8 +12,10 @@ use serde::Deserialize;
 pub struct Config {
     #[serde(default)]
     pub main: MainConfig,
+    #[serde(default)]
     pub http: HttpConfig,
     pub metrics: Option<MetricsConfig>,
+    #[serde(default)]
     pub storage: HashMap<String, serde_json::Value>,
 }
 
