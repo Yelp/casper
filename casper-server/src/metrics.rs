@@ -126,7 +126,7 @@ impl OpenTelemetryMetrics {
 
         OpenTelemetryMetrics {
             connections_counter: meter
-                .u64_counter("http_connections_total")
+                .u64_counter("http_connections")
                 .with_description("Total number of HTTP connections processed by the application.")
                 .init(),
             active_connections_counter: ActiveCounter::new(0),
@@ -138,7 +138,7 @@ impl OpenTelemetryMetrics {
                 .init(),
 
             requests_counter: meter
-                .u64_counter("http_requests_total")
+                .u64_counter("http_requests")
                 .with_description("Total number of HTTP requests processed by the application.")
                 .init(),
             requests_histogram: meter
@@ -154,7 +154,7 @@ impl OpenTelemetryMetrics {
                 .init(),
 
             storage_counter: meter
-                .u64_counter("storage_requests_total")
+                .u64_counter("storage_requests")
                 .with_description(
                     "Total number of requests being processed by the storage backend.",
                 )
@@ -169,12 +169,12 @@ impl OpenTelemetryMetrics {
                 .with_description("Filter only request latency in seconds.")
                 .init(),
             filter_error_counter: meter
-                .u64_counter("filter_errors_total")
+                .u64_counter("filter_errors")
                 .with_description("Total number of errors thrown by filter.")
                 .init(),
 
             handler_error_counter: meter
-                .u64_counter("handler_errors_total")
+                .u64_counter("handler_errors")
                 .with_description("Total number of errors thrown by handler.")
                 .init(),
 
@@ -188,7 +188,7 @@ impl OpenTelemetryMetrics {
                 .with_description("Task running duration in seconds.")
                 .init(),
             task_error_counter: meter
-                .u64_counter("task_errors_total")
+                .u64_counter("task_errors")
                 .with_description("Total number of errors thrown by task.")
                 .init(),
 
