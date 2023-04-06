@@ -84,7 +84,7 @@ impl RedisMetrics {
         let meter = global::meter("redis");
         RedisMetrics {
             internal_cache_counter: meter
-                .u64_counter("redis_internal_cache_requests_total")
+                .u64_counter("redis_internal_cache_requests")
                 .with_description("Total number of Redis requests served from the internal cache.")
                 .init(),
         }
