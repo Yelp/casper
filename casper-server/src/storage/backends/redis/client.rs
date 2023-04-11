@@ -66,7 +66,7 @@ struct SurrogateKeyItem {
 }
 
 bitflags! {
-    #[derive(Debug, Serialize, Deserialize)]
+    #[derive(Serialize, Deserialize)]
     struct Flags: u32 {
         const NONE = 0b0;
         const COMPRESSED = 0b1;
