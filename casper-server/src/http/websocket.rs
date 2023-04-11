@@ -272,19 +272,16 @@ fn make_response(resp_head: ResponseHead, io: Io<Sealed>, codec: h1::ClientCodec
     let mut resp = LuaResponse::from(resp_head);
     resp.set_proxied(true);
 
-    let _ = match codec.message_type() {
-        h1::MessageType::None => {}
-        _ => {
-            let content_length = resp
-                .headers()
-                .get(CONTENT_LENGTH)
-                .and_then(|len| len.to_str().ok())
-                .and_then(|len| len.parse::<u64>().ok());
+    if codec.message_type() != h1::MessageType::None {
+        let content_length = resp
+            .headers()
+            .get(CONTENT_LENGTH)
+            .and_then(|len| len.to_str().ok())
+            .and_then(|len| len.parse::<u64>().ok());
 
-            let payload = Payload::from_stream(IoPayloadStream::new(io, codec));
-            *resp.body_mut() = LuaBody::from((payload, content_length)).into();
-        }
-    };
+        let payload = Payload::from_stream(IoPayloadStream::new(io, codec));
+        *resp.body_mut() = LuaBody::from((payload, content_length)).into();
+    }
 
     resp
 }
