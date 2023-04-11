@@ -213,7 +213,12 @@ pub fn register_custom_metrics(config: MetricsConfig) {
 
     let mut counters = METRICS.counters.lock();
     for (key, config) in config.counters {
-        let mut counter = meter.u64_counter(config.name.unwrap_or_else(|| key.clone()));
+        // If name already ends with `_total`, strip it out as the suffix is added automatically
+        let mut name = config.name.unwrap_or_else(|| key.clone());
+        if name.ends_with("_total") {
+            name = name[..name.len() - 6].to_string();
+        }
+        let mut counter = meter.u64_counter(name);
         if let Some(description) = config.description {
             counter = counter.with_description(description);
         }
