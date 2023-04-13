@@ -273,23 +273,23 @@ mod tests {
         lua.load(chunk! {
             local ok1, err1 = tasks.spawn(function()
                 sleep(0.1)
-                result = "handle1"
+                result = "task1"
             end)
             assert(ok1)
             assert(not err1)
             local ok2, err2 = tasks.spawn(function()
                 sleep(0.1)
-                result = "handle2"
+                result = "task2"
             end)
             assert(ok2)
             assert(not err2)
             sleep(0.1)
             local ok3, err3 = tasks.spawn(function()
                 sleep(1)
-                result = "handle3"
+                result = "task3"
             end)
             assert(not ok3)
-            assert(err3:find("Max background task limit reached"))
+            assert(err3:find("max background task limit reached"))
         })
         .exec_async()
         .await
