@@ -137,7 +137,8 @@ impl AppContextInner {
         core.set("storage", storage)?;
 
         // Start task scheduler
-        lua::tasks::start_task_scheduler(lua.clone());
+        let max_background_tasks = self.config.main.max_background_tasks;
+        lua::tasks::start_task_scheduler(lua.clone(), max_background_tasks);
 
         // Load filters code
         for filter in &self.config.http.filters {

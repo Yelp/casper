@@ -336,6 +336,12 @@ macro_rules! tasks_counter_inc {
     };
 }
 
+macro_rules! tasks_counter_get {
+    () => {
+        crate::metrics::METRICS.active_tasks_counter.get()
+    };
+}
+
 macro_rules! task_histogram_rec {
     ($start:expr) => {
         task_histogram_rec!($start,)

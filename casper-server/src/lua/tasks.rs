@@ -1,4 +1,5 @@
 use std::rc::Rc;
+use std::result::Result as StdResult;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use mlua::{
@@ -13,7 +14,6 @@ use tracing::warn;
 
 // TODO: Support task timeout
 // TODO: Support recurring tasks
-// TODO: Limit number of in-flight tasks
 
 type TaskJoinHandle = JoinHandle<Result<RegistryKey>>;
 
@@ -31,6 +31,8 @@ struct TaskHandle {
     join_handle: Option<TaskJoinHandle>,
     join_handle_rx: Option<oneshot::Receiver<TaskJoinHandle>>,
 }
+
+struct MaxBackgroundTasks(Option<u64>);
 
 // Global task identifier
 static NEXT_TASK_ID: AtomicU64 = AtomicU64::new(1);
@@ -72,7 +74,16 @@ impl UserData for TaskHandle {
     }
 }
 
-fn spawn_task(lua: &Lua, arg: Value) -> Result<TaskHandle> {
+fn spawn_task(lua: &Lua, arg: Value) -> Result<StdResult<TaskHandle, String>> {
+    let max_background_tasks = lua.app_data_ref::<MaxBackgroundTasks>().unwrap();
+    let current_tasks = tasks_counter_get!();
+
+    if let Some(max_tasks) = max_background_tasks.0 {
+        if current_tasks >= max_tasks {
+            return Ok(Err("max background task limit reached".to_string()));
+        }
+    }
+
     let task_tx = lua
         .app_data_ref::<UnboundedSender<Task>>()
         .expect("Failed to get task sender");
@@ -108,22 +119,25 @@ fn spawn_task(lua: &Lua, arg: Value) -> Result<TaskHandle> {
         .map_err(|err| format!("cannot spawn task: {err}"))
         .into_lua_err()?;
 
-    Ok(TaskHandle {
+    Ok(Ok(TaskHandle {
         id,
         name,
         join_handle: None,
         join_handle_rx: Some(join_handle_rx),
-    })
+    }))
 }
 
-pub fn start_task_scheduler(lua: Rc<Lua>) {
+pub fn start_task_scheduler(lua: Rc<Lua>, max_background_tasks: Option<u64>) {
     let mut task_rx = lua
         .remove_app_data::<UnboundedReceiver<Task>>()
         .expect("Failed to get task receiver");
 
+    lua.set_app_data(MaxBackgroundTasks(max_background_tasks));
+
     tokio::task::spawn_local(async move {
         while let Some(task) = task_rx.recv().await {
             let lua = lua.clone();
+
             let join_handle = tokio::task::spawn_local(async move {
                 let start = Instant::now();
                 let _task_count_guard = tasks_counter_inc!();
@@ -194,7 +208,7 @@ mod tests {
             })?,
         )?;
 
-        super::start_task_scheduler(lua.clone());
+        super::start_task_scheduler(lua.clone(), Some(2));
 
         // Test normal task run and result collection
         lua.load(chunk! {
@@ -250,6 +264,32 @@ mod tests {
             handle:abort()
             sleep(0.2)
             assert(result == nil)
+        })
+        .exec_async()
+        .await
+        .unwrap();
+
+        // Test max background tasks
+        lua.load(chunk! {
+            local ok1, err1 = tasks.spawn(function()
+                sleep(0.1)
+                result = "task1"
+            end)
+            assert(ok1)
+            assert(not err1)
+            local ok2, err2 = tasks.spawn(function()
+                sleep(0.1)
+                result = "task2"
+            end)
+            assert(ok2)
+            assert(not err2)
+            sleep(0.1)
+            local ok3, err3 = tasks.spawn(function()
+                sleep(1)
+                result = "task3"
+            end)
+            assert(not ok3)
+            assert(err3:find("max background task limit reached"))
         })
         .exec_async()
         .await

@@ -32,6 +32,9 @@ pub struct MainConfig {
 
     #[serde(default = "MainConfig::default_listen")]
     pub listen: String,
+
+    #[serde(default)]
+    pub max_background_tasks: Option<u64>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -89,6 +92,7 @@ impl Default for MainConfig {
             workers: Self::default_workers(),
             pin_workers: false,
             listen: Self::default_listen(),
+            max_background_tasks: None,
         }
     }
 }
