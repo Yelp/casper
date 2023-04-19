@@ -9,10 +9,9 @@ use mlua::{
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
-use tokio::time::Instant;
+use tokio::time::{Duration, Instant};
 use tracing::warn;
 
-// TODO: Support task timeout
 // TODO: Support recurring tasks
 
 type TaskJoinHandle = JoinHandle<Result<RegistryKey>>;
@@ -21,6 +20,7 @@ type TaskJoinHandle = JoinHandle<Result<RegistryKey>>;
 struct Task {
     id: u64,
     name: Option<String>,
+    timeout: Option<Duration>,
     handler: OwnedFunction,
     join_handle_tx: oneshot::Sender<TaskJoinHandle>,
 }
@@ -92,10 +92,14 @@ fn spawn_task(lua: &Lua, arg: Value) -> Result<StdResult<TaskHandle, String>> {
     let (join_handle_tx, join_handle_rx) = oneshot::channel();
 
     let mut name = None;
+    let mut timeout = None;
     let handler = match arg {
         Value::Function(task_fn) => task_fn.into_owned(),
         Value::Table(params) => {
             name = params.get::<_, Option<String>>("name")?;
+            timeout = params
+                .get::<_, Option<u64>>("timeout")?
+                .map(tokio::time::Duration::from_millis);
             let task_fn = params.get::<_, Function>("handler")?;
             task_fn.into_owned()
         }
@@ -113,6 +117,7 @@ fn spawn_task(lua: &Lua, arg: Value) -> Result<StdResult<TaskHandle, String>> {
         .send(Task {
             id,
             name: name.clone(),
+            timeout,
             handler,
             join_handle_tx,
         })
@@ -141,12 +146,18 @@ pub fn start_task_scheduler(lua: Rc<Lua>, max_background_tasks: Option<u64>) {
             let join_handle = tokio::task::spawn_local(async move {
                 let start = Instant::now();
                 let _task_count_guard = tasks_counter_inc!();
+                let task_future = task.handler.to_ref().call_async::<_, Value>(());
 
-                let task_fn = task.handler.to_ref();
-                let result = task_fn
-                    .call_async::<_, Value>(())
-                    .await
-                    .and_then(|v| lua.create_registry_value(v));
+                let result = match task.timeout {
+                    Some(timeout) => ntex::time::timeout(timeout, task_future).await,
+                    None => Ok(task_future.await),
+                };
+
+                let result = match result {
+                    Ok(result) => result.and_then(|v| lua.create_registry_value(v)),
+                    // Outer Result errors will always be timeouts
+                    Err(_) => Err("task exceeded timeout".to_string()).into_lua_err(),
+                };
 
                 // Record task metrics
                 match task.name {
@@ -271,25 +282,60 @@ mod tests {
 
         // Test max background tasks
         lua.load(chunk! {
-            local ok1, err1 = tasks.spawn(function()
+            local handle1, err1 = tasks.spawn(function()
                 sleep(0.1)
                 result = "task1"
             end)
-            assert(ok1)
+            assert(handle1)
             assert(not err1)
-            local ok2, err2 = tasks.spawn(function()
+            local handle2, err2 = tasks.spawn(function()
                 sleep(0.1)
                 result = "task2"
             end)
-            assert(ok2)
+            assert(handle2)
             assert(not err2)
             sleep(0.1)
-            local ok3, err3 = tasks.spawn(function()
-                sleep(1)
+            local handle3, err3 = tasks.spawn(function()
+                sleep(0.1)
                 result = "task3"
             end)
-            assert(not ok3)
+            assert(not handle3)
             assert(err3:find("max background task limit reached"))
+            sleep(0.1)
+        })
+        .exec_async()
+        .await
+        .unwrap();
+
+        // Test timeout
+        lua.load(chunk! {
+            local handler1, err1 = tasks.spawn({
+                handler = function()
+                    sleep(0.1)
+                    return "hello"
+                end,
+                name = "test_no_timeout",
+                timeout = 200,
+            })
+            assert(handler1)
+            assert(not err1)
+            sleep(0.1)
+            local ok1, err1_2 = handler1:join()
+            assert(ok1 == "hello")
+            assert(not err1_2)
+            local handler2, err2 = tasks.spawn({
+                handler = function()
+                    sleep(0.3)
+                    return "hello"
+                end,
+                name = "test_timeout",
+                timeout = 200,
+            })
+            assert(handler2)
+            assert(not err2)
+            local ok2, err2_2 = handler2:join()
+            assert(not ok2)
+            assert(err2_2:find("task exceeded timeout"))
         })
         .exec_async()
         .await
