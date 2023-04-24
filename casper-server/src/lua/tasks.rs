@@ -98,8 +98,8 @@ fn spawn_task(lua: &Lua, arg: Value) -> Result<StdResult<TaskHandle, String>> {
         Value::Table(params) => {
             name = params.get::<_, Option<String>>("name")?;
             timeout = params
-                .get::<_, Option<f32>>("timeout")?
-                .map(tokio::time::Duration::from_secs_f32);
+                .get::<_, Option<f64>>("timeout")?
+                .map(Duration::from_secs_f64);
             let task_fn = params.get::<_, Function>("handler")?;
             task_fn.into_owned()
         }
@@ -319,7 +319,6 @@ mod tests {
             })
             assert(handler1)
             assert(not err1)
-            sleep(0.1)
             local ok1, err1_2 = handler1:join()
             assert(ok1 == "hello")
             assert(not err1_2)
