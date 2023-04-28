@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::time::Instant;
 
 use anyhow::{anyhow, Result};
-use mlua::{Function, Value};
+use mlua::Value;
 use ntex::http::StatusCode;
 use ntex::web::error::InternalError;
 use ntex::web::types::State;
@@ -65,9 +65,6 @@ pub(crate) async fn handler_inner(
 ) -> Result<LuaResponse> {
     let lua = app_ctx.lua.clone();
 
-    // Get Lua context table
-    let ctx = lua_ctx.to_ref();
-
     let lua_req = lua.create_userdata(req)?;
     let mut early_resp = None;
 
@@ -85,9 +82,8 @@ pub(crate) async fn handler_inner(
             filter_histogram_rec!(start, "name" => name.clone(), "phase" => "on_request");
         }
 
-        let on_request: Function = on_request.to_ref();
         match on_request
-            .call_async::<_, Value>((lua_req.clone(), ctx.clone()))
+            .call_async::<_, Value>((lua_req.clone(), lua_ctx.clone()))
             .await
         {
             // Early Response?
@@ -116,23 +112,20 @@ pub(crate) async fn handler_inner(
     // Otherwise call handler function
     let lua_resp = match (early_resp, &app_ctx.handler) {
         (Some(resp), _) => resp,
-        (None, Some(handler)) => {
-            let handler = handler.to_ref();
-            match handler.call_async((lua_req, ctx.clone())).await {
-                Ok(Value::UserData(resp)) if resp.is::<LuaResponse>() => resp,
-                Ok(r) => {
-                    handler_error_counter_add!(1);
-                    return Err(anyhow!(
-                        "handler error: invalid return type '{}'",
-                        r.type_name()
-                    ));
-                }
-                Err(err) => {
-                    handler_error_counter_add!(1);
-                    return Err(anyhow!("handler panic: {err:#}"));
-                }
+        (None, Some(handler)) => match handler.call_async((lua_req, lua_ctx.clone())).await {
+            Ok(Value::UserData(resp)) if resp.is::<LuaResponse>() => resp,
+            Ok(r) => {
+                handler_error_counter_add!(1);
+                return Err(anyhow!(
+                    "handler error: invalid return type '{}'",
+                    r.type_name()
+                ));
             }
-        }
+            Err(err) => {
+                handler_error_counter_add!(1);
+                return Err(anyhow!("handler panic: {err:#}"));
+            }
+        },
         (None, None) => {
             let mut resp = LuaResponse::new(LuaBody::Bytes("Not Found".into()));
             *resp.status_mut() = StatusCode::NOT_FOUND;
@@ -155,9 +148,8 @@ pub(crate) async fn handler_inner(
             filter_histogram_rec!(start, "name" => name.clone(), "phase" => "on_response");
         }
 
-        let on_response: Function = on_response.to_ref();
         if let Err(err) = on_response
-            .call_async::<_, ()>((lua_resp.clone(), ctx.clone()))
+            .call_async::<_, ()>((lua_resp.clone(), lua_ctx.clone()))
             .await
         {
             filter_error_counter_add!(1, "name" => name.clone(), "phase" => "on_response");

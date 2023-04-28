@@ -129,7 +129,6 @@ impl EitherBody {
         match self {
             EitherBody::Body(body) => body.buffer().await,
             EitherBody::UserData(ud) => {
-                let ud = ud.to_ref();
                 let mut body = ud
                     .borrow_mut::<LuaBody>()
                     .expect("Failed to borrow body from Lua UserData");
@@ -151,11 +150,10 @@ impl From<EitherBody> for LuaBody {
     fn from(body: EitherBody) -> Self {
         match body {
             EitherBody::Body(inner) => inner,
-            EitherBody::UserData(ud) => {
-                let ud = ud.to_ref();
-                ud.take::<LuaBody>()
-                    .expect("Failed to take out body from Lua UserData")
-            }
+            EitherBody::UserData(ud) => ud
+                .to_ref()
+                .take::<LuaBody>()
+                .expect("Failed to take out body from Lua UserData"),
         }
     }
 }
@@ -305,7 +303,6 @@ impl<'lua> FromLua<'lua> for LuaBody {
             Value::Function(f) => {
                 let func = f.into_owned();
                 let stream = futures::stream::poll_fn(move |_| {
-                    let func = func.to_ref();
                     match func.call::<_, Option<LuaString>>(()) {
                         Ok(Some(chunk)) => {
                             Poll::Ready(Some(Ok(Bytes::from(chunk.as_bytes().to_vec()))))
