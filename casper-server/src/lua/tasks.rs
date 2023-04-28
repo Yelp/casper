@@ -146,7 +146,7 @@ pub fn start_task_scheduler(lua: Rc<Lua>, max_background_tasks: Option<u64>) {
             let join_handle = tokio::task::spawn_local(async move {
                 let start = Instant::now();
                 let _task_count_guard = tasks_counter_inc!();
-                let task_future = task.handler.to_ref().call_async::<_, Value>(());
+                let task_future = task.handler.call_async::<_, Value>(());
 
                 let result = match task.timeout {
                     Some(timeout) => ntex::time::timeout(timeout, task_future).await,

@@ -1,6 +1,6 @@
 use std::ops::Deref;
 
-use mlua::{Lua, OwnedTable};
+use mlua::{IntoLua, Lua, OwnedTable, Result as LuaResult, Value};
 
 #[derive(Clone, Debug)]
 pub(crate) struct LuaContext(pub(crate) OwnedTable);
@@ -11,6 +11,13 @@ impl Deref for LuaContext {
     #[inline]
     fn deref(&self) -> &Self::Target {
         &self.0
+    }
+}
+
+impl<'lua> IntoLua<'lua> for LuaContext {
+    #[inline]
+    fn into_lua(self, lua: &'lua Lua) -> LuaResult<Value<'lua>> {
+        self.0.into_lua(lua)
     }
 }
 
