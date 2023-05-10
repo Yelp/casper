@@ -10,6 +10,7 @@ mod macros;
 mod bytes;
 pub mod config;
 pub mod core;
+pub mod crypto;
 pub mod datetime;
 pub mod fs;
 pub mod http;

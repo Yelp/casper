@@ -24,6 +24,7 @@ ntex = { version = "0.6.5", features = ["tokio", "openssl"] }
 num_cpus = "1.13"
 num_threads = "0.1"
 once_cell = "1"
+openssl = "0.10"
 opentelemetry = { version = "0.19", features = ["rt-tokio", "metrics"] }
 opentelemetry-prometheus = "0.12"
 ouroboros = "0.15"

@@ -17,6 +17,7 @@ pub fn create_module(lua: &Lua) -> LuaResult<Table> {
 
     // Modules
     core.set("config", super::config::create_module(lua)?)?;
+    core.set("crypto", super::crypto::create_module(lua)?)?;
     core.set("datetime", super::datetime::create_module(lua)?)?;
     core.set("fs", super::fs::create_module(lua)?)?;
     core.set("http", super::http::create_module(lua)?)?;
