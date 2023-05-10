@@ -292,6 +292,7 @@ dependencies = [
  "num_cpus",
  "num_threads",
  "once_cell",
+ "openssl",
  "opentelemetry",
  "opentelemetry-prometheus",
  "ouroboros",
