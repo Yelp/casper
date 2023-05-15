@@ -15,16 +15,10 @@ async fn digest<'lua>(lua: &'lua Lua, input: Value<'lua>, digest: MessageDigest)
 }
 
 pub fn create_module(lua: &Lua) -> Result<Table> {
-    lua.create_table_from([
-        (
-            "sha256",
-            lua.create_async_function(|lua, input| digest(lua, input, MessageDigest::sha256()))?,
-        ),
-        (
-            "ripemd160",
-            lua.create_async_function(|lua, input| digest(lua, input, MessageDigest::ripemd160()))?,
-        ),
-    ])
+    lua.create_table_from([(
+        "sha256",
+        lua.create_async_function(|lua, input| digest(lua, input, MessageDigest::sha256()))?,
+    )])
 }
 
 #[cfg(test)]
@@ -38,7 +32,6 @@ mod tests {
         let crypto = super::create_module(&lua)?;
         lua.load(chunk! {
             assert($crypto.sha256("hello") == "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824")
-            assert($crypto.ripemd160("hello") == "108f07b8382412612c048d07d13f814118445acd")
         })
         .exec_async()
         .await?;
