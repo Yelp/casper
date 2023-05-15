@@ -120,6 +120,10 @@ impl AppContextInner {
     fn init_lua(&mut self) -> Result<()> {
         let lua = &self.lua;
 
+        // Use Lua optimization level "2" in release builds
+        #[cfg(not(debug_assertions))]
+        lua.set_compiler(mlua::Compiler::new().set_optimization_level(2));
+
         // Register core module
         let core: Table = lua.load_from_function(
             "core",
