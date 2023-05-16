@@ -11,6 +11,7 @@ mod bytes;
 pub mod config;
 pub mod core;
 pub mod crypto;
+pub mod csv;
 pub mod datetime;
 pub mod fs;
 pub mod http;
