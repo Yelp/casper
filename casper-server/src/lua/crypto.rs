@@ -14,15 +14,12 @@ async fn hash<'lua>(lua: &'lua Lua, input: Value<'lua>, digest: MessageDigest) -
     Ok(hex::encode(hashsum))
 }
 
-pub async fn blake3<'lua>(lua: &'lua Lua, input: Value<'lua>) -> Result<String> {
-    let bytes = match input {
-        Value::UserData(ud) => ud.borrow::<Bytes>()?.clone(),
-        _ => Bytes::from(lua.unpack::<LuaString>(input)?.as_bytes().to_vec()),
+async fn blake3<'lua>(lua: &'lua Lua, input: Value<'lua>) -> Result<String> {
+    let hash = match input {
+        Value::UserData(ud) => blake3::hash(ud.borrow::<Bytes>()?.as_ref()),
+        _ => blake3::hash(lua.unpack::<LuaString>(input)?.as_bytes()),
     };
-    let hashsum = ntex::rt::spawn_blocking(move || blake3::hash(bytes.as_ref()));
-    Ok(hex::encode(
-        hashsum.await.expect("failed to join thread").as_bytes(),
-    ))
+    Ok(hex::encode(hash.as_bytes()))
 }
 
 pub fn create_module(lua: &Lua) -> Result<Table> {
