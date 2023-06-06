@@ -1,9 +1,12 @@
 use std::ops::Deref;
 
 use mini_moka::unsync::Cache;
-use mlua::{Lua, MetaMethod, Result as LuaResult, Table, UserData, UserDataMethods, Value};
+use mlua::{
+    Lua, MetaMethod, Result as LuaResult, Table, UserData, UserDataMethods, Value, Variadic,
+};
 use ouroboros::self_referencing;
 
+// TODO: Move to config
 const REGEX_CACHE_SIZE: u64 = 512;
 
 #[derive(Clone, Debug)]
@@ -40,12 +43,14 @@ impl Regex {
 }
 
 #[self_referencing]
-struct RegexCaptures {
+struct Captures {
     text: Box<str>,
     #[borrows(text)]
     #[covariant]
     caps: regex::Captures<'this>,
 }
+
+struct CaptureLocations(regex::CaptureLocations);
 
 impl UserData for Regex {
     fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
@@ -54,7 +59,7 @@ impl UserData for Regex {
         });
 
         methods.add_method("match", |lua, this, text: Box<str>| {
-            let caps = RegexCapturesTryBuilder {
+            let caps = CapturesTryBuilder {
                 text,
                 caps_builder: |text| this.0.captures(text).ok_or(()),
             }
@@ -62,6 +67,17 @@ impl UserData for Regex {
             match caps {
                 Ok(caps) => Ok(Value::UserData(lua.create_userdata(caps)?)),
                 Err(_) => Ok(Value::Nil),
+            }
+        });
+
+        // Returns low level information about raw offsets of each submatch.
+        methods.add_method("captures_read", |lua, this, text: Box<str>| {
+            let mut locs = this.capture_locations();
+            match this.captures_read(&mut locs, &text) {
+                Some(_) => Ok(Value::UserData(
+                    lua.create_userdata(CaptureLocations(locs))?,
+                )),
+                None => Ok(Value::Nil),
             }
         });
 
@@ -78,7 +94,7 @@ impl UserData for Regex {
     }
 }
 
-impl UserData for RegexCaptures {
+impl UserData for Captures {
     fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
         methods.add_meta_method(MetaMethod::Index, |_, this, key: Value| match key {
             Value::String(s) => {
@@ -91,6 +107,21 @@ impl UserData for RegexCaptures {
             }
             _ => Ok(None),
         })
+    }
+}
+
+impl UserData for CaptureLocations {
+    fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
+        // Returns the total number of capture groups.
+        methods.add_method("len", |_, this, ()| Ok(this.0.len()));
+
+        // Returns the start and end positions of the Nth capture group.
+        methods.add_method("get", |_, this, i: usize| match this.0.get(i) {
+            // We add 1 to the start position because Lua is 1-indexed.
+            // End position is non-inclusive, so we don't need to add 1.
+            Some((start, end)) => Ok(Variadic::from_iter([start + 1, end])),
+            None => Ok(Variadic::new()),
+        });
     }
 }
 
@@ -179,6 +210,32 @@ mod tests {
             assert(set:len() == 7)
             assert(set:is_match("foobar"))
             assert(table.concat(set:matches("foobar"), ",") == "1,3,4,5,7")
+        })
+        .exec()
+    }
+
+    #[test]
+    fn test_capture_locations() -> Result<()> {
+        let lua = Lua::new();
+
+        let regex = super::create_module(&lua)?;
+        lua.load(chunk! {
+            local re = $regex.new("\\d+(abc)\\d+")
+
+            local str = "123abc321"
+            local locs = re:captures_read(str)
+            assert(locs ~= nil, "locs is nil")
+            assert(locs:len() == 2, "locs len is not 2")
+            local i, j = locs:get(0)
+            assert(i == 1 and j == 9, "locs:get(0) is not 1, 9")
+            i, j = locs:get(1)
+            assert(i == 4 and j == 6, "locs:get(1) is not 4, 6")
+            assert(str:sub(i, j) == "abc", "str:sub(i, j) is not 'abc'")
+            assert(locs:get(2) == nil, "locs:get(2) is nil")
+
+            // Test no match
+            locs = re:captures_read("123")
+            assert(locs == nil, "locs is not nil")
         })
         .exec()
     }
