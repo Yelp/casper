@@ -94,10 +94,43 @@ impl UserData for RegexCaptures {
     }
 }
 
+struct RegexSet(regex::RegexSet);
+
+impl Deref for RegexSet {
+    type Target = regex::RegexSet;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl UserData for RegexSet {
+    fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
+        methods.add_function("new", |_, patterns: Vec<String>| {
+            Ok(Ok(lua_try!(regex::RegexSet::new(&patterns).map(RegexSet))))
+        });
+
+        methods.add_method("is_match", |_, this, text: String| Ok(this.is_match(&text)));
+
+        methods.add_method("len", |_, this, ()| Ok(this.len()));
+
+        methods.add_method("matches", |_, this, text: String| {
+            Ok(this
+                .matches(&text)
+                .iter()
+                .map(|i| i + 1)
+                .collect::<Vec<_>>())
+        });
+    }
+}
+
 pub fn create_module(lua: &Lua) -> LuaResult<Table> {
     let regex_new = lua.create_function(|lua, re| Ok(Ok(lua_try!(Regex::new(lua, re)))))?;
 
-    lua.create_table_from([("new", regex_new)])
+    lua.create_table_from([
+        ("new", Value::Function(regex_new)),
+        ("RegexSet", Value::UserData(lua.create_proxy::<RegexSet>()?)),
+    ])
 }
 
 #[cfg(test)]
@@ -105,7 +138,7 @@ mod tests {
     use mlua::{chunk, Lua, Result};
 
     #[test]
-    fn test_module() -> Result<()> {
+    fn test_regex() -> Result<()> {
         let lua = Lua::new();
 
         let regex = super::create_module(&lua)?;
@@ -133,8 +166,20 @@ mod tests {
             assert(re == nil)
             assert(string.find(err, "regex parse error") ~= nil)
         })
-        .exec()?;
+        .exec()
+    }
 
-        Ok(())
+    #[test]
+    fn test_regex_set() -> Result<()> {
+        let lua = Lua::new();
+
+        let regex = super::create_module(&lua)?;
+        lua.load(chunk! {
+            local set = $regex.RegexSet.new({"\\w+", "\\d+", "\\pL+", "foo", "bar", "barfoo", "foobar"})
+            assert(set:len() == 7)
+            assert(set:is_match("foobar"))
+            assert(table.concat(set:matches("foobar"), ",") == "1,3,4,5,7")
+        })
+        .exec()
     }
 }
