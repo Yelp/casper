@@ -21,7 +21,7 @@ futures-util = "0.3"
 hex = "0.4.3"
 linked-hash-map = "0.5.4"
 mini-moka = "0.10"
-moka = { version = "0.10", features = ["future"] }
+moka = { version = "0.11", features = ["future"] }
 ntex = { version = "0.6.5", features = ["tokio", "openssl"] }
 num_cpus = "1.13"
 num_threads = "0.1"
@@ -57,11 +57,11 @@ tokio-stream = { version = "0.1", features = ["time"] }
 
 [dependencies.mlua]
 features = ["luau", "async", "serialize", "macros", "unstable"]
-version = "0.9.0-beta.2"
+version = "0.9.0-beta.3"
 
 [dependencies.fred]
 features = ["enable-native-tls"]
-version = "6.1"
+version = "6.3"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 tikv-jemallocator = "0.5"
