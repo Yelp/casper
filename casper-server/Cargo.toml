@@ -56,7 +56,7 @@ zstd = "0.12"
 tokio-stream = { version = "0.1", features = ["time"] }
 
 [dependencies.mlua]
-features = ["luau", "async", "serialize", "macros", "unstable"]
+features = ["luau-jit", "async", "serialize", "macros", "unstable"]
 version = "0.9.0-beta.3"
 
 [dependencies.fred]
