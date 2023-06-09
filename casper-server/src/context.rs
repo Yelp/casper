@@ -144,6 +144,9 @@ impl AppContextInner {
         let max_background_tasks = self.config.main.max_background_tasks;
         lua::tasks::start_task_scheduler(lua.clone(), max_background_tasks);
 
+        // Enable sandboxing before loading user code
+        lua.sandbox(true)?;
+
         // Load filters code
         for filter in &self.config.http.filters {
             let handlers: Table = lua.load(filter.code.trim()).eval()?;
@@ -174,9 +177,6 @@ impl AppContextInner {
             let error_log: Option<Function> = lua.load(&logger.code).eval()?;
             self.error_log = error_log.map(|x| x.into_owned());
         }
-
-        // Enable sandboxing
-        lua.sandbox(true)?;
 
         Ok(())
     }
