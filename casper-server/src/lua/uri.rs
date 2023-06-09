@@ -12,6 +12,12 @@ fn percent_encode(_: &Lua, input: LuaString) -> LuaResult<String> {
     Ok(percent_encoding::percent_encode(input.as_bytes(), &URI_COMPONENT_SET).to_string())
 }
 
+fn percent_decode(_: &Lua, input: LuaString) -> LuaResult<String> {
+    Ok(percent_encoding::percent_decode(input.as_bytes())
+        .decode_utf8()?
+        .to_string())
+}
+
 fn normalize_uri(_: &Lua, uri: LuaString) -> LuaResult<String> {
     let mut parts = Uri::try_from(uri.as_bytes()).into_lua_err()?.into_parts();
 
@@ -48,24 +54,25 @@ fn normalize_uri(_: &Lua, uri: LuaString) -> LuaResult<String> {
 pub fn create_module(lua: &Lua) -> LuaResult<Table> {
     lua.create_table_from([
         ("encode", lua.create_function(percent_encode)?),
+        ("decode", lua.create_function(percent_decode)?),
         ("normalize", lua.create_function(normalize_uri)?),
     ])
 }
 
 #[cfg(test)]
 mod tests {
-    use mlua::{Lua, Result};
+    use mlua::{chunk, Lua, Result};
 
     #[test]
-    fn test_encode() -> Result<()> {
+    fn test_encode_decode() -> Result<()> {
         let lua = Lua::new();
 
-        let encode = lua.create_function(super::percent_encode)?;
-        let encode = |s| encode.call::<_, String>(s).unwrap();
-
-        assert_eq!(encode("foo <bar> - b@z"), "foo%20%3Cbar%3E%20-%20b%40z");
-
-        Ok(())
+        let uri = super::create_module(&lua)?;
+        lua.load(chunk! {
+            assert($uri.encode("foo <bar> - b@z") == "foo%20%3Cbar%3E%20-%20b%40z", "failed to encode")
+            assert($uri.decode("foo%20%3Cbar%3E%20-%20b%40z") == "foo <bar> - b@z", "failed to decode")
+        })
+        .exec()
     }
 
     #[test]
