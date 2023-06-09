@@ -42,10 +42,10 @@ where
         //
         methods.add_async_function(
             "get_response",
-            |lua, (this, key): (UserDataRef<Self>, Value)| async move {
+            |lua, (this, key, options): (UserDataRef<Self>, Value, Option<Table>)| async move {
                 let start = Instant::now();
 
-                let key = calculate_primary_key(lua, key)?;
+                let key = calculate_primary_key(lua, key, &options)?;
                 let resp = this.get_response(key).await.map_err(Into::into);
 
                 storage_counter_add!(1, "name" => this.name(), "operation" => "get");
@@ -63,12 +63,12 @@ where
 
         methods.add_async_function(
             "get_responses",
-            |lua, (this, keys): (UserDataRef<Self>, Table)| async move {
+            |lua, (this, keys, options): (UserDataRef<Self>, Table, Option<Table>)| async move {
                 let start = Instant::now();
 
                 let keys = keys
                     .raw_sequence_values::<Value>()
-                    .map(|key| key.and_then(|k| calculate_primary_key(lua, k)))
+                    .map(|key| key.and_then(|k| calculate_primary_key(lua, k, &options)))
                     .collect::<LuaResult<Vec<_>>>()?;
                 let items_count = keys.len() as u64;
                 let results = this.get_responses(keys).await;
@@ -101,10 +101,10 @@ where
         //
         methods.add_async_function(
             "delete_response",
-            |lua, (this, key): (UserDataRef<Self>, Value)| async move {
+            |lua, (this, key, options): (UserDataRef<Self>, Value, Option<Table>)| async move {
                 let start = Instant::now();
 
-                let key = calculate_primary_key(lua, key)?;
+                let key = calculate_primary_key(lua, key, &options)?;
                 let result = this.delete_responses(ItemKey::Primary(key)).await;
 
                 storage_counter_add!(1, "name" => this.name(), "operation" => "delete");
@@ -117,7 +117,7 @@ where
 
         methods.add_async_function(
             "delete_responses",
-            |lua, (this, keys): (UserDataRef<Self>, Table)| async move {
+            |lua, (this, keys, options): (UserDataRef<Self>, Table, Option<Table>)| async move {
                 let start = Instant::now();
 
                 let primary_keys: Option<Vec<Value>> = keys.raw_get("primary_keys")?;
@@ -130,7 +130,8 @@ where
 
                 if let Some(keys) = primary_keys {
                     for key in keys {
-                        item_keys.push(ItemKey::Primary(calculate_primary_key(lua, key)?));
+                        item_keys
+                            .push(ItemKey::Primary(calculate_primary_key(lua, key, &options)?));
                     }
                 }
                 if let Some(keys) = surrogate_keys {
@@ -158,7 +159,7 @@ where
         //
         methods.add_async_function(
             "store_response",
-            |lua, (this, item): (UserDataRef<Self>, Table)| async move {
+            |lua, (this, item, options): (UserDataRef<Self>, Table, Option<Table>)| async move {
                 let start = Instant::now();
 
                 let key: Value = item.raw_get("key")?;
@@ -181,7 +182,7 @@ where
 
                 let result = this
                     .store_response(Item {
-                        key: calculate_primary_key(lua, key)?,
+                        key: calculate_primary_key(lua, key, &options)?,
                         status: resp.status(),
                         headers: Cow::Borrowed(resp.headers()),
                         body: body.clone(),
@@ -202,8 +203,40 @@ where
 
 /// Calculates primary key from Lua Value
 /// The Value can be a string or a list of strings
-fn calculate_primary_key(lua: &Lua, key: Value) -> LuaResult<Key> {
-    let mut hasher = Ripemd160::new();
+fn calculate_primary_key(lua: &Lua, key: Value, options: &Option<Table>) -> LuaResult<Key> {
+    enum Hasher {
+        Blake3(blake3::Hasher),
+        Ripemd160(Ripemd160),
+    }
+
+    impl Hasher {
+        fn update(&mut self, b: &[u8]) {
+            match self {
+                Hasher::Blake3(h) => {
+                    h.update(b);
+                }
+                Hasher::Ripemd160(h) => {
+                    h.update(b);
+                }
+            }
+        }
+
+        fn finish(self) -> Vec<u8> {
+            match self {
+                Hasher::Blake3(h) => h.finalize().as_bytes().to_vec(),
+                Hasher::Ripemd160(h) => h.finalize().to_vec(),
+            }
+        }
+    }
+
+    let mut hasher = match options {
+        Some(options) => match options.raw_get::<_, Option<LuaString>>("hash_algorithm") {
+            Ok(Some(alg)) if alg == "blake3" => Hasher::Blake3(blake3::Hasher::new()),
+            _ => Hasher::Ripemd160(Ripemd160::new()),
+        },
+        None => Hasher::Ripemd160(Ripemd160::new()),
+    };
+
     match key {
         Value::Table(t) => {
             for v in t.raw_sequence_values::<LuaString>() {
@@ -215,7 +248,8 @@ fn calculate_primary_key(lua: &Lua, key: Value) -> LuaResult<Key> {
             hasher.update(s.as_bytes());
         }
     }
-    Ok(hasher.finalize().to_vec().into())
+
+    Ok(hasher.finish().into())
 }
 
 #[cfg(test)]
