@@ -495,12 +495,12 @@ fn current_timestamp() -> u64 {
 }
 
 #[inline]
-fn make_redis_key(key: &impl AsRef<[u8]>) -> RedisKey {
+fn make_redis_key(key: impl AsRef<[u8]>) -> RedisKey {
     RedisKey::from(base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(key))
 }
 
 #[inline]
-fn make_chunk_key(key: &impl AsRef<[u8]>, n: u32) -> RedisKey {
+fn make_chunk_key(key: impl AsRef<[u8]>, n: u32) -> RedisKey {
     let key = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(key);
     RedisKey::from(format!("{{{}}}|{}", key, n))
 }

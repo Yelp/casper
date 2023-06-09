@@ -205,7 +205,7 @@ where
 /// The Value can be a string or a list of strings
 fn calculate_primary_key(lua: &Lua, key: Value, options: &Option<Table>) -> LuaResult<Key> {
     enum Hasher {
-        Blake3(blake3::Hasher),
+        Blake3(Box<blake3::Hasher>),
         Ripemd160(Ripemd160),
     }
 
@@ -231,7 +231,7 @@ fn calculate_primary_key(lua: &Lua, key: Value, options: &Option<Table>) -> LuaR
 
     let mut hasher = match options {
         Some(options) => match options.raw_get::<_, Option<LuaString>>("hash_algorithm") {
-            Ok(Some(alg)) if alg == "blake3" => Hasher::Blake3(blake3::Hasher::new()),
+            Ok(Some(alg)) if alg == "blake3" => Hasher::Blake3(Box::new(blake3::Hasher::new())),
             _ => Hasher::Ripemd160(Ripemd160::new()),
         },
         None => Hasher::Ripemd160(Ripemd160::new()),

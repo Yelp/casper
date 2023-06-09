@@ -142,7 +142,7 @@ impl Deref for RegexSet {
 impl UserData for RegexSet {
     fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
         methods.add_function("new", |_, patterns: Vec<String>| {
-            Ok(Ok(lua_try!(regex::RegexSet::new(&patterns).map(RegexSet))))
+            Ok(Ok(lua_try!(regex::RegexSet::new(patterns).map(RegexSet))))
         });
 
         methods.add_method("is_match", |_, this, text: String| Ok(this.is_match(&text)));
