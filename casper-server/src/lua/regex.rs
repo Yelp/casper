@@ -91,6 +91,10 @@ impl UserData for Regex {
                 .map(String::from)
                 .collect::<Vec<_>>())
         });
+
+        methods.add_method("replace", |lua, this, (text, rep): (String, String)| {
+            lua.create_string(this.replace(&text, &rep).as_bytes())
+        });
     }
 }
 
@@ -196,6 +200,11 @@ mod tests {
             local re, err = $regex.new("(")
             assert(re == nil)
             assert(string.find(err, "regex parse error") ~= nil)
+
+            // Test replace
+            local re = $regex.new("(?P<last>[^,\\s]+),\\s+(?P<first>\\S+)")
+            local str = re:replace("Smith, John", "$first $last")
+            assert(str == "John Smith", "str must be 'John Smith'")
         })
         .exec()
     }
