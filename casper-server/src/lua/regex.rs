@@ -2,7 +2,8 @@ use std::ops::Deref;
 
 use mini_moka::unsync::Cache;
 use mlua::{
-    Lua, MetaMethod, Result as LuaResult, Table, UserData, UserDataMethods, Value, Variadic,
+    Lua, MetaMethod, Result as LuaResult, String as LuaString, Table, UserData, UserDataMethods,
+    Value, Variadic,
 };
 use ouroboros::self_referencing;
 
@@ -159,11 +160,21 @@ impl UserData for RegexSet {
     }
 }
 
-pub fn create_module(lua: &Lua) -> LuaResult<Table> {
-    let regex_new = lua.create_function(|lua, re| Ok(Ok(lua_try!(Regex::new(lua, re)))))?;
+fn regex_new(lua: &Lua, re: String) -> LuaResult<Result<Regex, String>> {
+    Ok(Ok(lua_try!(Regex::new(lua, re))))
+}
 
+fn regex_escape(_: &Lua, text: LuaString) -> LuaResult<String> {
+    Ok(regex::escape(text.to_str()?))
+}
+
+pub fn create_module(lua: &Lua) -> LuaResult<Table> {
     lua.create_table_from([
-        ("new", Value::Function(regex_new)),
+        ("new", Value::Function(lua.create_function(regex_new)?)),
+        (
+            "escape",
+            Value::Function(lua.create_function(regex_escape)?),
+        ),
         ("RegexSet", Value::UserData(lua.create_proxy::<RegexSet>()?)),
     ])
 }
@@ -205,6 +216,10 @@ mod tests {
             local re = $regex.new("(?P<last>[^,\\s]+),\\s+(?P<first>\\S+)")
             local str = re:replace("Smith, John", "$first $last")
             assert(str == "John Smith", "str must be 'John Smith'")
+
+            // Test escape
+            local re = $regex.escape("a*b")
+            assert(re == "a\\*b", "escaped regex must be 'a\\*b'")
         })
         .exec()
     }
