@@ -5,7 +5,7 @@ use mlua::{
     Lua, MetaMethod, Result as LuaResult, String as LuaString, Table, UserData, UserDataMethods,
     Value, Variadic,
 };
-use ouroboros::self_referencing;
+use self_cell::self_cell;
 
 // TODO: Move to config
 const REGEX_CACHE_SIZE: u64 = 512;
@@ -43,13 +43,16 @@ impl Regex {
     }
 }
 
-#[self_referencing]
-struct Captures {
-    text: Box<str>,
-    #[borrows(text)]
-    #[covariant]
-    caps: regex::Captures<'this>,
-}
+type RegexCaptures<'a> = regex::Captures<'a>;
+
+self_cell!(
+    struct Captures {
+        owner: Box<str>,
+
+        #[covariant]
+        dependent: RegexCaptures,
+    }
+);
 
 struct CaptureLocations(regex::CaptureLocations);
 
@@ -60,11 +63,7 @@ impl UserData for Regex {
         });
 
         methods.add_method("match", |lua, this, text: Box<str>| {
-            let caps = CapturesTryBuilder {
-                text,
-                caps_builder: |text| this.0.captures(text).ok_or(()),
-            }
-            .try_build();
+            let caps = Captures::try_new(text, |text| this.0.captures(text).ok_or(()));
             match caps {
                 Ok(caps) => Ok(Value::UserData(lua.create_userdata(caps)?)),
                 Err(_) => Ok(Value::Nil),
@@ -104,12 +103,14 @@ impl UserData for Captures {
         methods.add_meta_method(MetaMethod::Index, |_, this, key: Value| match key {
             Value::String(s) => {
                 let name = std::str::from_utf8(s.as_bytes())?;
-                let res = this.with_caps(|caps| caps.name(name).map(|v| v.as_str().to_string()));
+                let caps = this.borrow_dependent();
+                let res = caps.name(name).map(|v| v.as_str().to_string());
                 Ok(res)
             }
-            Value::Integer(i) => {
-                Ok(this.with_caps(|caps| caps.get(i as usize).map(|v| v.as_str().to_string())))
-            }
+            Value::Integer(i) => Ok(this
+                .borrow_dependent()
+                .get(i as usize)
+                .map(|v| v.as_str().to_string())),
             _ => Ok(None),
         })
     }

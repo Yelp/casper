@@ -5,7 +5,7 @@ use mlua::{
     MetaMethod, Result, String as LuaString, Table, UserData, UserDataMethods, Value, Variadic,
 };
 use ntex::util::Bytes;
-use ouroboros::self_referencing;
+use self_cell::self_cell;
 use serde::Serialize;
 
 #[derive(Clone)]
@@ -125,9 +125,9 @@ impl UserData for JsonValue {
                 }
                 serde_json::Value::Object(_) => {
                     let next = lua.create_function(move |lua, ud: AnyUserData| {
-                        let mut iter = ud.borrow_mut::<LuaJsonObjectIter>()?;
-                        let root = iter.borrow_value().root.clone();
-                        iter.with_iter_mut(|it| match it.next() {
+                        let mut iter = ud.borrow_mut::<LuaJsonMapIter>()?;
+                        let root = iter.borrow_owner().root.clone();
+                        iter.with_dependent_mut(|_, it| match it.next() {
                             Some((key, value)) => Ok(Variadic::from_iter([
                                 Value::String(lua.create_string(key)?),
                                 JsonValue::to_lua(
@@ -142,16 +142,11 @@ impl UserData for JsonValue {
                         })
                     })?;
 
-                    let iter_ud = lua.create_userdata(
-                        LuaJsonObjectIterBuilder {
-                            value: this.clone(),
-                            iter_builder: |this| match this.current() {
-                                serde_json::Value::Object(object) => object.iter(),
-                                _ => unreachable!(),
-                            },
-                        }
-                        .build(),
-                    )?;
+                    let ud = LuaJsonMapIter::new(this.clone(), |json| match json.current() {
+                        serde_json::Value::Object(object) => object.iter(),
+                        _ => unreachable!(),
+                    });
+                    let iter_ud = lua.create_userdata(ud)?;
                     Ok((Value::Function(next), Some(iter_ud)))
                 }
                 _ => Ok((Value::Nil, None)),
@@ -167,15 +162,18 @@ struct LuaJsonArrayIter {
 
 impl UserData for LuaJsonArrayIter {}
 
-#[self_referencing]
-struct LuaJsonObjectIter {
-    value: JsonValue,
-    #[borrows(value)]
-    #[covariant]
-    iter: serde_json::map::Iter<'this>,
-}
+type JsonMapIter<'a> = serde_json::map::Iter<'a>;
 
-impl UserData for LuaJsonObjectIter {}
+self_cell!(
+    struct LuaJsonMapIter {
+        owner: JsonValue,
+
+        #[not_covariant]
+        dependent: JsonMapIter,
+    }
+);
+
+impl UserData for LuaJsonMapIter {}
 
 fn try_with_slice<R>(value: Value, f: impl FnOnce(&[u8]) -> R) -> Result<R> {
     match value {
