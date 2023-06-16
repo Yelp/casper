@@ -7,6 +7,7 @@ pub mod header_map {
     use std::borrow::Cow;
     use std::fmt;
 
+    use itertools::Itertools;
     use ntex::http::header::{HeaderMap, HeaderName, HeaderValue};
     use serde::de::{self, Deserializer, MapAccess, Unexpected, Visitor};
     use serde::ser::SerializeSeq;
@@ -39,6 +40,16 @@ pub mod header_map {
     /// Implementation detail. Use derive annotations instead.
     pub fn serialize<S: Serializer>(headers: &HeaderMap, ser: S) -> Result<S::Ok, S::Error> {
         ser.collect_map(headers.keys().map(|k| (k.as_str(), ToSeq(headers, k))))
+    }
+
+    /// Same as `serialize`, but sorts the headers by name.
+    pub fn serialize_sorted<S: Serializer>(headers: &HeaderMap, ser: S) -> Result<S::Ok, S::Error> {
+        ser.collect_map(
+            headers
+                .keys()
+                .sorted_by_key(|n| n.as_str())
+                .map(|k| (k.as_str(), ToSeq(headers, k))),
+        )
     }
 
     #[derive(serde::Deserialize)]

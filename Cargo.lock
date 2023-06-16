@@ -300,6 +300,7 @@ dependencies = [
  "futures",
  "futures-util",
  "hex",
+ "itertools",
  "linked-hash-map",
  "mini-moka",
  "mlua",

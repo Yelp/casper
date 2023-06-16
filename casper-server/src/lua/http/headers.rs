@@ -9,6 +9,7 @@ use mlua::{
 use ntex::http::header::{HeaderMap, HeaderName, HeaderValue};
 
 use super::super::Regex;
+use crate::http::serde::header_map::serialize_sorted as serialize_headers;
 
 pub trait LuaHttpHeadersExt {
     /// Returns a first value of the header of Nil if not found.
@@ -35,6 +36,13 @@ pub trait LuaHttpHeadersExt {
     /// Converts internal representation of headers to a Lua table with a specific metatable
     /// for case-insensitive access.
     fn to_table<'lua>(&self, lua: &'lua Lua, names_filter: Value<'lua>) -> LuaResult<Table<'lua>>;
+
+    /// Serializes headers to a JSON string.
+    fn to_json<'lua>(
+        &self,
+        lua: &'lua Lua,
+        pretty: Option<bool>,
+    ) -> LuaResult<Result<LuaString<'lua>, String>>;
 }
 
 #[derive(Clone, Debug, Default)]
@@ -162,6 +170,8 @@ impl UserData for LuaHttpHeaders {
         });
 
         methods.add_method("to_table", |lua, this, filter| this.to_table(lua, filter));
+
+        methods.add_method("to_json", |lua, this, pretty| this.to_json(lua, pretty));
 
         methods.add_meta_method(MetaMethod::Index, |lua, this, name: String| {
             LuaHttpHeadersExt::get_all(&this.0, lua, &name)
@@ -317,6 +327,22 @@ impl LuaHttpHeadersExt for HeaderMap {
 
         Ok(lua_headers)
     }
+
+    fn to_json<'lua>(
+        &self,
+        lua: &'lua Lua,
+        pretty: Option<bool>,
+    ) -> LuaResult<Result<LuaString<'lua>, String>> {
+        let mut writer = Vec::new();
+        if pretty.unwrap_or_default() {
+            let mut serializer = serde_json::Serializer::pretty(&mut writer);
+            lua_try!(serialize_headers(self, &mut serializer));
+        } else {
+            let mut serializer = serde_json::Serializer::new(&mut writer);
+            lua_try!(serialize_headers(self, &mut serializer));
+        }
+        Ok(Ok(lua.create_string(writer)?))
+    }
 }
 
 fn set_headers_metatable(lua: &Lua, headers: Table) -> LuaResult<()> {
@@ -440,6 +466,13 @@ mod tests {
             t = headers:to_table({"foo"})
             assert(t.test == nil)
             assert(table.concat(t.foo) == "bax")
+
+            // Test serializing to JSON (always deterministic)
+            local json = headers:to_json()
+            assert(json == [[{"foo":"bax","test":["abc","321"]}]], "wrong json")
+            headers:add("alpha", "beta")
+            local pretty_json = headers:to_json(true)
+            assert(pretty_json == "{\n  \"alpha\": \"beta\",\n  \"foo\": \"bax\",\n  \"test\": [\n    \"abc\",\n    \"321\"\n  ]\n}", "wrong pretty json")
         })
         .exec()?;
 
