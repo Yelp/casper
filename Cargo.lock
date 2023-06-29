@@ -947,15 +947,6 @@ dependencies = [
 
 [[package]]
 name = "hermit-abi"
-version = "0.2.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ee512640fe35acbfb4bb779db6f0d80704c2cacfa2e39b601ef3e3f47d1ae4c7"
-dependencies = [
- "libc",
-]
-
-[[package]]
-name = "hermit-abi"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fed44880c466736ef9a5c5b5facefb5ed0785676d0c02d612db14e54f0d84286"
@@ -1328,9 +1319,9 @@ dependencies = [
 
 [[package]]
 name = "ntex"
-version = "0.6.7"
+version = "0.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5807f908e7d45a81792e8d790d2457ca5faaf837b75c7aeee72ab0fd51ff8b74"
+checksum = "4c2f9b918aa703f587bdaa21544dfbf454230dff7bdac0db0826148d88ddde57"
 dependencies = [
  "async-channel",
  "async-oneshot",
@@ -1392,9 +1383,9 @@ dependencies = [
 
 [[package]]
 name = "ntex-connect"
-version = "0.2.1"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7ebeb43837a991a064a929e5bc3616abe6ceac1e336d6ced721f0ca94afee5fc"
+checksum = "71a7f502e5f58d97ade6c0d90c1fa36bf6cd826f869799d27c7d3f944d4a1071"
 dependencies = [
  "log",
  "ntex-bytes",
@@ -1411,9 +1402,9 @@ dependencies = [
 
 [[package]]
 name = "ntex-h2"
-version = "0.2.5"
+version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8da1a6527dcf3643d68cb0d3233abf698aea18f7659174a459826494f79fe91f"
+checksum = "a211cdee897c605b9b49726386cc86d8728537faa4ef90714f50e95bb3e852f7"
 dependencies = [
  "bitflags",
  "fxhash",
@@ -1445,9 +1436,9 @@ dependencies = [
 
 [[package]]
 name = "ntex-io"
-version = "0.2.10"
+version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "04bb5b5e2c48c9cfa9cc158734194cb4811ce6c56d4e0366c7708e4e5ef7e7ad"
+checksum = "b7a25bf4283a96761621b57a56c09287c8391540e35eadc63fa7938102bc87b0"
 dependencies = [
  "bitflags",
  "log",
@@ -1507,9 +1498,9 @@ dependencies = [
 
 [[package]]
 name = "ntex-tls"
-version = "0.2.4"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cdaa45e310ecc5110d0c5f1f4fcc181ed78c9b0db110f0f75eabc003ff9c2aeb"
+checksum = "f24a07bf3d1c43717fb648e36cf43514e491b438c3091dfba044d4e36047b6a4"
 dependencies = [
  "log",
  "ntex-bytes",
@@ -1522,9 +1513,9 @@ dependencies = [
 
 [[package]]
 name = "ntex-tokio"
-version = "0.2.3"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e996405b96658c8dce71fb1006f72dd967f55856d04a62b9e0cf5099c6dbfdb5"
+checksum = "d80c2278584893ab215a04267cfa7f4c14cbb605d8be769c261940cc349dfb1a"
 dependencies = [
  "log",
  "ntex-bytes",
@@ -1536,9 +1527,9 @@ dependencies = [
 
 [[package]]
 name = "ntex-util"
-version = "0.2.3"
+version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a1d30e8327c19d71cb23e46cfa90e6fc2b3e9b79ca20486c53566a8ce2b476b4"
+checksum = "7f8a1a84837b0c76109522e232eba3484b788848b5ddcde20f4389199904cf1c"
 dependencies = [
  "bitflags",
  "futures-core",
@@ -1573,11 +1564,11 @@ dependencies = [
 
 [[package]]
 name = "num_cpus"
-version = "1.15.0"
+version = "1.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0fac9e2da13b5eb447a6ce3d392f23a29d8694bff781bf03a16cd9ac8697593b"
+checksum = "4161fcb6d602d4d2081af7c3a45852d875a03dd337a6bfdd6e06407b61342a43"
 dependencies = [
- "hermit-abi 0.2.6",
+ "hermit-abi 0.3.1",
  "libc",
 ]
 

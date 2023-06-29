@@ -2,7 +2,9 @@ use std::rc::Rc;
 
 use ntex::http::header::{HeaderValue, CONTENT_TYPE};
 use ntex::http::Response;
-use ntex::service::{forward_poll_ready, forward_poll_shutdown, Middleware, Service};
+use ntex::service::{
+    forward_poll_ready, forward_poll_shutdown, Middleware, Service, ServiceCall, ServiceCtx,
+};
 use ntex::util::Either;
 use ntex::web::{ErrorRenderer, WebRequest, WebResponse};
 
@@ -69,17 +71,17 @@ where
 {
     type Response = WebResponse;
     type Error = S::Error;
-    type Future<'f> = Either<LocalBoxFuture<'f, Result<WebResponse, S::Error>>, S::Future<'f>> where S: 'f;
+    type Future<'f> = Either<LocalBoxFuture<'f, Result<WebResponse, S::Error>>, ServiceCall<'f, S, WebRequest<E>>> where S: 'f;
 
     forward_poll_ready!(inner);
     forward_poll_shutdown!(inner);
 
     #[inline]
-    fn call(&self, req: WebRequest<E>) -> Self::Future<'_> {
+    fn call<'a>(&'a self, req: WebRequest<E>, ctx: ServiceCtx<'a, Self>) -> Self::Future<'a> {
         if req.uri().path() == *self.endpoint {
             return Either::Left(Box::pin(Self::metrics_handler(req).map(Ok)));
         }
 
-        Either::Right(self.inner.call(req))
+        Either::Right(ctx.call(&self.inner, req))
     }
 }

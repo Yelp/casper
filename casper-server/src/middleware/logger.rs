@@ -8,7 +8,9 @@ use std::time::{Duration, Instant};
 
 use mlua::LuaSerdeExt;
 use ntex::http::body::{Body, BodySize, MessageBody, ResponseBody};
-use ntex::service::{forward_poll_ready, forward_poll_shutdown, Middleware, Service};
+use ntex::service::{
+    forward_poll_ready, forward_poll_shutdown, Middleware, Service, ServiceCall, ServiceCtx,
+};
 use ntex::util::Bytes;
 use ntex::web::{WebRequest, WebResponse};
 use pin_project_lite::pin_project;
@@ -88,7 +90,7 @@ where
     forward_poll_shutdown!(service);
 
     #[inline]
-    fn call(&self, req: WebRequest<E>) -> Self::Future<'_> {
+    fn call<'a>(&'a self, req: WebRequest<E>, ctx: ServiceCtx<'a, Self>) -> Self::Future<'a> {
         let start = Instant::now();
 
         let app_context: AppContext = req.app_state::<AppContext>().unwrap().clone();
@@ -101,7 +103,7 @@ where
         });
 
         LoggerResponse {
-            fut: self.service.call(req),
+            fut: ctx.call(&self.service, req),
             start,
             app_context,
             lua_context: None,
@@ -116,7 +118,7 @@ pin_project! {
     where S: 'f, E: 'f
     {
         #[pin]
-        fut: S::Future<'f>,
+        fut: ServiceCall<'f, S, WebRequest<E>>,
         start: Instant,
         app_context: AppContext,
         lua_context: Option<LuaContext>,
