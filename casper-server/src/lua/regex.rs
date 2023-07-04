@@ -23,22 +23,26 @@ impl Deref for Regex {
     }
 }
 
+type RegexCache = Cache<String, Regex>;
+
 impl Regex {
-    pub fn new(lua: &Lua, re: String) -> Result<Self, regex::Error> {
-        match lua.app_data_mut::<Cache<String, Regex>>() {
+    pub fn new(lua: &Lua, mut re: String) -> Result<Self, regex::Error> {
+        match lua.app_data_mut::<RegexCache>() {
             Some(mut cache) => {
                 if let Some(regex) = cache.get(&re) {
                     return Ok(regex.clone());
                 }
                 let regex = regex::Regex::new(&re).map(|r| Self(Rc::new(r)))?;
+                re.shrink_to_fit();
                 cache.insert(re, regex.clone());
                 Ok(regex)
             }
             None => {
                 let mut cache = Cache::new(REGEX_CACHE_SIZE);
                 let regex = regex::Regex::new(&re).map(|r| Self(Rc::new(r)))?;
+                re.shrink_to_fit();
                 cache.insert(re, regex.clone());
-                lua.set_app_data::<Cache<String, Regex>>(cache);
+                lua.set_app_data::<RegexCache>(cache);
                 Ok(regex)
             }
         }
@@ -171,6 +175,36 @@ fn regex_escape(_: &Lua, text: LuaString) -> LuaResult<String> {
     Ok(regex::escape(text.to_str()?))
 }
 
+// A shortcut for testing a match for the regex in the string given.
+fn regex_is_match(lua: &Lua, (re, text): (String, String)) -> LuaResult<Result<bool, String>> {
+    let re = lua_try!(Regex::new(lua, re));
+    Ok(Ok(re.is_match(&text)))
+}
+
+// A shortcut for matching text against a regex and collecting all capture groups
+fn regex_match<'lua>(
+    lua: &'lua Lua,
+    (re, text): (String, LuaString),
+) -> LuaResult<Result<Value<'lua>, String>> {
+    let re = lua_try!(Regex::new(lua, re));
+    let caps = re.captures(lua_try!(text.to_str()));
+    match caps {
+        Some(caps) => match caps
+            .iter()
+            .map(|om| om.map(|m| m.as_str()))
+            .collect::<Option<Vec<_>>>()
+        {
+            Some(matches) => {
+                let table = lua.create_sequence_from(matches.iter().skip(1).copied())?;
+                table.raw_set(0, matches[0])?;
+                Ok(Ok(Value::Table(table)))
+            }
+            None => Ok(Ok(Value::Nil)),
+        },
+        None => Ok(Ok(Value::Nil)),
+    }
+}
+
 pub fn create_module(lua: &Lua) -> LuaResult<Table> {
     lua.create_table_from([
         ("new", Value::Function(lua.create_function(regex_new)?)),
@@ -178,6 +212,11 @@ pub fn create_module(lua: &Lua) -> LuaResult<Table> {
             "escape",
             Value::Function(lua.create_function(regex_escape)?),
         ),
+        (
+            "is_match",
+            Value::Function(lua.create_function(regex_is_match)?),
+        ),
+        ("match", Value::Function(lua.create_function(regex_match)?)),
         ("RegexSet", Value::UserData(lua.create_proxy::<RegexSet>()?)),
     ])
 }
@@ -219,10 +258,28 @@ mod tests {
             local re = $regex.new("(?P<last>[^,\\s]+),\\s+(?P<first>\\S+)")
             local str = re:replace("Smith, John", "$first $last")
             assert(str == "John Smith", "str must be 'John Smith'")
+        })
+        .exec()
+    }
 
+    #[test]
+    fn test_regex_shortcuts() -> Result<()> {
+        let lua = Lua::new();
+
+        let regex = super::create_module(&lua)?;
+        lua.load(chunk! {
             // Test escape
-            local re = $regex.escape("a*b")
-            assert(re == "a\\*b", "escaped regex must be 'a\\*b'")
+            assert($regex.escape("a*b") == "a\\*b", "escaped regex must be 'a\\*b'")
+
+            // Test "is_match"
+            assert($regex.is_match("\\b\\w{13}\\b", "I categorically deny having ..."), "is_match failed")
+
+            // Test "match"
+            local matches = $regex.match("^(\\d{4})-(\\d{2})-(\\d{2})$", "2014-05-01")
+            assert(matches[0] == "2014-05-01", "zero capture group should match the whole text")
+            assert(matches[1] == "2014", "first capture group should match year")
+            assert(matches[2] == "05", "second capture group should match month")
+            assert(matches[3] == "01", "third capture group should match day")
         })
         .exec()
     }
