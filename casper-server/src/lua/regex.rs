@@ -1,4 +1,5 @@
 use std::ops::Deref;
+use std::rc::Rc;
 
 use mini_moka::unsync::Cache;
 use mlua::{
@@ -11,11 +12,12 @@ use self_cell::self_cell;
 const REGEX_CACHE_SIZE: u64 = 512;
 
 #[derive(Clone, Debug)]
-pub struct Regex(regex::Regex);
+pub struct Regex(Rc<regex::Regex>);
 
 impl Deref for Regex {
     type Target = regex::Regex;
 
+    #[inline]
     fn deref(&self) -> &Self::Target {
         &self.0
     }
@@ -28,13 +30,13 @@ impl Regex {
                 if let Some(regex) = cache.get(&re) {
                     return Ok(regex.clone());
                 }
-                let regex = regex::Regex::new(&re).map(Self)?;
+                let regex = regex::Regex::new(&re).map(|r| Self(Rc::new(r)))?;
                 cache.insert(re, regex.clone());
                 Ok(regex)
             }
             None => {
                 let mut cache = Cache::new(REGEX_CACHE_SIZE);
-                let regex = regex::Regex::new(&re).map(Self)?;
+                let regex = regex::Regex::new(&re).map(|r| Self(Rc::new(r)))?;
                 cache.insert(re, regex.clone());
                 lua.set_app_data::<Cache<String, Regex>>(cache);
                 Ok(regex)
