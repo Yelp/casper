@@ -272,7 +272,10 @@ mod tests {
             assert($regex.escape("a*b") == "a\\*b", "escaped regex must be 'a\\*b'")
 
             // Test "is_match"
-            assert($regex.is_match("\\b\\w{13}\\b", "I categorically deny having ..."), "is_match failed")
+            assert($regex.is_match("\\b\\w{13}\\b", "I categorically deny having ..."), "is_match should have matches")
+            assert(not $regex.is_match("abc", "bca"), "is_match should have not matches")
+            local is_match, err = $regex.is_match("(", "")
+            assert(is_match == nil and string.find(err, "regex parse error") ~= nil, "is_match should return error")
 
             // Test "match"
             local matches = $regex.match("^(\\d{4})-(\\d{2})-(\\d{2})$", "2014-05-01")
@@ -280,6 +283,8 @@ mod tests {
             assert(matches[1] == "2014", "first capture group should match year")
             assert(matches[2] == "05", "second capture group should match month")
             assert(matches[3] == "01", "third capture group should match day")
+            matches, err = $regex.match("(", "")
+            assert(matches == nil and string.find(err, "regex parse error") ~= nil, "match should return error")
         })
         .exec()
     }
