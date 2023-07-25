@@ -90,7 +90,7 @@ impl<'lua> FromLua<'lua> for LuaHttpHeaders {
                     // Maybe `value` is a list of header values
                     if let Value::Table(values) = value {
                         let name = HeaderName::from_bytes(name.as_bytes()).into_lua_err()?;
-                        for value in values.raw_sequence_values::<LuaString>() {
+                        for value in values.sequence_values::<LuaString>() {
                             headers.append(
                                 name.clone(),
                                 HeaderValue::from_bytes(value?.as_bytes()).into_lua_err()?,
@@ -183,7 +183,7 @@ impl UserData for LuaHttpHeaders {
                 match value {
                     Value::Table(t) => {
                         let name = HeaderName::from_bytes(name.as_bytes()).into_lua_err()?;
-                        for (i, v) in t.raw_sequence_values::<LuaString>().enumerate() {
+                        for (i, v) in t.sequence_values::<LuaString>().enumerate() {
                             let hdr_value =
                                 HeaderValue::from_bytes(v?.as_bytes()).into_lua_err()?;
                             if i == 0 {
@@ -297,7 +297,7 @@ impl LuaHttpHeadersExt for HeaderMap {
         let names_filter = match names_filter {
             Value::Nil => None,
             Value::Table(t) => Some(
-                t.raw_sequence_values::<LuaString>()
+                t.sequence_values::<LuaString>()
                     .map(|s| s.and_then(|s| HeaderName::from_bytes(s.as_bytes()).into_lua_err()))
                     .collect::<LuaResult<HashSet<_>>>()?,
             ),

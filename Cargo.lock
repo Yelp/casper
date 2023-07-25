@@ -330,7 +330,7 @@ dependencies = [
  "futures",
  "futures-util",
  "hex",
- "itertools 0.11.0",
+ "itertools",
  "linked-hash-map",
  "mini-moka",
  "mlua",
@@ -1053,15 +1053,6 @@ dependencies = [
 
 [[package]]
 name = "itertools"
-version = "0.10.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b0fd2260e829bddf4cb6ea802289de2f86d6a7a690192fbe91b3f46e0f2c8473"
-dependencies = [
- "either",
-]
-
-[[package]]
-name = "itertools"
 version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b1c173a5686ce8bfa551b3563d0c2170bf24ca44da99c7ca4bfdab5418c3fe57"
@@ -1135,9 +1126,9 @@ checksum = "b06a4cde4c0f271a446782e3eff8de789548ce57dbc8eca9292c27f4a42004b4"
 
 [[package]]
 name = "luau0-src"
-version = "0.5.10+luau581"
+version = "0.5.11+luau583"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8b8350fc82726c62f543b5b4e12611591b5c86dc38244af7c93c044c2cd0311d"
+checksum = "0a7183d0a3eaa387403dd4ac7b449536af82c1545b7a48247af1652ca66926d5"
 dependencies = [
  "cc",
 ]
@@ -1215,9 +1206,9 @@ dependencies = [
 
 [[package]]
 name = "mlua"
-version = "0.9.0-beta.3"
+version = "0.9.0-rc.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "19b5bc62c9f83dc5c6bb36714e30aceca2fb3ac5c91a21590b0cf382b22e65e0"
+checksum = "f5369212118d0f115c9adbe7f7905e36fb3ef2994266039c51fc3e96374d705d"
 dependencies = [
  "bstr",
  "erased-serde",
@@ -1233,9 +1224,9 @@ dependencies = [
 
 [[package]]
 name = "mlua-sys"
-version = "0.2.0"
+version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5b5013b291cbd5edd9259173f1ca1e62fc2f5b670c35424361acbbccddf9c679"
+checksum = "b3daecc55a656cae8e54fc599701ab597b67cdde68f780cac8c1c49b9cfff2f5"
 dependencies = [
  "cc",
  "cfg-if",
@@ -1245,11 +1236,11 @@ dependencies = [
 
 [[package]]
 name = "mlua_derive"
-version = "0.9.0-beta.2"
+version = "0.9.0-rc.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9ed3b35356eaf2df9e09c3b3dc588409acce53cab3617685316c58bdaf317d07"
+checksum = "5ea17c2d5440c7443a29710f4649b3339330aac16fda3bcbf8e81023d756cc0a"
 dependencies = [
- "itertools 0.10.5",
+ "itertools",
  "once_cell",
  "proc-macro-error",
  "proc-macro2",

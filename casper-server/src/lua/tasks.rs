@@ -37,7 +37,6 @@ struct MaxBackgroundTasks(Option<u64>);
 // Global task identifier
 static NEXT_TASK_ID: AtomicU64 = AtomicU64::new(1);
 
-#[allow(clippy::await_holding_refcell_ref)]
 impl UserData for TaskHandle {
     fn add_fields<'lua, F: mlua::UserDataFields<'lua, Self>>(fields: &mut F) {
         fields.add_field_method_get("id", |_, this| Ok(this.id));
@@ -64,8 +63,7 @@ impl UserData for TaskHandle {
             Ok(())
         });
 
-        methods.add_async_function("is_finished", |_, this: AnyUserData| async move {
-            let mut this = this.borrow_mut::<Self>()?;
+        methods.add_async_method_mut("is_finished", |_, this, ()| async move {
             if let Some(rx) = this.join_handle_rx.take() {
                 this.join_handle = Some(rx.await.expect("Failed to get task join handle"));
             }

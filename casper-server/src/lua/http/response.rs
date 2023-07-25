@@ -4,7 +4,7 @@ use std::mem;
 
 use mlua::{
     ExternalError, ExternalResult, FromLua, IntoLua, Lua, Result as LuaResult, String as LuaString,
-    Table, UserData, UserDataFields, UserDataMethods, UserDataRefMut, Value,
+    Table, UserData, UserDataFields, UserDataMethods, Value,
 };
 use ntex::http::body::MessageBody;
 use ntex::http::client::ClientResponse;
@@ -225,7 +225,6 @@ impl<'lua> FromLua<'lua> for LuaResponse {
     }
 }
 
-#[allow(clippy::await_holding_refcell_ref)]
 impl UserData for LuaResponse {
     fn add_fields<'lua, F: UserDataFields<'lua, Self>>(fields: &mut F) {
         fields.add_field_method_get("is_proxied", |_, this| Ok(this.is_proxied));
@@ -262,9 +261,7 @@ impl UserData for LuaResponse {
             LuaResponse::from_lua(params, lua)
         });
 
-        methods.add_async_function("clone", |_, mut this: UserDataRefMut<Self>| async move {
-            this.clone().await
-        });
+        methods.add_async_method_mut("clone", |_, this, ()| async move { this.clone().await });
 
         methods.add_method("header", |lua, this, name: String| {
             LuaHttpHeadersExt::get(this.headers(), lua, &name)

@@ -1,9 +1,7 @@
 use std::io::Result as IoResult;
 use std::ops::Deref;
 
-use mlua::{
-    Lua, Result, String as LuaString, Table, UserData, UserDataMethods, UserDataRef, Value,
-};
+use mlua::{Lua, Result, String as LuaString, Table, UserData, UserDataMethods, Value};
 use tokio::net::{ToSocketAddrs, UdpSocket};
 
 /// Represents Tokio UDP socket for Lua
@@ -23,35 +21,28 @@ impl LuaUdpSocket {
     }
 }
 
-#[allow(clippy::await_holding_refcell_ref)]
 impl UserData for LuaUdpSocket {
     fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
-        methods.add_async_function(
-            "connect",
-            |_, (this, addr): (UserDataRef<Self>, String)| async move {
-                lua_try!(this.connect(addr).await);
-                Ok(Ok(Value::Boolean(true)))
-            },
-        );
+        methods.add_async_method("connect", |_, this, addr: String| async move {
+            lua_try!(this.connect(addr).await);
+            Ok(Ok(Value::Boolean(true)))
+        });
 
         methods.add_method("local_addr", |_, this, _: ()| {
             Ok(this.local_addr()?.to_string())
         });
 
-        methods.add_async_function(
-            "send",
-            |_, (this, buf): (UserDataRef<Self>, Option<LuaString>)| async move {
-                let n = match buf {
-                    Some(buf) => lua_try!(this.send(buf.as_bytes()).await),
-                    None => 0,
-                };
-                Ok(Ok(n))
-            },
-        );
+        methods.add_async_method("send", |_, this, buf: Option<LuaString>| async move {
+            let n = match buf {
+                Some(buf) => lua_try!(this.send(buf.as_bytes()).await),
+                None => 0,
+            };
+            Ok(Ok(n))
+        });
 
-        methods.add_async_function(
+        methods.add_async_method(
             "send_to",
-            |_, (this, dst, buf): (UserDataRef<Self>, String, Option<LuaString>)| async move {
+            |_, this, (dst, buf): (String, Option<LuaString>)| async move {
                 let n = match buf {
                     Some(buf) => lua_try!(this.send_to(buf.as_bytes(), dst).await),
                     None => 0,

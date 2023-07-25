@@ -26,7 +26,7 @@ struct CSVWriter(csv::Writer<BytesMutCell>, BytesMutCell);
 
 fn encode_record<'lua>(lua: &'lua Lua, record: Table) -> Result<LuaString<'lua>> {
     let mut rec = ByteRecord::new();
-    for field in record.raw_sequence_values::<LuaString>() {
+    for field in record.sequence_values::<LuaString>() {
         let field = field?;
         rec.push_field(field.as_bytes());
     }

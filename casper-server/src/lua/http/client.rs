@@ -1,10 +1,7 @@
 use std::mem;
 use std::time::Duration;
 
-use mlua::{
-    ExternalResult, FromLua, Result as LuaResult, Table, UserData, UserDataMethods, UserDataRef,
-    Value,
-};
+use mlua::{ExternalResult, FromLua, Result as LuaResult, Table, UserData, UserDataMethods, Value};
 use ntex::http::client::{Client, Connector};
 use ntex::time::Seconds;
 
@@ -98,20 +95,16 @@ impl<'lua> FromLua<'lua> for LuaHttpClient {
     }
 }
 
-#[allow(clippy::await_holding_refcell_ref)]
 impl UserData for LuaHttpClient {
     fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
         methods.add_function("new", |_lua, _params: Value| {
             Ok(LuaHttpClient::from(Client::new()))
         });
 
-        methods.add_async_function(
-            "request",
-            |lua, (this, params): (UserDataRef<Self>, Value)| async move {
-                let req = LuaRequest::from_lua(params, lua)?;
-                Ok(Ok(lua_try!(this.request(req).await)))
-            },
-        );
+        methods.add_async_method("request", |lua, this, params: Value| async move {
+            let req = LuaRequest::from_lua(params, lua)?;
+            Ok(Ok(lua_try!(this.request(req).await)))
+        });
     }
 }
 

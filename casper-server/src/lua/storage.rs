@@ -5,7 +5,7 @@ use std::{borrow::Cow, ops::Deref};
 
 use mlua::{
     FromLua, Lua, Result as LuaResult, String as LuaString, Table, UserData, UserDataMethods,
-    UserDataRef, UserDataRefMut, Value,
+    UserDataRefMut, Value,
 };
 use ripemd::{Digest, Ripemd160};
 
@@ -30,7 +30,6 @@ impl<T: Storage> Deref for LuaStorage<T> {
     }
 }
 
-#[allow(clippy::await_holding_refcell_ref)]
 impl<T> UserData for LuaStorage<T>
 where
     T: Storage<Body = Body> + 'static,
@@ -40,9 +39,9 @@ where
         //
         // Get
         //
-        methods.add_async_function(
+        methods.add_async_method(
             "get_response",
-            |lua, (this, key, options): (UserDataRef<Self>, Value, Option<Table>)| async move {
+            |lua, this, (key, options): (Value, Option<Table>)| async move {
                 let start = Instant::now();
 
                 let key = calculate_primary_key(lua, key, &options)?;
@@ -61,13 +60,13 @@ where
             },
         );
 
-        methods.add_async_function(
+        methods.add_async_method(
             "get_responses",
-            |lua, (this, keys, options): (UserDataRef<Self>, Table, Option<Table>)| async move {
+            |lua, this, (keys, options): (Table, Option<Table>)| async move {
                 let start = Instant::now();
 
                 let keys = keys
-                    .raw_sequence_values::<Value>()
+                    .sequence_values::<Value>()
                     .map(|key| key.and_then(|k| calculate_primary_key(lua, k, &options)))
                     .collect::<LuaResult<Vec<_>>>()?;
                 let items_count = keys.len() as u64;
@@ -99,9 +98,9 @@ where
         //
         // Delete
         //
-        methods.add_async_function(
+        methods.add_async_method(
             "delete_response",
-            |lua, (this, key, options): (UserDataRef<Self>, Value, Option<Table>)| async move {
+            |lua, this, (key, options): (Value, Option<Table>)| async move {
                 let start = Instant::now();
 
                 let key = calculate_primary_key(lua, key, &options)?;
@@ -115,9 +114,9 @@ where
             },
         );
 
-        methods.add_async_function(
+        methods.add_async_method(
             "delete_responses",
-            |lua, (this, keys, options): (UserDataRef<Self>, Table, Option<Table>)| async move {
+            |lua, this, (keys, options): (Table, Option<Table>)| async move {
                 let start = Instant::now();
 
                 let primary_keys: Option<Vec<Value>> = keys.raw_get("primary_keys")?;
@@ -157,9 +156,9 @@ where
         //
         // Store
         //
-        methods.add_async_function(
+        methods.add_async_method(
             "store_response",
-            |lua, (this, item, options): (UserDataRef<Self>, Table, Option<Table>)| async move {
+            |lua, this, (item, options): (Table, Option<Table>)| async move {
                 let start = Instant::now();
 
                 let key: Value = item.raw_get("key")?;
@@ -239,7 +238,7 @@ fn calculate_primary_key(lua: &Lua, key: Value, options: &Option<Table>) -> LuaR
 
     match key {
         Value::Table(t) => {
-            for v in t.raw_sequence_values::<LuaString>() {
+            for v in t.sequence_values::<LuaString>() {
                 hasher.update(v?.as_bytes());
             }
         }
