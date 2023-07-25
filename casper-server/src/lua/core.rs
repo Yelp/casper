@@ -30,6 +30,7 @@ pub fn create_module(lua: &Lua) -> LuaResult<Table> {
     core.set("udp", super::udp::create_module(lua)?)?;
     core.set("uri", super::uri::create_module(lua)?)?;
     core.set("utils", super::utils::create_module(lua)?)?;
+    core.set("yaml", super::yaml::create_module(lua)?)?;
 
     // Variables
     let hostname = sys_info::hostname().expect("couldn't get hostname");

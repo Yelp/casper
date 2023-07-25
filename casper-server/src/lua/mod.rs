@@ -24,3 +24,4 @@ pub mod tasks;
 pub mod udp;
 pub mod uri;
 pub mod utils;
+pub mod yaml;
