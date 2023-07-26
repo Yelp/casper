@@ -370,6 +370,7 @@ dependencies = [
  "serde_qs",
  "serde_yaml",
  "sys-info",
+ "tempfile",
  "thiserror",
  "tikv-jemallocator",
  "time",
