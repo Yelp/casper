@@ -3,8 +3,8 @@ use std::result::Result as StdResult;
 
 use mlua::{
     AnyUserData, Error as LuaError, Function, Integer as LuaInteger, IntoLuaMulti, Lua,
-    LuaSerdeExt, MetaMethod, Result, Table, UserData, UserDataMethods, UserDataRefMut, Value,
-    Variadic,
+    LuaSerdeExt, MetaMethod, MultiValue, Result, Table, UserData, UserDataMethods, UserDataRefMut,
+    Value, Variadic,
 };
 use ntex::util::Bytes;
 use ouroboros::self_referencing;
@@ -52,7 +52,7 @@ impl YamlValue {
     /// Converts `YamlValue` to a Lua `Value`.
     fn into_lua<'lua>(self, lua: &'lua Lua) -> Result<Value<'lua>> {
         match self.current() {
-            serde_yaml::Value::Null => Ok(lua.null()),
+            serde_yaml::Value::Null => Ok(Value::NULL),
             serde_yaml::Value::Bool(b) => Ok(Value::Boolean(*b)),
             serde_yaml::Value::Number(n) => {
                 if let Some(n) = n.as_i64() {
@@ -85,6 +85,26 @@ impl UserData for YamlValue {
     fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
         // Recursively converts this userdata to a Lua table.
         methods.add_method("dump", |lua, this, ()| lua.to_value(this.current()));
+
+        methods.add_method("get", |lua, this, keys: MultiValue| {
+            let keys = keys
+                .into_iter()
+                .map(|k| match k {
+                    Value::Integer(i) if i >= 1 => Ok(Some(IndexKey::Index(i as usize - 1))),
+                    Value::Integer(i) => Ok(Some(IndexKey::String(i.to_string()))),
+                    Value::Number(n) => Ok(Some(IndexKey::String(n.to_string()))),
+                    Value::String(s) => {
+                        Ok(Some(IndexKey::String(s.to_string_lossy().into_owned())))
+                    }
+                    _ => return Ok(None),
+                })
+                .collect::<Result<Option<Vec<_>>>>()?;
+
+            match keys.and_then(|keys| traverse_value(this.current(), &keys)) {
+                Some(value) => YamlValue::new(&this.root, value).into_lua(lua),
+                None => Ok(Value::Nil),
+            }
+        });
 
         methods.add_meta_method(MetaMethod::Index, |lua, this, key: Value| {
             match this.get(key) {
@@ -156,6 +176,23 @@ struct LuaYamlMapIter {
     #[borrows(value)]
     #[covariant]
     iter: serde_yaml::mapping::Iter<'this>,
+}
+
+pub enum IndexKey {
+    Index(usize),
+    String(String),
+}
+
+fn traverse_value<'a>(
+    value: &'a serde_yaml::Value,
+    keys: &[IndexKey],
+) -> Option<&'a serde_yaml::Value> {
+    let next_value = match keys.get(0) {
+        Some(IndexKey::Index(i)) => value.get(i)?,
+        Some(IndexKey::String(s)) => value.get(s)?,
+        None => return Some(value),
+    };
+    traverse_value(next_value, &keys[1..])
 }
 
 fn try_with_slice<R>(value: Value, f: impl FnOnce(&[u8]) -> R) -> Result<R> {
@@ -300,6 +337,26 @@ mod tests {
             assert(type(lua_value) == "table")
             assert(type(lua_value.d) == "number")
             assert(lua_value.d == 4)
+        })
+        .exec()
+    }
+
+    #[test]
+    fn test_traverse_value() -> Result<()> {
+        let lua = Lua::new();
+
+        let null = Value::NULL;
+        let yaml = super::create_module(&lua)?;
+        lua.load(chunk! {
+            local data = $yaml.encode({a = 1, b = "2", c = {3, {d = 4, e = $null}}})
+            local value = $yaml.decode_native(data)
+
+            assert(value:get("a") == 1)
+            assert(value:get("c", 1) == 3)
+            assert(value:get("c", 2, "d") == 4)
+            assert(value:get("c", 2, "e") == $null)
+            assert(value:get("c", 3, "d") == nil)
+            assert(value:get("c", {}) == nil)
         })
         .exec()
     }
