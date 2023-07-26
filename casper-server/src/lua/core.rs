@@ -16,7 +16,6 @@ pub fn create_module(lua: &Lua) -> LuaResult<Table> {
     core.set("Response", lua.create_proxy::<LuaResponse>()?)?;
 
     // Modules
-    core.set("config", super::config::create_module(lua)?)?;
     core.set("crypto", super::crypto::create_module(lua)?)?;
     core.set("csv", super::csv::create_module(lua)?)?;
     core.set("datetime", super::datetime::create_module(lua)?)?;
