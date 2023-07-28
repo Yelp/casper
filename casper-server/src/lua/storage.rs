@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::error::Error as StdError;
 use std::iter::IntoIterator;
 use std::time::{Duration, Instant};
@@ -7,7 +8,6 @@ use mlua::{
     FromLua, Lua, Result as LuaResult, String as LuaString, Table, UserData, UserDataMethods,
     UserDataRefMut, Value,
 };
-use ripemd::{Digest, Ripemd160};
 
 use super::http::LuaResponse;
 use crate::http::filter_hop_headers;
@@ -202,53 +202,29 @@ where
 
 /// Calculates primary key from Lua Value
 /// The Value can be a string or a list of strings
-fn calculate_primary_key(lua: &Lua, key: Value, options: &Option<Table>) -> LuaResult<Key> {
-    enum Hasher {
-        Blake3(Box<blake3::Hasher>),
-        Ripemd160(Ripemd160),
+fn calculate_primary_key(lua: &Lua, key: Value, _options: &Option<Table>) -> LuaResult<Key> {
+    thread_local! {
+        static BLAKE3: RefCell<blake3::Hasher> = RefCell::new(blake3::Hasher::new());
     }
 
-    impl Hasher {
-        fn update(&mut self, b: &[u8]) {
-            match self {
-                Hasher::Blake3(h) => {
-                    h.update(b);
+    BLAKE3.with(|hasher| {
+        let mut hasher = hasher.borrow_mut();
+        let hasher = hasher.reset();
+
+        match key {
+            Value::Table(t) => {
+                for v in t.sequence_values::<LuaString>() {
+                    hasher.update(v?.as_bytes());
                 }
-                Hasher::Ripemd160(h) => {
-                    h.update(b);
-                }
+            }
+            _ => {
+                let s = LuaString::from_lua(key, lua)?;
+                hasher.update(s.as_bytes());
             }
         }
 
-        fn finish(self) -> Vec<u8> {
-            match self {
-                Hasher::Blake3(h) => h.finalize().as_bytes().to_vec(),
-                Hasher::Ripemd160(h) => h.finalize().to_vec(),
-            }
-        }
-    }
-
-    let mut hasher = match options {
-        Some(options) => match options.raw_get::<_, Option<LuaString>>("hash_algorithm") {
-            Ok(Some(alg)) if alg == "blake3" => Hasher::Blake3(Box::new(blake3::Hasher::new())),
-            _ => Hasher::Ripemd160(Ripemd160::new()),
-        },
-        None => Hasher::Ripemd160(Ripemd160::new()),
-    };
-
-    match key {
-        Value::Table(t) => {
-            for v in t.sequence_values::<LuaString>() {
-                hasher.update(v?.as_bytes());
-            }
-        }
-        _ => {
-            let s = LuaString::from_lua(key, lua)?;
-            hasher.update(s.as_bytes());
-        }
-    }
-
-    Ok(hasher.finish().into())
+        Ok(Key::from(hasher.finalize().as_bytes().to_vec()))
+    })
 }
 
 #[cfg(test)]
