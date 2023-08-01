@@ -210,6 +210,22 @@ fn try_with_slice<R>(value: Value, f: impl FnOnce(&[u8]) -> R) -> Result<R> {
     }
 }
 
+async fn read<'l>(lua: &'l Lua, path: String) -> Result<StdResult<Value<'l>, String>> {
+    let data = lua_try!(tokio::fs::read(path).await);
+    let mut yaml: serde_yaml::Value = lua_try!(serde_yaml::from_slice(&data));
+    lua_try!(yaml.apply_merge());
+    lua.to_value(&yaml).map(Ok)
+}
+
+async fn write<'l>(
+    _: &'l Lua,
+    (path, value): (String, Value<'l>),
+) -> Result<StdResult<bool, String>> {
+    let data = lua_try!(serde_yaml::to_string(&value));
+    lua_try!(tokio::fs::write(path, data).await);
+    Ok(Ok(true))
+}
+
 fn encode_yaml(_: &Lua, value: Value) -> Result<StdResult<String, String>> {
     Ok(Ok(lua_try!(serde_yaml::to_string(&value))))
 }
@@ -239,6 +255,8 @@ pub fn create_module(lua: &Lua) -> Result<Table> {
         ("encode", lua.create_function(encode_yaml)?),
         ("decode", lua.create_function(decode_yaml)?),
         ("decode_native", lua.create_function(decode_yaml_native)?),
+        ("read", lua.create_async_function(read)?),
+        ("write", lua.create_async_function(write)?),
     ])
 }
 
@@ -249,13 +267,13 @@ mod tests {
     #[test]
     fn test_encode() -> Result<()> {
         let lua = Lua::new();
-        lua.globals().set("null", Value::NULL)?;
 
+        let null = Value::NULL;
         let yaml = super::create_module(&lua)?;
         lua.load(chunk! {
             assert($yaml.encode({a = 1}) == "a: 1\n")
             assert($yaml.encode({1, "2"}) == "- 1\n- '2'\n")
-            assert($yaml.encode({{b = null}}), "- b: null\n")
+            assert($yaml.encode({{b = $null}}), "- b: null\n")
 
             local ok, err = $yaml.encode(_G)
             assert(ok == nil and err:find("cannot serialize") ~= nil)
@@ -359,5 +377,28 @@ mod tests {
             assert(value:get("c", {}) == nil)
         })
         .exec()
+    }
+
+    #[tokio::test]
+    async fn test_read_write() -> Result<()> {
+        let lua = Lua::new();
+
+        let null = Value::NULL;
+        let yaml = super::create_module(&lua)?;
+        let dir = tempfile::tempdir()?;
+        let dir = dir.path().to_str().unwrap();
+        lua.load(chunk! {
+            local data = {a = 1, b = "2", c = {3, {d = 4, e = $null}}}
+            local ok, err = $yaml.write($dir.."/test.yaml", data)
+            assert(ok and err == nil)
+            // Read the file back
+            local value, err = $yaml.read($dir.."/test.yaml")
+            assert(err == nil, err)
+            assert(value.a == 1)
+            assert(value.b == "2")
+            assert(value.c[2].d == 4)
+        })
+        .exec_async()
+        .await
     }
 }
