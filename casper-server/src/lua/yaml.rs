@@ -50,7 +50,7 @@ impl YamlValue {
     }
 
     /// Converts `YamlValue` to a Lua `Value`.
-    fn into_lua<'lua>(self, lua: &'lua Lua) -> Result<Value<'lua>> {
+    fn into_lua(self, lua: &Lua) -> Result<Value> {
         match self.current() {
             serde_yaml::Value::Null => Ok(Value::NULL),
             serde_yaml::Value::Bool(b) => Ok(Value::Boolean(*b)),
@@ -96,7 +96,7 @@ impl UserData for YamlValue {
                     Value::String(s) => {
                         Ok(Some(IndexKey::String(s.to_string_lossy().into_owned())))
                     }
-                    _ => return Ok(None),
+                    _ => Ok(None),
                 })
                 .collect::<Result<Option<Vec<_>>>>()?;
 
@@ -210,7 +210,7 @@ fn try_with_slice<R>(value: Value, f: impl FnOnce(&[u8]) -> R) -> Result<R> {
     }
 }
 
-async fn read<'l>(lua: &'l Lua, path: String) -> Result<StdResult<Value<'l>, String>> {
+async fn read(lua: &Lua, path: String) -> Result<StdResult<Value, String>> {
     let data = lua_try!(tokio::fs::read(path).await);
     let mut yaml: serde_yaml::Value = lua_try!(serde_yaml::from_slice(&data));
     lua_try!(yaml.apply_merge());
