@@ -152,6 +152,10 @@ impl Storage for MemoryBackend {
         self.name.clone()
     }
 
+    fn backend_type(&self) -> &'static str {
+        "memory"
+    }
+
     async fn connect(&self) -> Result<(), Self::Error> {
         Ok(())
     }

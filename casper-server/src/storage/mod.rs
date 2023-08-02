@@ -13,10 +13,9 @@ use ntex::util::Bytes;
 pub use backends::Backend;
 pub(crate) use common::{compress_with_zstd, decode_headers, decompress_with_zstd, encode_headers};
 
-pub(crate) const MAX_CONCURRENCY: usize = 100;
-
 pub type Key = Bytes;
 
+#[derive(Debug)]
 pub struct Item<'a> {
     pub key: Key,
     pub status: StatusCode,
@@ -79,7 +78,11 @@ pub trait Storage {
     type Body: MessageBody;
     type Error;
 
+    const MAX_CONCURRENCY: usize = 100;
+
     fn name(&self) -> String;
+
+    fn backend_type(&self) -> &'static str;
 
     async fn connect(&self) -> Result<(), Self::Error>;
 
@@ -102,7 +105,7 @@ pub trait Storage {
     {
         // Create list of pending futures to poll them in parallel
         stream::iter(keys.into_iter().map(|key| self.get_response(key)))
-            .buffered(MAX_CONCURRENCY)
+            .buffered(Self::MAX_CONCURRENCY)
             .collect()
             .await
     }
@@ -113,7 +116,7 @@ pub trait Storage {
     {
         // Create list of pending futures to poll them in parallel
         stream::iter(keys.into_iter().map(|key| self.delete_responses(key)))
-            .buffered(MAX_CONCURRENCY)
+            .buffered(Self::MAX_CONCURRENCY)
             .collect()
             .await
     }
@@ -124,7 +127,7 @@ pub trait Storage {
     {
         // Create list of pending futures to poll them in parallel
         stream::iter(items.into_iter().map(|it| self.store_response(it)))
-            .buffered(MAX_CONCURRENCY)
+            .buffered(Self::MAX_CONCURRENCY)
             .collect()
             .await
     }

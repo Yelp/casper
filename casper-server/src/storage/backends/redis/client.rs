@@ -29,7 +29,7 @@ use tokio::time::timeout;
 use super::Config;
 use crate::storage::{
     compress_with_zstd, decode_headers, decompress_with_zstd, encode_headers, Item, ItemKey, Key,
-    Storage, MAX_CONCURRENCY,
+    Storage,
 };
 use crate::utils::zstd::ZstdDecoder;
 
@@ -203,7 +203,7 @@ impl RedisBackend {
             // We cannot use "mget" operation in sharded mode because keys can be in different shards
             let skeys_vals = stream::iter(surrogate_keys.clone())
                 .map(|sk| self.pool.get(make_redis_key(&sk)))
-                .buffered(MAX_CONCURRENCY)
+                .buffered(Self::MAX_CONCURRENCY)
                 .collect::<Vec<Result<RedisValue, RedisError>>>()
                 .await;
 
@@ -448,6 +448,10 @@ impl Storage for RedisBackend {
 
     fn name(&self) -> String {
         self.name.clone()
+    }
+
+    fn backend_type(&self) -> &'static str {
+        "redis"
     }
 
     async fn connect(&self) -> Result<(), Self::Error> {

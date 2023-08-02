@@ -57,6 +57,14 @@ impl Storage for Backend {
     }
 
     #[inline]
+    fn backend_type(&self) -> &'static str {
+        match self {
+            Backend::Memory(inner) => inner.backend_type(),
+            Backend::Redis(inner) => inner.backend_type(),
+        }
+    }
+
+    #[inline]
     fn connect<'s, 'async_trait>(&'s self) -> LocalBoxFuture<'async_trait, Result<(), Self::Error>>
     where
         's: 'async_trait,
