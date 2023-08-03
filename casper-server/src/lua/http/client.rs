@@ -1,9 +1,12 @@
 use std::mem;
 use std::time::Duration;
 
-use mlua::{ExternalResult, FromLua, Result as LuaResult, Table, UserData, UserDataMethods, Value};
+use mlua::{
+    ExternalError, FromLua, Lua, Result as LuaResult, Table, UserData, UserDataMethods, Value,
+};
 use ntex::http::client::{Client, Connector};
 use ntex::time::Seconds;
+use tracing::{debug, instrument, Span};
 
 use super::{LuaBody, LuaRequest, LuaResponse};
 
@@ -13,6 +16,7 @@ pub struct LuaHttpClient {
 }
 
 impl LuaHttpClient {
+    #[instrument(skip_all, fields(req.method = %req.method(), req.uri = %req.uri(), resp.status = 0))]
     async fn request(&self, mut req: LuaRequest) -> LuaResult<LuaResponse> {
         let mut client_req = self.client.request(req.method().clone(), req.uri());
         if self.no_decompress {
@@ -22,13 +26,23 @@ impl LuaHttpClient {
             client_req = client_req.timeout(timeout);
         }
 
-        *client_req.headers_mut() = mem::take(client_req.headers_mut());
+        *client_req.headers_mut() = mem::take(req.headers_mut());
 
         let resp = client_req
             .send_body(LuaBody::from(req.take_body()))
             .await
-            .map_err(|e| e.to_string())
-            .into_lua_err()?;
+            .map_err(|err| err.to_string());
+
+        let resp = match resp {
+            Ok(resp) => {
+                Span::current().record("resp.status", resp.status().as_u16());
+                resp
+            }
+            Err(err) => {
+                debug!(error = &err, "request error");
+                return Err(err.into_lua_err());
+            }
+        };
 
         Ok(LuaResponse::from(resp))
     }
@@ -44,7 +58,7 @@ impl From<Client> for LuaHttpClient {
 }
 
 impl<'lua> FromLua<'lua> for LuaHttpClient {
-    fn from_lua(value: Value<'lua>, lua: &'lua mlua::Lua) -> LuaResult<Self> {
+    fn from_lua(value: Value<'lua>, lua: &'lua Lua) -> LuaResult<Self> {
         if value == Value::Nil {
             return Ok(LuaHttpClient::from(Client::new()));
         }
@@ -101,8 +115,7 @@ impl UserData for LuaHttpClient {
             Ok(LuaHttpClient::from(Client::new()))
         });
 
-        methods.add_async_method("request", |lua, this, params: Value| async move {
-            let req = LuaRequest::from_lua(params, lua)?;
+        methods.add_async_method("request", |_, this, req| async move {
             Ok(Ok(lua_try!(this.request(req).await)))
         });
     }
@@ -123,11 +136,16 @@ mod tests {
             .set("Client", lua.create_proxy::<LuaHttpClient>()?)?;
 
         let mock_server = test::server(|| {
-            App::new().service(web::resource("/status").to(|| async move {
-                web::HttpResponse::Ok()
-                    .header("x-test", "abc")
-                    .body("hello, world!")
-            }))
+            App::new().service(
+                web::resource("/status").to(|req: web::HttpRequest| async move {
+                    web::HttpResponse::Ok()
+                        .header("x-test", "abc")
+                        .if_some(req.headers().get("hello"), |val, resp| {
+                            resp.header("x-origin-hello", val);
+                        })
+                        .body("hello, world!")
+                }),
+            )
         });
         let uri = format!("http://{}", mock_server.addr());
 
@@ -135,14 +153,13 @@ mod tests {
             local client = Client.new()
             local response = client:request({
                 uri = $uri.."/status",
+                headers = {["hello"] = "world"},
             })
             assert(response:header("x-test") == "abc")
+            assert(response:header("x-origin-hello") == "world")
             assert(response.body:to_string() == "hello, world!")
         })
         .exec_async()
         .await
-        .unwrap();
-
-        Ok(())
     }
 }
