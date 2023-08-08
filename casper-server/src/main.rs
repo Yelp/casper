@@ -1,3 +1,4 @@
+use std::env;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -37,12 +38,11 @@ async fn main_inner(args: Args) -> anyhow::Result<()> {
     let config = Arc::new(config::read_config(&args.config)?);
 
     // Init Metrics subsystem
-    crate::metrics::init(&config.main);
-
-    // Register metrics defined in the config
-    if let Some(metrics) = config.metrics.clone() {
-        metrics::register_custom_metrics(metrics);
+    if let Some(service_name) = &config.main.service_name {
+        // Propagate service name to the otel sdk
+        env::set_var("OTEL_SERVICE_NAME", service_name);
     }
+    crate::metrics::init(&config);
 
     // Construct storage backends defined in the config
     let mut storage_backends = Vec::new();

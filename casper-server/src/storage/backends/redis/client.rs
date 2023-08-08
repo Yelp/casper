@@ -91,14 +91,11 @@ impl RedisMetrics {
     }
 
     fn internal_cache_counter_inc(&self, name: &str, status: &'static str) {
-        use opentelemetry::{Context, KeyValue};
-
         let attributes = [
-            KeyValue::new("name", name.to_owned()),
-            KeyValue::new("status", status),
+            opentelemetry::KeyValue::new("name", name.to_owned()),
+            opentelemetry::KeyValue::new("status", status),
         ];
-        let cx = Context::current();
-        self.internal_cache_counter.add(&cx, 1, &attributes);
+        self.internal_cache_counter.add(1, &attributes);
     }
 }
 

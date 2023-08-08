@@ -11,7 +11,7 @@ use ntex::web::{ErrorRenderer, WebRequest, WebResponse};
 use futures::future::{FutureExt, LocalBoxFuture};
 use prometheus::{Encoder, TextEncoder, TEXT_FORMAT};
 
-use crate::metrics::PROMETHEUS_EXPORTER;
+use crate::metrics;
 
 #[derive(Debug, Clone)]
 pub struct Metrics {
@@ -47,7 +47,20 @@ impl<S> MetricsService<S> {
     async fn metrics_handler<E>(request: WebRequest<E>) -> WebResponse {
         let data = tokio::task::spawn_blocking(move || {
             let mut buffer = Vec::<u8>::with_capacity(16384);
-            let metric_families = PROMETHEUS_EXPORTER.registry().gather();
+            let mut metric_families = prometheus::default_registry().gather();
+
+            // Workaround to attach common labels to all metrics
+            for family in &mut metric_families {
+                for metric in family.mut_metric() {
+                    for (key, value) in &metrics::global().extra_labels {
+                        let mut label = prometheus::proto::LabelPair::new();
+                        label.set_name(key.clone());
+                        label.set_value(value.clone());
+                        metric.mut_label().push(label);
+                    }
+                }
+            }
+
             TextEncoder::new()
                 .encode(&metric_families, &mut buffer)
                 .expect("Failed to encode metrics");

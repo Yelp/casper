@@ -58,7 +58,8 @@ pub struct LuaCode {
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct MetricsConfig {
-    pub counters: HashMap<String, MetricCounterConfig>,
+    pub counters: Option<HashMap<String, MetricCounterConfig>>,
+    pub extra_labels: Option<HashMap<String, String>>,
 }
 
 #[derive(Clone, Debug, Deserialize)]

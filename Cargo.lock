@@ -1149,9 +1149,9 @@ checksum = "b06a4cde4c0f271a446782e3eff8de789548ce57dbc8eca9292c27f4a42004b4"
 
 [[package]]
 name = "luau0-src"
-version = "0.5.11+luau583"
+version = "0.6.0+luau588"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0a7183d0a3eaa387403dd4ac7b449536af82c1545b7a48247af1652ca66926d5"
+checksum = "4c628f5525cc62a89a2d478b2ee619c77b35da55c8e3231752f3b8fe528a6c49"
 dependencies = [
  "cc",
 ]
@@ -1229,9 +1229,9 @@ dependencies = [
 
 [[package]]
 name = "mlua"
-version = "0.9.0-rc.1"
+version = "0.9.0-rc.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f5369212118d0f115c9adbe7f7905e36fb3ef2994266039c51fc3e96374d705d"
+checksum = "01a6500a9fb74b519a85ac206cd57f9f91b270ce39d6cb12ab06a8ed29c3563d"
 dependencies = [
  "bstr",
  "erased-serde",
@@ -1247,9 +1247,9 @@ dependencies = [
 
 [[package]]
 name = "mlua-sys"
-version = "0.2.1"
+version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b3daecc55a656cae8e54fc599701ab597b67cdde68f780cac8c1c49b9cfff2f5"
+checksum = "aa5b61f6c943d77dd6ab5f670865670f65b978400127c8bf31c2df7d6e76289a"
 dependencies = [
  "cc",
  "cfg-if",
@@ -1259,9 +1259,9 @@ dependencies = [
 
 [[package]]
 name = "mlua_derive"
-version = "0.9.0-rc.1"
+version = "0.9.0-rc.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5ea17c2d5440c7443a29710f4649b3339330aac16fda3bcbf8e81023d756cc0a"
+checksum = "4b900bf5619cdf327722cb39424409856a46f3a516628117a896cdbeecc0a9b1"
 dependencies = [
  "itertools",
  "once_cell",
@@ -1677,9 +1677,9 @@ dependencies = [
 
 [[package]]
 name = "opentelemetry"
-version = "0.19.0"
+version = "0.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5f4b8347cc26099d3aeee044065ecc3ae11469796b4d65d065a23a584ed92a6f"
+checksum = "9591d937bc0e6d2feb6f71a559540ab300ea49955229c347a517a28d27784c54"
 dependencies = [
  "opentelemetry_api",
  "opentelemetry_sdk",
@@ -1687,25 +1687,27 @@ dependencies = [
 
 [[package]]
 name = "opentelemetry-prometheus"
-version = "0.12.0"
+version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9a9f186f6293ebb693caddd0595e66b74a6068fa51048e26e0bf9c95478c639c"
+checksum = "c7d81bc254e2d572120363a2b16cdb0d715d301b5789be0cfc26ad87e4e10e53"
 dependencies = [
- "opentelemetry",
+ "once_cell",
+ "opentelemetry_api",
+ "opentelemetry_sdk",
  "prometheus",
  "protobuf",
 ]
 
 [[package]]
 name = "opentelemetry_api"
-version = "0.19.0"
+version = "0.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ed41783a5bf567688eb38372f2b7a8530f5a607a4b49d38dd7573236c23ca7e2"
+checksum = "8a81f725323db1b1206ca3da8bb19874bbd3f57c3bcd59471bfb04525b265b9b"
 dependencies = [
- "fnv",
  "futures-channel",
  "futures-util",
  "indexmap 1.9.3",
+ "js-sys",
  "once_cell",
  "pin-project-lite",
  "thiserror",
@@ -1714,21 +1716,21 @@ dependencies = [
 
 [[package]]
 name = "opentelemetry_sdk"
-version = "0.19.0"
+version = "0.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8b3a2a91fdbfdd4d212c0dcc2ab540de2c2bcbbd90be17de7a7daf8822d010c1"
+checksum = "fa8e705a0612d48139799fcbaba0d4a90f06277153e43dd2bdc16c6f0edd8026"
 dependencies = [
  "async-trait",
  "crossbeam-channel",
- "dashmap",
- "fnv",
  "futures-channel",
  "futures-executor",
  "futures-util",
  "once_cell",
  "opentelemetry_api",
+ "ordered-float 3.7.0",
  "percent-encoding",
  "rand",
+ "regex",
  "thiserror",
  "tokio",
  "tokio-stream",
@@ -1739,6 +1741,15 @@ name = "ordered-float"
 version = "2.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7940cf2ca942593318d07fcf2596cdca60a85c9e7fab408a5e21a4f9dcd40d87"
+dependencies = [
+ "num-traits",
+]
+
+[[package]]
+name = "ordered-float"
+version = "3.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2fc2dbde8f8a79f2102cc474ceb0ad68e3b80b85289ea62389b60e66777e4213"
 dependencies = [
  "num-traits",
 ]
@@ -2195,7 +2206,7 @@ version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f3a1a3341211875ef120e117ea7fd5228530ae7e7036a779fdc9117be6b3282c"
 dependencies = [
- "ordered-float",
+ "ordered-float 2.10.0",
  "serde",
 ]
 

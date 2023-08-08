@@ -1,67 +1,40 @@
 use std::collections::HashMap;
-use std::env;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
-use once_cell::sync::Lazy;
-use opentelemetry::metrics::{Counter, Histogram, ObservableGauge};
-use opentelemetry::sdk::export::metrics::aggregation;
-use opentelemetry::sdk::metrics::{controllers, processors, selectors};
-use opentelemetry::sdk::Resource;
-use opentelemetry::{global, KeyValue};
-use opentelemetry_prometheus::PrometheusExporter;
-use parking_lot::Mutex;
+use opentelemetry::global;
+use opentelemetry::metrics::{Counter, Histogram, MeterProvider as _};
+use opentelemetry::sdk::metrics::{self, MeterProvider};
 use tokio::sync::RwLock;
 
-use crate::config::{MainConfig, MetricsConfig};
+use crate::config::Config;
 
-pub(crate) static PROMETHEUS_EXPORTER: Lazy<PrometheusExporter> = Lazy::new(|| {
-    let boundaries = vec![
-        0.001, 0.003, 0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.2, 0.3, 0.4, 0.5, 0.75, 1.0, 1.5,
-        2.0, 3.0, 4.0, 5.0, 7.5, 10.0,
-    ];
+static METRICS: OnceLock<OpenTelemetryMetrics> = OnceLock::new();
 
-    let mut attrs = Vec::new();
-    if let Ok(service_name) = env::var("SERVICE_NAME") {
-        attrs.push(KeyValue::new("service.name", service_name));
-    }
-    if let Ok(service_instance) = env::var("SERVICE_INSTANCE") {
-        attrs.push(KeyValue::new("service.instance", service_instance));
-    }
-    let controller = controllers::basic(processors::factory(
-        selectors::simple::histogram(boundaries),
-        aggregation::cumulative_temporality_selector(),
-    ))
-    .with_resource(Resource::new(attrs))
-    .build();
+// Histogram boundaries
+static BOUNDARIES: &[f64] = &[
+    0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 7.5, 10.0,
+];
 
-    opentelemetry_prometheus::exporter(controller).init()
-});
-
-pub static METRICS: Lazy<OpenTelemetryMetrics> = Lazy::new(OpenTelemetryMetrics::new);
-
-pub fn init(config: &MainConfig) {
-    // Set env variable with service name if missing
-    if env::var("SERVICE_NAME").is_err() {
-        if let Some(service_name) = &config.service_name {
-            env::set_var("SERVICE_NAME", service_name);
-        }
-    }
-
-    // Init metrics
-    let _exporter = Lazy::force(&PROMETHEUS_EXPORTER);
-    let _metrics = Lazy::force(&METRICS);
+pub fn init(config: &Config) {
+    METRICS
+        .set(OpenTelemetryMetrics::new(config))
+        .expect("failed to init metrics");
 }
 
+#[inline]
+pub fn global() -> &'static OpenTelemetryMetrics {
+    METRICS.get().unwrap()
+}
+
+#[derive(Debug)]
 pub struct OpenTelemetryMetrics {
     pub connections_counter: Counter<u64>,
     pub active_connections_counter: ActiveCounter,
-    pub active_connections_gauge: ObservableGauge<u64>,
 
     pub requests_counter: Counter<u64>,
     pub requests_histogram: Histogram<f64>,
     pub active_requests_counter: ActiveCounter,
-    pub active_requests_gauge: ObservableGauge<u64>,
 
     pub storage_counter: Counter<u64>,
     pub storage_histogram: Histogram<f64>,
@@ -72,70 +45,158 @@ pub struct OpenTelemetryMetrics {
     pub handler_error_counter: Counter<u64>,
 
     pub active_tasks_counter: ActiveCounter,
-    pub active_tasks_gauge: ObservableGauge<u64>,
     pub task_histogram: Histogram<f64>,
     pub task_error_counter: Counter<u64>,
 
     pub lua_used_memory: Arc<RwLock<Vec<AtomicU64>>>,
-    pub lua_used_memory_gauge: ObservableGauge<u64>,
 
-    pub num_threads_gauge: ObservableGauge<u64>,
+    // Common labels
+    pub extra_labels: HashMap<String, String>,
 
-    //
     // User-defined metrics
-    //
-    pub counters: Mutex<HashMap<String, Counter<u64>>>,
+    pub counters: HashMap<String, Counter<u64>>,
 }
 
 impl OpenTelemetryMetrics {
-    pub fn new() -> Self {
-        let meter = global::meter("casper");
+    fn new(config: &Config) -> Self {
+        let exporter = opentelemetry_prometheus::exporter()
+            .with_registry(prometheus::default_registry().clone())
+            .without_target_info()
+            .without_scope_info()
+            .build()
+            .expect("failed to create prometheus exporter");
 
-        meter
-            .register_callback(|cx| {
-                let metrics = &*METRICS;
+        let provider = MeterProvider::builder()
+            .with_reader(exporter)
+            .with_view(
+                metrics::new_view(
+                    {
+                        let mut instrument = metrics::Instrument::new();
+                        instrument.kind = Some(metrics::InstrumentKind::Histogram);
+                        instrument
+                    },
+                    metrics::Stream::new().aggregation(
+                        metrics::Aggregation::ExplicitBucketHistogram {
+                            boundaries: BOUNDARIES.to_vec(),
+                            record_min_max: true,
+                        },
+                    ),
+                )
+                .expect("failed to create histogram view"),
+            )
+            .build();
 
-                let active_connections = metrics.active_connections_counter.get();
-                metrics
-                    .active_connections_gauge
-                    .observe(cx, active_connections, &[]);
+        let meter = provider.meter("casper");
+        global::set_meter_provider(provider);
 
-                let active_requests = metrics.active_requests_counter.get();
-                metrics
-                    .active_requests_gauge
-                    .observe(cx, active_requests, &[]);
+        let active_connections_counter = {
+            let counter = ActiveCounter::new(0);
+            let counter2 = counter.clone();
+            meter
+                .u64_observable_gauge("http_connections_current")
+                .with_description(
+                    "Current number of HTTP connections being processed by the application.",
+                )
+                .with_callback(move |instr| {
+                    instr.observe(counter2.get(), &[]);
+                })
+                .init();
+            counter
+        };
 
-                if let Ok(lua_used_memory) = metrics.lua_used_memory.try_read() {
-                    let lua_used_memory_total = lua_used_memory
-                        .iter()
-                        .map(|v| v.load(Ordering::Relaxed))
-                        .sum();
-                    metrics
-                        .lua_used_memory_gauge
-                        .observe(cx, lua_used_memory_total, &[]);
-                }
+        let active_requests_counter = {
+            let counter = ActiveCounter::new(0);
+            let counter2 = counter.clone();
+            meter
+                .u64_observable_gauge("http_requests_current")
+                .with_description(
+                    "Current number of HTTP requests being processed by the application.",
+                )
+                .with_callback(move |instr| {
+                    instr.observe(counter2.get(), &[]);
+                })
+                .init();
+            counter
+        };
 
-                let active_tasks = metrics.active_tasks_counter.get();
-                metrics.active_tasks_gauge.observe(cx, active_tasks, &[]);
+        let active_tasks_counter = {
+            let counter = ActiveCounter::new(0);
+            let counter2 = counter.clone();
+            meter
+                .u64_observable_gauge("tasks_current")
+                .with_description("Current number of Lua tasks running by the application.")
+                .with_callback(move |instr| {
+                    instr.observe(counter2.get(), &[]);
+                })
+                .init();
+            counter
+        };
 
+        let lua_used_memory = {
+            let used_memory: Arc<RwLock<Vec<AtomicU64>>> = Arc::new(RwLock::default());
+            let used_memory2 = used_memory.clone();
+            meter
+                .u64_observable_gauge("lua_used_memory_bytes")
+                .with_description("Total memory used by Lua workers.")
+                .with_callback(move |instr| {
+                    if let Ok(used_memory) = used_memory2.try_read() {
+                        let used_memory_total =
+                            used_memory.iter().map(|v| v.load(Ordering::Relaxed)).sum();
+                        instr.observe(used_memory_total, &[]);
+                    }
+                })
+                .init();
+            used_memory
+        };
+
+        let _num_threads_gauge = meter
+            .u64_observable_gauge("process_threads_count")
+            .with_description("Current number of active threads.")
+            .with_callback(|instr| {
                 if let Some(n) = num_threads::num_threads() {
-                    metrics.num_threads_gauge.observe(cx, n.get() as u64, &[]);
+                    instr.observe(n.get() as u64, &[]);
                 }
             })
-            .expect("Failed to register callback");
+            .init();
+
+        // Common (prometheus) labels for all metrics
+        let mut extra_labels = config
+            .metrics
+            .as_ref()
+            .and_then(|conf| conf.extra_labels.as_ref())
+            .cloned()
+            .unwrap_or_default();
+        if let Some(service_name) = &config.main.service_name {
+            extra_labels.insert("service_name".to_string(), service_name.clone());
+        }
+
+        // Init user-defined metrics
+        let mut counters = HashMap::new();
+        let counters_conf = config
+            .metrics
+            .as_ref()
+            .and_then(|conf| conf.counters.as_ref());
+        if let Some(counters_conf) = counters_conf {
+            for (key, conf) in counters_conf.clone() {
+                // If name already ends with `_total`, strip it out as the suffix is added automatically
+                let mut name = conf.name.unwrap_or_else(|| key.clone());
+                if name.ends_with("_total") {
+                    name = name[..name.len() - 6].to_string();
+                }
+                let mut counter = meter.u64_counter(name);
+                if let Some(description) = conf.description {
+                    counter = counter.with_description(description);
+                }
+                counters.insert(key, counter.init());
+            }
+        }
 
         OpenTelemetryMetrics {
             connections_counter: meter
                 .u64_counter("http_connections")
                 .with_description("Total number of HTTP connections processed by the application.")
                 .init(),
-            active_connections_counter: ActiveCounter::new(0),
-            active_connections_gauge: meter
-                .u64_observable_gauge("http_connections_current")
-                .with_description(
-                    "Current number of HTTP connections being processed by the application.",
-                )
-                .init(),
+            active_connections_counter,
 
             requests_counter: meter
                 .u64_counter("http_requests")
@@ -145,13 +206,7 @@ impl OpenTelemetryMetrics {
                 .f64_histogram("http_request_duration_seconds")
                 .with_description("HTTP request latency in seconds.")
                 .init(),
-            active_requests_counter: ActiveCounter::new(0),
-            active_requests_gauge: meter
-                .u64_observable_gauge("http_requests_current")
-                .with_description(
-                    "Current number of HTTP requests being processed by the application.",
-                )
-                .init(),
+            active_requests_counter,
 
             storage_counter: meter
                 .u64_counter("storage_requests")
@@ -178,11 +233,7 @@ impl OpenTelemetryMetrics {
                 .with_description("Total number of errors thrown by handler.")
                 .init(),
 
-            active_tasks_counter: ActiveCounter::new(0),
-            active_tasks_gauge: meter
-                .u64_observable_gauge("tasks_current")
-                .with_description("Current number of Lua tasks running by the application.")
-                .init(),
+            active_tasks_counter,
             task_histogram: meter
                 .f64_histogram("task_duration_seconds")
                 .with_description("Task running duration in seconds.")
@@ -192,57 +243,31 @@ impl OpenTelemetryMetrics {
                 .with_description("Total number of errors thrown by task.")
                 .init(),
 
-            lua_used_memory: Arc::new(RwLock::default()),
-            lua_used_memory_gauge: meter
-                .u64_observable_gauge("lua_used_memory_bytes")
-                .with_description("Total memory used by Lua workers.")
-                .init(),
+            lua_used_memory,
 
-            num_threads_gauge: meter
-                .u64_observable_gauge("process_threads_count")
-                .with_description("Current number of active threads.")
-                .init(),
+            // Extra labels will be attached to every metric
+            extra_labels,
 
-            counters: Mutex::default(),
+            counters,
         }
-    }
-}
-
-pub fn register_custom_metrics(config: MetricsConfig) {
-    let meter = global::meter("casper");
-
-    let mut counters = METRICS.counters.lock();
-    for (key, config) in config.counters {
-        // If name already ends with `_total`, strip it out as the suffix is added automatically
-        let mut name = config.name.unwrap_or_else(|| key.clone());
-        if name.ends_with("_total") {
-            name = name[..name.len() - 6].to_string();
-        }
-        let mut counter = meter.u64_counter(name);
-        if let Some(description) = config.description {
-            counter = counter.with_description(description);
-        }
-        counters.insert(key, counter.init());
     }
 }
 
 macro_rules! connections_counter_inc {
     () => {{
-        let cx = ::opentelemetry::Context::current();
-        crate::metrics::METRICS.connections_counter.add(&cx, 1, &[]);
-        crate::metrics::METRICS.active_connections_counter.inc()
+        crate::metrics::global().connections_counter.add(1, &[]);
+        crate::metrics::global().active_connections_counter.inc()
     }};
 }
 
 macro_rules! active_request_guard {
     () => {
-        crate::metrics::METRICS.active_requests_counter.inc()
+        crate::metrics::global().active_requests_counter.inc()
     };
 }
 
 macro_rules! requests_counter_inc {
     ($attrs_map:expr) => {{
-        let cx = ::opentelemetry::Context::current();
         let attrs = $attrs_map
             .iter()
             .map(|(key, value)| ::opentelemetry::KeyValue {
@@ -250,13 +275,12 @@ macro_rules! requests_counter_inc {
                 value: value.clone(),
             })
             .collect::<Vec<_>>();
-        crate::metrics::METRICS.requests_counter.add(&cx, 1, &attrs);
+        crate::metrics::global().requests_counter.add(1, &attrs);
     }};
 }
 
 macro_rules! requests_histogram_rec {
     ($start:expr, $attrs_map:expr) => {{
-        let cx = ::opentelemetry::Context::current();
         let attrs = $attrs_map
             .iter()
             .map(|(key, value)| ::opentelemetry::KeyValue {
@@ -264,18 +288,15 @@ macro_rules! requests_histogram_rec {
                 value: value.clone(),
             })
             .collect::<Vec<_>>();
-        crate::metrics::METRICS.requests_histogram.record(
-            &cx,
-            $start.elapsed().as_secs_f64(),
-            &attrs,
-        );
+        crate::metrics::global()
+            .requests_histogram
+            .record($start.elapsed().as_secs_f64(), &attrs);
     }};
 }
 
 macro_rules! storage_counter_add {
     ($increment:expr, $($key:expr => $val:expr),*) => {{
-        let cx = ::opentelemetry::Context::current();
-        crate::metrics::METRICS.storage_counter.add(&cx,
+        crate::metrics::global().storage_counter.add(
             $increment,
             &[
                 $(::opentelemetry::KeyValue::new($key, $val),)*
@@ -286,8 +307,7 @@ macro_rules! storage_counter_add {
 
 macro_rules! storage_histogram_rec {
     ($start:expr, $($key:expr => $val:expr),*) => {{
-        let cx = ::opentelemetry::Context::current();
-        crate::metrics::METRICS.storage_histogram.record(&cx,
+        crate::metrics::global().storage_histogram.record(
             $start.elapsed().as_secs_f64(),
             &[
                 $(::opentelemetry::KeyValue::new($key, $val),)*
@@ -298,8 +318,7 @@ macro_rules! storage_histogram_rec {
 
 macro_rules! filter_histogram_rec {
     ($start:expr, $($key:expr => $val:expr),*) => {{
-        let cx = ::opentelemetry::Context::current();
-        crate::metrics::METRICS.filter_histogram.record(&cx,
+        crate::metrics::global().filter_histogram.record(
             $start.elapsed().as_secs_f64(),
             &[
                 $(::opentelemetry::KeyValue::new($key, $val),)*
@@ -310,8 +329,7 @@ macro_rules! filter_histogram_rec {
 
 macro_rules! filter_error_counter_add {
     ($increment:expr, $($key:expr => $val:expr),*) => {{
-        let cx = ::opentelemetry::Context::current();
-        crate::metrics::METRICS.filter_error_counter.add(&cx,
+        crate::metrics::global().filter_error_counter.add(
             $increment,
             &[
                 $(::opentelemetry::KeyValue::new($key, $val),)*
@@ -325,8 +343,7 @@ macro_rules! handler_error_counter_add {
         handler_error_counter_add!($increment,)
     };
     ($increment:expr, $($key:expr => $val:expr),*) => {{
-        let cx = ::opentelemetry::Context::current();
-        crate::metrics::METRICS.handler_error_counter.add(&cx,
+        crate::metrics::global().handler_error_counter.add(
             $increment,
             &[
                 $(::opentelemetry::KeyValue::new($key, $val),)*
@@ -337,13 +354,13 @@ macro_rules! handler_error_counter_add {
 
 macro_rules! tasks_counter_inc {
     () => {
-        crate::metrics::METRICS.active_tasks_counter.inc()
+        crate::metrics::global().active_tasks_counter.inc()
     };
 }
 
 macro_rules! tasks_counter_get {
     () => {
-        crate::metrics::METRICS.active_tasks_counter.get()
+        crate::metrics::global().active_tasks_counter.get()
     };
 }
 
@@ -352,8 +369,7 @@ macro_rules! task_histogram_rec {
         task_histogram_rec!($start,)
     };
     ($start:expr, $($key:expr => $val:expr),*) => {{
-        let cx = ::opentelemetry::Context::current();
-        crate::metrics::METRICS.task_histogram.record(&cx,
+        crate::metrics::global().task_histogram.record(
             $start.elapsed().as_secs_f64(),
             &[
                 $(::opentelemetry::KeyValue::new($key, $val),)*
@@ -367,8 +383,7 @@ macro_rules! task_error_counter_add {
         task_error_counter_add!($increment,)
     };
     ($increment:expr, $($key:expr => $val:expr),*) => {{
-        let cx = ::opentelemetry::Context::current();
-        crate::metrics::METRICS.task_error_counter.add(&cx,
+        crate::metrics::global().task_error_counter.add(
             $increment,
             &[
                 $(::opentelemetry::KeyValue::new($key, $val),)*
@@ -379,12 +394,12 @@ macro_rules! task_error_counter_add {
 
 macro_rules! lua_used_memory_update {
     ($id:expr, $value:expr) => {{
-        let lua_used_memory = crate::metrics::METRICS.lua_used_memory.read().await;
+        let lua_used_memory = crate::metrics::global().lua_used_memory.read().await;
         if $id < lua_used_memory.len() {
             lua_used_memory[$id].store($value as u64, ::std::sync::atomic::Ordering::Relaxed);
         } else {
             drop(lua_used_memory);
-            let mut lua_used_memory = crate::metrics::METRICS.lua_used_memory.write().await;
+            let mut lua_used_memory = crate::metrics::global().lua_used_memory.write().await;
             // Double check (situation can be changed after acquiring lock) and grow vector
             if $id >= lua_used_memory.len() {
                 lua_used_memory.resize_with($id + 1, Default::default);

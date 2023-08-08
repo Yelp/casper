@@ -18,7 +18,7 @@ use serde::Serialize;
 use tracing::error;
 
 use crate::context::AppContext;
-use crate::metrics::METRICS;
+use crate::metrics;
 use crate::types::LuaContext;
 
 #[derive(Debug)]
@@ -145,8 +145,8 @@ where
 
         if let Some(log_data) = this.log_data.as_mut() {
             log_data.elapsed = this.start.elapsed();
-            log_data.active_conns = METRICS.active_connections_counter.get();
-            log_data.active_requests = METRICS.active_requests_counter.get();
+            log_data.active_conns = metrics::global().active_connections_counter.get();
+            log_data.active_requests = metrics::global().active_requests_counter.get();
 
             // Collect response fields
             log_data.status = res.status().as_u16();
