@@ -6,9 +6,12 @@ use mlua::{
 };
 use ntex::http::client::{Client, Connector};
 use ntex::time::Seconds;
-use tracing::{debug, instrument, Span};
+use opentelemetry::global;
+use tracing::{debug, field::Empty, instrument, Span};
+use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 use super::{LuaBody, LuaRequest, LuaResponse};
+use crate::http::trace::RequestHeaderCarrierMut;
 
 pub struct LuaHttpClient {
     client: Client,
@@ -16,8 +19,13 @@ pub struct LuaHttpClient {
 }
 
 impl LuaHttpClient {
-    #[instrument(skip_all, fields(req.method = %req.method(), req.uri = %req.uri(), resp.status = 0))]
+    #[instrument(
+        skip_all,
+        fields(req.method = %req.method(), req.uri = %req.uri(), resp.status_code = Empty, otel.kind = "client", otel.status_code = Empty)
+    )]
     async fn request(&self, mut req: LuaRequest) -> LuaResult<LuaResponse> {
+        let span = Span::current();
+
         let mut client_req = self.client.request(req.method().clone(), req.uri());
         if self.no_decompress {
             client_req = client_req.no_decompress();
@@ -28,6 +36,14 @@ impl LuaHttpClient {
 
         *client_req.headers_mut() = mem::take(req.headers_mut());
 
+        // Inject tracing headers
+        global::get_text_map_propagator(|injector| {
+            injector.inject_context(
+                &span.context(),
+                &mut RequestHeaderCarrierMut::new(req.headers_mut()),
+            );
+        });
+
         let resp = client_req
             .send_body(LuaBody::from(req.take_body()))
             .await
@@ -35,10 +51,16 @@ impl LuaHttpClient {
 
         let resp = match resp {
             Ok(resp) => {
-                Span::current().record("resp.status", resp.status().as_u16());
+                span.record("resp.status_code", resp.status().as_u16());
+                if resp.status().is_server_error() {
+                    span.record("otel.status_code", "ERROR");
+                } else {
+                    span.record("otel.status_code", "OK");
+                }
                 resp
             }
             Err(err) => {
+                span.record("otel.status_code", "ERROR");
                 debug!(error = &err, "request error");
                 return Err(err.into_lua_err());
             }

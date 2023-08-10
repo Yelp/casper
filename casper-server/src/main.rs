@@ -14,13 +14,14 @@ use ntex::time::Seconds;
 use ntex::util::PoolId;
 use ntex::web::{self, App};
 use tracing::error;
-use tracing_log::LogTracer;
 
 use crate::context::AppContext;
 use crate::storage::Storage;
 
 #[macro_use]
 mod metrics;
+#[macro_use]
+mod trace;
 
 #[cfg(target_os = "linux")]
 #[global_allocator]
@@ -37,11 +38,15 @@ async fn main_inner(args: Args) -> anyhow::Result<()> {
     // Read application configuration
     let config = Arc::new(config::read_config(&args.config)?);
 
-    // Init Metrics subsystem
+    // Propagate service name to the otel sdk
     if let Some(service_name) = &config.main.service_name {
-        // Propagate service name to the otel sdk
         env::set_var("OTEL_SERVICE_NAME", service_name);
     }
+
+    // Init tracing subsystem
+    crate::trace::init(&config);
+
+    // Init metrics subsystem
     crate::metrics::init(&config);
 
     // Construct storage backends defined in the config
@@ -109,6 +114,7 @@ async fn main_inner(args: Args) -> anyhow::Result<()> {
             let app = App::new()
                 .state(context)
                 .wrap(middleware::Metrics::new("/metrics".to_string()))
+                .wrap(middleware::RequestTracing::new())
                 .wrap(middleware::Logger::new())
                 // .wrap(ntex::web::middleware::Logger::default())
                 .default_service(web::to(handler::handler));
@@ -132,16 +138,12 @@ async fn main_inner(args: Args) -> anyhow::Result<()> {
         .run()
         .await?;
 
+    opentelemetry::global::shutdown_tracer_provider(); // sending remaining spans
+
     Ok(())
 }
 
 fn main() {
-    // Install global collector configured based on RUST_LOG env var.
-    tracing_subscriber::fmt::init();
-
-    // Convert log records to tracing Events
-    let _ = LogTracer::init();
-
     // Parse command line arguments
     let args = Args::parse();
 

@@ -15,4 +15,5 @@ pub async fn buffer_body(mut body: impl MessageBody) -> Result<Bytes, Box<dyn St
 
 pub(crate) mod proxy;
 pub(crate) mod serde;
+pub(crate) mod trace;
 pub(crate) mod websocket;

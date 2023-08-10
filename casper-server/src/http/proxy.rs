@@ -6,8 +6,11 @@ use ntex::http::client::Client as HttpClient;
 use ntex::http::header::{self, HeaderMap, HeaderName, HeaderValue};
 use ntex::http::uri::{InvalidUri, InvalidUriParts, Scheme, Uri};
 use ntex::http::StatusCode;
+use opentelemetry::global;
 use tracing::{debug, field::Empty, instrument, Span};
+use tracing_opentelemetry::OpenTelemetrySpanExt;
 
+use crate::http::trace::RequestHeaderCarrierMut;
 use crate::lua::{LuaBody, LuaRequest, LuaResponse};
 
 #[allow(clippy::declare_interior_mutable_const)]
@@ -40,7 +43,7 @@ pub fn filter_hop_headers(headers: &mut HeaderMap) {
 /// Proxy request to upstream service.
 #[instrument(
     skip_all,
-    fields(req.method = %req.method(), req.uri = Empty, resp.status = 0)
+    fields(req.method = %req.method(), req.uri = Empty, resp.status_code = Empty, otel.kind = "client", otel.status_code = Empty)
 )]
 pub async fn proxy_to_upstream(
     client: HttpClient,
@@ -54,8 +57,15 @@ pub async fn proxy_to_upstream(
         let new_uri = merge_uri(req.uri().clone(), upstream).into_lua_err()?;
         *req.uri_mut() = new_uri;
     }
-
     span.record("req.uri", req.uri().to_string());
+
+    // Inject tracing headers
+    global::get_text_map_propagator(|injector| {
+        injector.inject_context(
+            &span.context(),
+            &mut RequestHeaderCarrierMut::new(req.headers_mut()),
+        );
+    });
 
     // Special case to handle websocket upgrade requests
     if super::websocket::is_websocket_upgrade(&req) {
@@ -64,10 +74,16 @@ pub async fn proxy_to_upstream(
 
     match forward_to_upstream(client, req).await {
         Ok(resp) => {
-            span.record("resp.status", resp.status().as_u16());
+            span.record("resp.status_code", resp.status().as_u16());
+            if resp.status().is_server_error() {
+                span.record("otel.status_code", "ERROR");
+            } else {
+                span.record("otel.status_code", "OK");
+            }
             Ok(resp)
         }
         Err(err) => {
+            span.record("otel.status_code", "ERROR");
             debug!(error = err.to_string(), "proxying error");
             let status = match err {
                 SendRequestError::Connect(_) => StatusCode::SERVICE_UNAVAILABLE,
@@ -78,7 +94,7 @@ pub async fn proxy_to_upstream(
                 | SendRequestError::H2(_) => StatusCode::BAD_GATEWAY,
                 _ => return Err(err.to_string().into_lua_err()),
             };
-            span.record("resp.status", status.as_u16());
+            span.record("resp.status_code", status.as_u16());
 
             let mut resp = LuaResponse::new(LuaBody::from(err.to_string()));
             *resp.status_mut() = status;

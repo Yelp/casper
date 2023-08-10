@@ -14,7 +14,6 @@ use crate::context::AppContext;
 use crate::lua::{LuaBody, LuaRequest, LuaResponse};
 use crate::types::LuaContext;
 
-#[tracing::instrument(skip(req, app_ctx), fields(method = %req.method(), uri = %req.uri()))]
 pub(crate) async fn handler(
     req: LuaRequest,
     app_ctx: State<AppContext>,
@@ -49,7 +48,7 @@ pub(crate) async fn handler(
         }
         Err(ref err) => {
             attrs_map.insert("status".into(), 0.into());
-            error!("{err:#}");
+            error!(error = ?err, "handler error");
         }
     }
     requests_counter_inc!(attrs_map);

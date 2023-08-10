@@ -15,6 +15,7 @@ pub struct Config {
     #[serde(default)]
     pub http: HttpConfig,
     pub metrics: Option<MetricsConfig>,
+    pub tracing: Option<TracingConfig>,
     #[serde(default)]
     pub storage: HashMap<String, serde_json::Value>,
 }
@@ -66,6 +67,11 @@ pub struct MetricsConfig {
 pub struct MetricCounterConfig {
     pub name: Option<String>,
     pub description: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct TracingConfig {
+    pub collector_endpoint: Option<String>,
 }
 
 pub(crate) fn read_config<P: AsRef<Path> + ?Sized>(path: &P) -> Result<Config> {
