@@ -111,7 +111,8 @@ pub(crate) async fn handler_inner(
     // Otherwise call handler function
     let lua_resp = match (early_resp, &app_ctx.handler) {
         (Some(resp), _) => resp,
-        (None, Some(handler)) => match handler.call_async((lua_req, lua_ctx.clone())).await {
+        (None, Some(handler)) => match handler.call_async((lua_req.clone(), lua_ctx.clone())).await
+        {
             Ok(Value::UserData(resp)) if resp.is::<LuaResponse>() => resp,
             Ok(r) => {
                 handler_error_counter_add!(1);
@@ -131,6 +132,9 @@ pub(crate) async fn handler_inner(
             lua.create_userdata(resp)?
         }
     };
+
+    // Try to consume LuaRequest (important!) to not wait garbage collection
+    drop(lua_req.take::<LuaRequest>());
 
     // Process a chain of Lua's `on_response` actions up to the `process_level`
     // We need to do this in reverse order
