@@ -10,7 +10,6 @@ use ntex::service::{
 use ntex::util::Bytes;
 use ntex::web::{ErrorRenderer, WebRequest, WebResponse};
 
-use opentelemetry::trace::TraceContextExt as _;
 use pin_project_lite::pin_project;
 use tracing::field::Empty;
 use tracing::{span, Level, Span};
@@ -68,10 +67,9 @@ where
                 req.host = %connection_info.host(),
                 req.peer_addr = %req.peer_addr().map(|addr| addr.to_string()).unwrap_or_default(),
                 resp.status_code = Empty,
-                otel.name = %format!("HTTP {} {}", req.method(), req.uri()),
+                otel.name = %format!("{} {}", req.method(), req.uri().path()),
                 otel.kind = "server",
                 otel.status_code = Empty,
-                trace_id = Empty,
             )
         };
 
@@ -81,15 +79,6 @@ where
         });
 
         root_span.set_parent(parent_context);
-
-        // If we have a remote parent span, this will be the parent's trace identifier.
-        // If not, it will be the newly generated trace identifier with this request as root span.
-        let trace_id = {
-            let id = root_span.context().span().span_context().trace_id();
-            format!("{:032x}", id)
-        };
-
-        root_span.record("trace_id", trace_id);
 
         // Store root span in request extensions
         let root_span_wrapper = RootSpan::new(root_span.clone());
