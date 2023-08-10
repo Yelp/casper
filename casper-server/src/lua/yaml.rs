@@ -348,7 +348,7 @@ mod tests {
                 table.insert(result, tostring(i)..","..tostring(v))
             end
             table.sort(result)
-            assert(table.concat(result, ","):sub(1, 15) == "1,3,2,userdata:")
+            assert(table.concat(result, ","):sub(1, 16) == "1,3,2,YamlValue:")
 
             // Test dump
             local lua_value = value.c[2]:dump()
