@@ -3,8 +3,8 @@ use std::result::Result as StdResult;
 
 use mlua::{
     AnyUserData, Error as LuaError, Function, Integer as LuaInteger, IntoLuaMulti, Lua,
-    LuaSerdeExt, MetaMethod, MultiValue, Result, Table, UserData, UserDataMethods, UserDataRefMut,
-    Value, Variadic,
+    LuaSerdeExt, MetaMethod, MultiValue, Result, SerializeOptions, Table, UserData,
+    UserDataMethods, UserDataRefMut, Value, Variadic,
 };
 use ntex::util::Bytes;
 use ouroboros::self_referencing;
@@ -210,11 +210,24 @@ fn try_with_slice<R>(value: Value, f: impl FnOnce(&[u8]) -> R) -> Result<R> {
     }
 }
 
-async fn read(lua: &Lua, path: String) -> Result<StdResult<Value, String>> {
+fn from_lua_options(t: Option<Table>) -> SerializeOptions {
+    let mut options = SerializeOptions::default();
+    if let Some(t) = t {
+        if let Ok(enabled) = t.raw_get::<_, bool>("set_array_mt") {
+            options.set_array_metatable = enabled;
+        }
+    }
+    options
+}
+
+async fn read<'l>(
+    lua: &'l Lua,
+    (path, options): (String, Option<Table<'l>>),
+) -> Result<StdResult<Value<'l>, String>> {
     let data = lua_try!(tokio::fs::read(path).await);
     let mut yaml: serde_yaml::Value = lua_try!(serde_yaml::from_slice(&data));
     lua_try!(yaml.apply_merge());
-    lua.to_value(&yaml).map(Ok)
+    lua.to_value_with(&yaml, from_lua_options(options)).map(Ok)
 }
 
 async fn write<'l>(
@@ -230,13 +243,16 @@ fn encode_yaml(_: &Lua, value: Value) -> Result<StdResult<String, String>> {
     Ok(Ok(lua_try!(serde_yaml::to_string(&value))))
 }
 
-fn decode_yaml<'l>(lua: &'l Lua, data: Value) -> Result<StdResult<Value<'l>, String>> {
+fn decode_yaml<'l>(
+    lua: &'l Lua,
+    (data, options): (Value, Option<Table>),
+) -> Result<StdResult<Value<'l>, String>> {
     let mut yaml: serde_yaml::Value = match data {
         Value::Nil => return Ok(Err("input is nil".to_string())),
         _ => lua_try!(try_with_slice(data, |s| serde_yaml::from_slice(s))?),
     };
     lua_try!(yaml.apply_merge());
-    lua.to_value(&yaml).map(Ok)
+    lua.to_value_with(&yaml, from_lua_options(options)).map(Ok)
 }
 
 fn decode_yaml_native<'l>(lua: &'l Lua, data: Value) -> Result<StdResult<Value<'l>, String>> {
@@ -312,6 +328,21 @@ mod tests {
             local value, err = $yaml.decode("\t:abc")
             assert(value == nil)
             assert(err:find("found character that cannot start any token") ~= nil)
+        })
+        .exec()
+    }
+
+    #[test]
+    fn test_decode_with_options() -> Result<()> {
+        let lua = Lua::new();
+
+        let yaml = super::create_module(&lua)?;
+        lua.load(chunk! {
+            local data = $yaml.encode({1, 2, 3})
+            local value = $yaml.decode(data)
+            assert(getmetatable(value) ~= nil)
+            value = $yaml.decode(data, { set_array_mt = false })
+            assert(getmetatable(value) == nil)
         })
         .exec()
     }
