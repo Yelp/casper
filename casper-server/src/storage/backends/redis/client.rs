@@ -66,9 +66,8 @@ struct SurrogateKeyItem {
 }
 
 bitflags! {
-    #[derive(Serialize, Deserialize)]
+    #[derive(Default, Serialize, Deserialize)]
     struct Flags: u32 {
-        const NONE = 0b0;
         const COMPRESSED = 0b1;
     }
 }
@@ -328,7 +327,7 @@ impl RedisBackend {
             .unwrap_or(item.ttl.as_secs());
 
         // If a compression level is set, compress the body and headers with the zstd encoding, if compressed update flags
-        let mut flags = Flags::NONE;
+        let mut flags = Flags::default();
         if let Some(level) = self.config.compression_level {
             (body, headers) = try_join(
                 compress_with_zstd(body, level).map_ok(Bytes::from),

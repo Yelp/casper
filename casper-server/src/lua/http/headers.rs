@@ -84,7 +84,7 @@ impl<'lua> FromLua<'lua> for LuaHttpHeaders {
         match value {
             Value::Nil => Ok(Self::new()),
             Value::Table(table) => {
-                let mut headers = Self::with_capacity(table.raw_len() as usize);
+                let mut headers = Self::with_capacity(table.raw_len());
                 for kv in table.pairs::<String, Value>() {
                     let (name, value) = kv?;
                     // Maybe `value` is a list of header values

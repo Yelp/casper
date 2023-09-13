@@ -215,7 +215,7 @@ where
         let start = Instant::now();
 
         // Read rest of the fields
-        let mut items = Vec::with_capacity(lua_items.raw_len() as usize);
+        let mut items = Vec::with_capacity(lua_items.raw_len());
         for (i, item) in lua_items.sequence_values::<Table>().enumerate() {
             let item = item?;
             let key: Value = item
