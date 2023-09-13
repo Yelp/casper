@@ -37,7 +37,7 @@ opentelemetry = { version = "0.20", features = [
 opentelemetry-http = { version = "0.9", features = ["hyper", "tokio"] }
 opentelemetry-prometheus = "0.13"
 opentelemetry-zipkin = { version = "0.18", default-features = false }
-ouroboros = "0.17.2"
+ouroboros = "0.18"
 parking_lot = "0.12"
 percent-encoding = "2.2"
 pin-project-lite = "0.2.8"
