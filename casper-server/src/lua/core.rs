@@ -26,6 +26,7 @@ pub fn create_module(lua: &Lua) -> LuaResult<Table> {
     core.set("metrics", super::metrics::create_module(lua)?)?;
     core.set("regex", super::regex::create_module(lua)?)?;
     core.set("tasks", super::tasks::create_module(lua)?)?;
+    core.set("trace", super::trace::create_module(lua)?)?;
     core.set("udp", super::udp::create_module(lua)?)?;
     core.set("uri", super::uri::create_module(lua)?)?;
     core.set("utils", super::utils::create_module(lua)?)?;

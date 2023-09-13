@@ -20,6 +20,7 @@ pub mod metrics;
 pub mod regex;
 pub mod storage;
 pub mod tasks;
+pub mod trace;
 pub mod udp;
 pub mod uri;
 pub mod utils;
