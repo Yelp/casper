@@ -62,14 +62,15 @@ where
             span!(
                 Level::INFO,
                 "HTTP request",
-                req.method = %req.method(),
-                req.uri = %req.uri(),
-                req.host = %connection_info.host(),
-                req.peer_addr = %req.peer_addr().map(|addr| addr.to_string()).unwrap_or_default(),
-                resp.status_code = Empty,
+                request.method = %req.method(),
+                request.uri = %req.uri(),
+                request.host = %connection_info.host(),
+                request.peer_addr = %req.peer_addr().map(|addr| addr.to_string()).unwrap_or_default(),
+                response.status_code = Empty,
                 otel.name = %format!("{} {}", req.method(), req.uri().path()),
                 otel.kind = "server",
                 otel.status_code = Empty,
+                otel.status_message = Empty,
             )
         };
 
@@ -124,7 +125,7 @@ where
             match res {
                 Ok(ref response) => {
                     let status_code = response.status().as_u16();
-                    span.record("resp.status_code", status_code);
+                    span.record("response.status_code", status_code);
                     if response.status().is_server_error() {
                         span.record("otel.status_code", "ERROR");
                     } else {
@@ -132,8 +133,9 @@ where
                     }
                 }
                 Err(_) => {
-                    span.record("resp.status_code", 500);
+                    span.record("response.status_code", 500);
                     span.record("otel.status_code", "ERROR");
+                    span.record("otel.status_message", "internal error");
                 }
             }
 

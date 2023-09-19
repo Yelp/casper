@@ -7,7 +7,7 @@ use ntex::http::header::{self, HeaderMap, HeaderName, HeaderValue};
 use ntex::http::uri::{InvalidUri, InvalidUriParts, Scheme, Uri};
 use ntex::http::StatusCode;
 use opentelemetry::global;
-use tracing::{debug, field::Empty, instrument, Span};
+use tracing::{debug, instrument, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 use crate::http::trace::RequestHeaderCarrierMut;
@@ -43,7 +43,13 @@ pub fn filter_hop_headers(headers: &mut HeaderMap) {
 /// Proxy request to upstream service.
 #[instrument(
     skip_all,
-    fields(req.method = %req.method(), req.uri = Empty, resp.status_code = Empty, otel.kind = "client", otel.status_code = Empty)
+    fields(
+        request.method = %req.method(),
+        request.uri,
+        response.status_code,
+        otel.kind = "client",
+        otel.status_code,
+    )
 )]
 pub async fn proxy_to_upstream(
     client: HttpClient,
@@ -57,7 +63,7 @@ pub async fn proxy_to_upstream(
         let new_uri = merge_uri(req.uri().clone(), upstream).into_lua_err()?;
         *req.uri_mut() = new_uri;
     }
-    span.record("req.uri", req.uri().to_string());
+    span.record("request.uri", req.uri().to_string());
 
     // Inject tracing headers
     global::get_text_map_propagator(|injector| {
@@ -74,7 +80,7 @@ pub async fn proxy_to_upstream(
 
     match forward_to_upstream(client, req).await {
         Ok(resp) => {
-            span.record("resp.status_code", resp.status().as_u16());
+            span.record("response.status_code", resp.status().as_u16());
             if resp.status().is_server_error() {
                 span.record("otel.status_code", "ERROR");
             } else {
@@ -94,7 +100,7 @@ pub async fn proxy_to_upstream(
                 | SendRequestError::H2(_) => StatusCode::BAD_GATEWAY,
                 _ => return Err(err.to_string().into_lua_err()),
             };
-            span.record("resp.status_code", status.as_u16());
+            span.record("response.status_code", status.as_u16());
 
             let mut resp = LuaResponse::new(LuaBody::from(err.to_string()));
             *resp.status_mut() = status;

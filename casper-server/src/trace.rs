@@ -45,10 +45,12 @@ pub fn init(config: &Config) {
 
     let fmt_layer = tracing_subscriber::fmt::layer();
 
+    let otel_layer = OpenTelemetryLayer::new(tracer).with_location(false);
+
     let subscriber = Registry::default()
         .with(env_filter)
         .with(fmt_layer)
-        .with(OpenTelemetryLayer::new(tracer));
+        .with(otel_layer);
 
     // Convert log records to tracing events
     LogTracer::init().expect("failed to init log tracer");

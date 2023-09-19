@@ -7,7 +7,7 @@ use mlua::{
 use ntex::http::client::{Client, Connector};
 use ntex::time::Seconds;
 use opentelemetry::global;
-use tracing::{debug, field::Empty, instrument, Span};
+use tracing::{debug, instrument, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 use super::{LuaBody, LuaRequest, LuaResponse};
@@ -21,7 +21,14 @@ pub struct LuaHttpClient {
 impl LuaHttpClient {
     #[instrument(
         skip_all,
-        fields(req.method = %req.method(), req.uri = %req.uri(), resp.status_code = Empty, otel.kind = "client", otel.status_code = Empty)
+        fields(
+            request.method = %req.method(),
+            request.uri = %req.uri(),
+            response.status_code,
+            otel.kind = "client",
+            otel.status_code,
+            otel.status_message,
+        )
     )]
     async fn request(&self, mut req: LuaRequest) -> LuaResult<LuaResponse> {
         let span = Span::current();
@@ -51,7 +58,7 @@ impl LuaHttpClient {
 
         let resp = match resp {
             Ok(resp) => {
-                span.record("resp.status_code", resp.status().as_u16());
+                span.record("response.status_code", resp.status().as_u16());
                 if resp.status().is_server_error() {
                     span.record("otel.status_code", "ERROR");
                 } else {
@@ -61,6 +68,7 @@ impl LuaHttpClient {
             }
             Err(err) => {
                 span.record("otel.status_code", "ERROR");
+                span.record("otel.status_message", &err);
                 debug!(error = &err, "request error");
                 return Err(err.into_lua_err());
             }
