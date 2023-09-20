@@ -82,8 +82,8 @@ where
         let items_count = keys.len() as u64;
         let results = self.0.get_responses(keys).await;
 
-        storage_counter_add!(items_count, "name" => self.0.name(), "operation" => "get_multi");
-        storage_histogram_rec!(start, "name" => self.0.name(), "operation" => "get_multi");
+        storage_counter_add!(items_count, "name" => self.0.name(), "operation" => "get");
+        storage_histogram_rec!(start, "name" => self.0.name(), "operation" => "get");
 
         // If any of them failed, mark span as error
         if results.iter().any(|r| r.is_err()) {
@@ -294,8 +294,8 @@ where
         let items_len = items.len();
         let results = self.0.store_responses(items).await;
 
-        storage_counter_add!(items_len as u64, "name" => self.0.name(), "operation" => "store_multi");
-        storage_histogram_rec!(start, "name" => self.0.name(), "operation" => "store_multi");
+        storage_counter_add!(items_len as u64, "name" => self.0.name(), "operation" => "store");
+        storage_histogram_rec!(start, "name" => self.0.name(), "operation" => "store");
 
         // If all responses were stored then return `true`
         if results.iter().all(|r| r.is_ok()) {
