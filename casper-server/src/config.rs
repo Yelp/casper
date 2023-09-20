@@ -71,6 +71,8 @@ pub struct MetricCounterConfig {
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct TracingConfig {
+    #[serde(default)]
+    pub enabled: bool,
     pub collector_endpoint: Option<String>,
 }
 

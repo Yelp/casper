@@ -15,6 +15,8 @@ use tracing_subscriber::{EnvFilter, Registry};
 use crate::config::Config;
 
 pub fn init(config: &Config) {
+    let enabled = config.tracing.as_ref().map(|c| c.enabled).unwrap_or(false);
+
     opentelemetry::global::set_text_map_propagator(opentelemetry_zipkin::Propagator::new());
 
     let mut pipeline_builder = opentelemetry_zipkin::new_pipeline()
@@ -47,16 +49,20 @@ pub fn init(config: &Config) {
 
     let otel_layer = OpenTelemetryLayer::new(tracer).with_location(false);
 
-    let subscriber = Registry::default()
-        .with(env_filter)
-        .with(fmt_layer)
-        .with(otel_layer);
-
     // Convert log records to tracing events
     LogTracer::init().expect("failed to init log tracer");
 
-    tracing::subscriber::set_global_default(subscriber)
-        .expect("failed to set default global tracer");
+    if enabled {
+        let subscriber = Registry::default()
+            .with(env_filter)
+            .with(fmt_layer)
+            .with(otel_layer);
+        tracing::subscriber::set_global_default(subscriber)
+    } else {
+        let subscriber = Registry::default().with(env_filter).with(fmt_layer);
+        tracing::subscriber::set_global_default(subscriber)
+    }
+    .expect("failed to set default global tracer");
 }
 
 /// The root span associated to the in-flight current request.
