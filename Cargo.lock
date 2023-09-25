@@ -345,6 +345,7 @@ dependencies = [
  "opentelemetry",
  "opentelemetry-http",
  "opentelemetry-prometheus",
+ "opentelemetry-semantic-conventions",
  "opentelemetry-zipkin",
  "ouroboros",
  "parking_lot",
@@ -369,7 +370,6 @@ dependencies = [
  "tokio-stream",
  "tracing",
  "tracing-log",
- "tracing-opentelemetry",
  "tracing-subscriber",
  "zstd",
 ]
@@ -2698,22 +2698,6 @@ dependencies = [
  "lazy_static",
  "log",
  "tracing-core",
-]
-
-[[package]]
-name = "tracing-opentelemetry"
-version = "0.21.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "75327c6b667828ddc28f5e3f169036cb793c3f588d83bf0f262a7f062ffed3c8"
-dependencies = [
- "once_cell",
- "opentelemetry",
- "opentelemetry_sdk",
- "smallvec",
- "tracing",
- "tracing-core",
- "tracing-log",
- "tracing-subscriber",
 ]
 
 [[package]]

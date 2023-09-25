@@ -114,7 +114,7 @@ async fn main_inner(args: Args) -> anyhow::Result<()> {
             let app = App::new()
                 .state(context)
                 .wrap(middleware::Metrics::new("/metrics".to_string()))
-                .wrap(middleware::RequestTracing::new())
+                .wrap(middleware::RequestTracing::new(config.tracing.clone()))
                 .wrap(middleware::Logger::new())
                 // .wrap(ntex::web::middleware::Logger::default())
                 .default_service(web::to(handler::handler));

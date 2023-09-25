@@ -8,12 +8,13 @@ use ntex::web::error::InternalError;
 use ntex::web::types::State;
 use opentelemetry::{Key as OTKey, Value as OTValue};
 use scopeguard::defer;
-use tracing::error;
+use tracing::{error, instrument};
 
 use crate::context::AppContext;
 use crate::lua::{LuaBody, LuaRequest, LuaResponse};
 use crate::types::LuaContext;
 
+#[instrument(skip_all, fields(method = %req.method(), uri = %req.uri(), host = %req.host()))]
 pub(crate) async fn handler(
     req: LuaRequest,
     app_ctx: State<AppContext>,

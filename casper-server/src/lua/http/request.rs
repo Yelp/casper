@@ -76,6 +76,18 @@ impl LuaRequest {
         &mut self.version
     }
 
+    pub fn host(&self) -> String {
+        self.orig_req
+            .as_ref()
+            .map(|req| req.connection_info().host().to_string())
+            .or_else(|| {
+                self.headers
+                    .get("host")
+                    .and_then(|h| h.to_str().ok().map(|s| s.to_string()))
+            })
+            .unwrap_or_default()
+    }
+
     pub fn headers(&self) -> &HeaderMap {
         &self.headers
     }

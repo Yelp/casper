@@ -1,4 +1,5 @@
 use std::error::Error;
+use std::fmt::Display;
 use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -9,23 +10,25 @@ use ntex::service::{
 };
 use ntex::util::Bytes;
 use ntex::web::{ErrorRenderer, WebRequest, WebResponse};
-
+use opentelemetry::trace::{self, TraceContextExt, Tracer, TracerProvider as _};
+use opentelemetry::{global, Context as OtelContext, KeyValue};
 use pin_project_lite::pin_project;
-use tracing::field::Empty;
-use tracing::{span, Level, Span};
-use tracing_opentelemetry::OpenTelemetrySpanExt as _;
 
-use crate::http::trace::RequestHeaderCarrier;
-use crate::trace::RootSpan;
+use crate::config::TracingConfig;
+use crate::http::trace::{ParentSamplingDecision, RequestHeaderCarrier};
 
 /// `RequestTracing` is a middleware to capture structured diagnostic when processing an HTTP request.
 #[derive(Default, Debug)]
-pub struct RequestTracing;
+pub struct RequestTracing {
+    config: TracingConfig,
+}
 
 impl RequestTracing {
     /// Create a middleware to trace each request.
-    pub fn new() -> RequestTracing {
-        RequestTracing
+    pub fn new(config: Option<TracingConfig>) -> RequestTracing {
+        RequestTracing {
+            config: config.unwrap_or_default(),
+        }
     }
 }
 
@@ -33,64 +36,87 @@ impl<S> Middleware<S> for RequestTracing {
     type Service = RequestTracingService<S>;
 
     fn create(&self, service: S) -> Self::Service {
-        RequestTracingService { inner: service }
+        let tracer = global::tracer_provider().versioned_tracer(
+            "casper-opentelemetry",
+            Some(env!("CARGO_PKG_VERSION")),
+            Some(opentelemetry_semantic_conventions::SCHEMA_URL),
+            None,
+        );
+
+        RequestTracingService {
+            config: self.config.clone(),
+            tracer,
+            service,
+        }
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct RequestTracingService<S> {
-    inner: S,
+    config: TracingConfig,
+    tracer: global::BoxedTracer,
+    service: S,
 }
 
 impl<S, E> Service<WebRequest<E>> for RequestTracingService<S>
 where
     S: Service<WebRequest<E>, Response = WebResponse>,
+    S::Error: Display,
     E: ErrorRenderer,
 {
     type Response = WebResponse;
     type Error = S::Error;
     type Future<'f> = TracingResponse<'f, S, E> where S: 'f, E: 'f;
 
-    forward_poll_ready!(inner);
-    forward_poll_shutdown!(inner);
+    forward_poll_ready!(service);
+    forward_poll_shutdown!(service);
 
     #[inline]
     fn call<'a>(&'a self, req: WebRequest<E>, ctx: ServiceCtx<'a, Self>) -> Self::Future<'a> {
-        // Create a root span
-        let root_span = {
-            let connection_info = req.connection_info();
-            span!(
-                Level::INFO,
-                "HTTP request",
-                request.method = %req.method(),
-                request.uri = %req.uri(),
-                request.host = %connection_info.host(),
-                request.peer_addr = %req.peer_addr().map(|addr| addr.to_string()).unwrap_or_default(),
-                response.status_code = Empty,
-                otel.name = %format!("{} {}", req.method(), req.uri().path()),
-                otel.kind = "server",
-                otel.status_code = Empty,
-                otel.status_message = Empty,
-            )
-        };
-
         // Get parent context from request headers
         let parent_context = opentelemetry::global::get_text_map_propagator(|propagator| {
             propagator.extract(&RequestHeaderCarrier::new(req.headers()))
         });
 
-        root_span.set_parent(parent_context);
+        let mut cx = OtelContext::new();
 
-        // Store root span in request extensions
-        let root_span_wrapper = RootSpan::new(root_span.clone());
-        req.extensions_mut().insert(root_span_wrapper);
+        if self.config.enabled
+            && (parent_context.span().span_context().is_valid()
+                || self.config.start_new_traces.unwrap_or(true))
+        {
+            let connection_info = req.connection_info();
+            let span_builder = self
+                .tracer
+                .span_builder(format!("{} {}", req.method(), req.uri().path()))
+                .with_kind(trace::SpanKind::Server)
+                .with_attributes([
+                    KeyValue::new("request.method", req.method().to_string()),
+                    KeyValue::new("request.uri", req.uri().to_string()),
+                    KeyValue::new("request.host", connection_info.host().to_string()),
+                    KeyValue::new(
+                        "request.peer_addr",
+                        req.peer_addr()
+                            .map(|addr| addr.to_string())
+                            .unwrap_or_default(),
+                    ),
+                ]);
+            let span = self
+                .tracer
+                .build_with_context(span_builder, &parent_context);
+            cx = parent_context.with_span(span);
 
-        let fut = root_span.in_scope(|| ctx.call(&self.inner, req));
-
-        TracingResponse {
-            fut,
-            span: root_span,
+            // In the firehose mode we need to propagate the sampling decision
+            // but ignore it in the app (e.g. always sample).
+            if self.config.mode.as_deref() == Some("firehose") {
+                if let Some(sampled) = req.headers().get("X-B3-Sampled") {
+                    cx = cx.with_value(ParentSamplingDecision(sampled.clone()));
+                }
+            }
         }
+
+        let fut = ctx.call(&self.service, req);
+
+        TracingResponse { fut, otel_cx: cx }
     }
 }
 
@@ -104,53 +130,63 @@ pin_project! {
     {
         #[pin]
         fut: ServiceCall<'f, S, WebRequest<E>>,
-        span: Span,
+        otel_cx: OtelContext,
     }
 }
 
 impl<'f, S, E> Future for TracingResponse<'f, S, E>
 where
     S: Service<WebRequest<E>, Response = WebResponse>,
+    S::Error: Display,
 {
     type Output = Result<WebResponse, S::Error>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let this = self.project();
 
-        let span = this.span.clone();
-        this.span.in_scope(move || {
-            let res = futures::ready!(this.fut.poll(cx));
+        let _cx_guard = this.otel_cx.clone().attach();
 
-            // Request is done
-            match res {
-                Ok(ref response) => {
-                    let status_code = response.status().as_u16();
-                    span.record("response.status_code", status_code);
-                    if response.status().is_server_error() {
-                        span.record("otel.status_code", "ERROR");
-                    } else {
-                        span.record("otel.status_code", "OK");
-                    }
-                }
-                Err(_) => {
-                    span.record("response.status_code", 500);
-                    span.record("otel.status_code", "ERROR");
-                    span.record("otel.status_message", "internal error");
-                }
-            }
+        let res = futures::ready!(this.fut.poll(cx));
+        Poll::Ready(
+            res.map(|response| {
+                let span = this.otel_cx.span();
 
-            Poll::Ready(res.map(|response| {
+                span.add_event("received response headers", vec![]);
+
+                let status = response.status();
+                span.set_attribute(KeyValue::new(
+                    "response.status_code",
+                    status.as_u16() as i64,
+                ));
+                if status.is_server_error() {
+                    span.set_status(trace::Status::error(status.to_string()));
+                } else if status.is_success() {
+                    span.set_status(trace::Status::Ok);
+                }
+
+                let otel_cx = this.otel_cx.clone();
                 response.map_body(move |_, body| {
-                    ResponseBody::Other(Body::from_message(StreamSpan { body, span }))
+                    ResponseBody::Other(Body::from_message(StreamSpan { body, otel_cx }))
                 })
-            }))
-        })
+            })
+            .map_err(|err| {
+                let span = this.otel_cx.span();
+                span.set_status(trace::Status::error(err.to_string()));
+                err
+            }),
+        )
     }
 }
 
 struct StreamSpan {
     body: ResponseBody<Body>,
-    span: Span,
+    otel_cx: OtelContext,
+}
+
+impl Drop for StreamSpan {
+    fn drop(&mut self) {
+        self.otel_cx.span().end();
+    }
 }
 
 impl MessageBody for StreamSpan {
@@ -164,6 +200,7 @@ impl MessageBody for StreamSpan {
         &mut self,
         cx: &mut Context<'_>,
     ) -> Poll<Option<Result<Bytes, Box<dyn Error>>>> {
-        self.span.in_scope(|| self.body.poll_next_chunk(cx))
+        let _cx_guard = self.otel_cx.clone().attach();
+        self.body.poll_next_chunk(cx)
     }
 }

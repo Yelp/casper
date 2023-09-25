@@ -1,6 +1,6 @@
 use mlua::{Lua, Result, Table, UserData, UserDataMethods, Value as LuaValue};
-use tracing::Span;
-use tracing_opentelemetry::OpenTelemetrySpanExt as _;
+use opentelemetry::trace::get_active_span;
+use opentelemetry::KeyValue;
 
 // Handler to a current span (resolved on each method call)
 #[derive(Debug)]
@@ -9,15 +9,16 @@ struct LuaCurrentSpan;
 impl UserData for LuaCurrentSpan {
     fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
         methods.add_method("set_attribute", |_, _, (key, value): (String, LuaValue)| {
-            let span = Span::current();
-            match value {
-                LuaValue::Integer(i) => span.set_attribute(key, i as i64),
-                LuaValue::Number(n) => span.set_attribute(key, n),
-                LuaValue::Boolean(b) => span.set_attribute(key, b),
-                // TODO: Support opentelemetry::Value::Array variant
-                val => span.set_attribute(key, val.to_string()?),
-            };
-            Ok(())
+            get_active_span(|span| {
+                match value {
+                    LuaValue::Integer(i) => span.set_attribute(KeyValue::new(key, i as i64)),
+                    LuaValue::Number(n) => span.set_attribute(KeyValue::new(key, n)),
+                    LuaValue::Boolean(b) => span.set_attribute(KeyValue::new(key, b)),
+                    // TODO: Support opentelemetry::Value::Array variant
+                    val => span.set_attribute(KeyValue::new(key, val.to_string()?)),
+                }
+                Ok(())
+            })
         });
     }
 }
@@ -32,33 +33,25 @@ mod tests {
 
     use futures_util::future::BoxFuture;
     use mlua::{chunk, Lua, Result};
-    use opentelemetry::sdk::{
-        export::trace::{ExportResult, SpanData, SpanExporter},
-        trace::{Tracer, TracerProvider},
-    };
-    use opentelemetry::trace::TracerProvider as _;
+    use opentelemetry::sdk::export::trace::{ExportResult, SpanData, SpanExporter};
+    use opentelemetry::sdk::trace::{Tracer, TracerProvider};
+    use opentelemetry::trace::{Tracer as _, TracerProvider as _};
     use opentelemetry::Key;
-    use tracing::Subscriber;
-    use tracing_opentelemetry::layer;
-    use tracing_subscriber::prelude::*;
 
     #[test]
     fn test_module() -> Result<()> {
         let lua = Lua::new();
         let trace = super::create_module(&lua)?;
 
-        let (_tracer, provider, exporter, subscriber) = build_test_tracer();
-        tracing::subscriber::with_default(subscriber, || {
-            let root = tracing::debug_span!("root");
-            root.in_scope(|| {
-                lua.load(chunk! {
-                    local span = $trace.current_span
-                    span:set_attribute("foo", 1)
-                    span:set_attribute("hello", "world")
-                })
-                .exec()
-                .unwrap();
+        let (tracer, provider, exporter) = build_test_tracer();
+        tracer.in_span("root", |_cx| {
+            lua.load(chunk! {
+                local span = $trace.current_span
+                span:set_attribute("foo", 1)
+                span:set_attribute("hello", "world")
             })
+            .exec()
+            .unwrap();
         });
 
         drop(provider); // flush all spans
@@ -82,15 +75,13 @@ mod tests {
         Ok(())
     }
 
-    fn build_test_tracer() -> (Tracer, TracerProvider, TestExporter, impl Subscriber) {
+    fn build_test_tracer() -> (Tracer, TracerProvider, TestExporter) {
         let exporter = TestExporter::default();
         let provider = TracerProvider::builder()
             .with_simple_exporter(exporter.clone())
             .build();
         let tracer = provider.tracer("test");
-        let subscriber = tracing_subscriber::registry().with(layer().with_tracer(tracer.clone()));
-
-        (tracer, provider, exporter, subscriber)
+        (tracer, provider, exporter)
     }
 
     #[derive(Clone, Default, Debug)]

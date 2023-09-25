@@ -36,6 +36,7 @@ opentelemetry = { version = "0.20", features = [
 ] }
 opentelemetry-http = { version = "0.9", features = ["hyper", "tokio"] }
 opentelemetry-prometheus = "0.13"
+opentelemetry-semantic-conventions = "0.12"
 opentelemetry-zipkin = { version = "0.18", default-features = false }
 ouroboros = "0.18"
 parking_lot = "0.12"
@@ -58,7 +59,6 @@ time = "0.3"
 tokio = { version = "1", features = ["full"] }
 tracing = "0.1"
 tracing-log = "0.1"
-tracing-opentelemetry = "0.21"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 zstd = "0.12"
 

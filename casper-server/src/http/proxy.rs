@@ -6,11 +6,12 @@ use ntex::http::client::Client as HttpClient;
 use ntex::http::header::{self, HeaderMap, HeaderName, HeaderValue};
 use ntex::http::uri::{InvalidUri, InvalidUriParts, Scheme, Uri};
 use ntex::http::StatusCode;
-use opentelemetry::global;
+use opentelemetry::trace::{self, TraceContextExt as _, Tracer as _};
+use opentelemetry::{global, Context, KeyValue};
+use scopeguard::defer;
 use tracing::{debug, instrument, Span};
-use tracing_opentelemetry::OpenTelemetrySpanExt;
 
-use crate::http::trace::RequestHeaderCarrierMut;
+use crate::http::trace::{ParentSamplingDecision, RequestHeaderCarrierMut};
 use crate::lua::{LuaBody, LuaRequest, LuaResponse};
 
 #[allow(clippy::declare_interior_mutable_const)]
@@ -41,55 +42,65 @@ pub fn filter_hop_headers(headers: &mut HeaderMap) {
 }
 
 /// Proxy request to upstream service.
-#[instrument(
-    skip_all,
-    fields(
-        request.method = %req.method(),
-        request.uri,
-        response.status_code,
-        otel.kind = "client",
-        otel.status_code,
-    )
-)]
+#[instrument(skip_all, fields(method = %req.method(), uri))]
 pub async fn proxy_to_upstream(
     client: HttpClient,
     mut req: LuaRequest,
     upstream: Option<&str>,
 ) -> LuaResult<LuaResponse> {
-    let span = Span::current();
-
     // Merge request uri with the upstream uri
     if let Some(upstream) = upstream {
         let new_uri = merge_uri(req.uri().clone(), upstream).into_lua_err()?;
         *req.uri_mut() = new_uri;
     }
-    span.record("request.uri", req.uri().to_string());
-
-    // Inject tracing headers
-    global::get_text_map_propagator(|injector| {
-        injector.inject_context(
-            &span.context(),
-            &mut RequestHeaderCarrierMut::new(req.headers_mut()),
-        );
-    });
+    Span::current().record("uri", req.uri().to_string());
 
     // Special case to handle websocket upgrade requests
     if super::websocket::is_websocket_upgrade(&req) {
         return super::websocket::proxy_websocket_upgrade(&req).await;
     }
 
+    let mut cx = Context::current();
+    if cx.has_active_span() {
+        let tracer = global::tracer("casper-opentelemetry");
+        let span = tracer
+            .span_builder("proxy_to_upstream")
+            .with_kind(trace::SpanKind::Client)
+            .with_attributes([
+                KeyValue::new("request.method", req.method().to_string()),
+                KeyValue::new("request.uri", req.uri().to_string()),
+            ])
+            .start(&tracer);
+        cx = cx.with_span(span);
+
+        // Inject tracing headers
+        global::get_text_map_propagator(|injector| {
+            injector.inject_context(&cx, &mut RequestHeaderCarrierMut::new(req.headers_mut()));
+        });
+
+        if let Some(sampled) = cx.get::<ParentSamplingDecision>() {
+            req.headers_mut()
+                .insert(HeaderName::from_static("x-b3-sampled"), sampled.0.clone());
+        }
+    }
+
     match forward_to_upstream(client, req).await {
         Ok(resp) => {
-            span.record("response.status_code", resp.status().as_u16());
+            let span = cx.span();
+            defer! { span.end(); }
+            let status_i64 = resp.status().as_u16() as i64;
+            span.set_attribute(KeyValue::new("response.status_code", status_i64));
             if resp.status().is_server_error() {
-                span.record("otel.status_code", "ERROR");
-            } else {
-                span.record("otel.status_code", "OK");
+                span.set_status(trace::Status::error("server error"));
+            } else if resp.status().is_success() {
+                span.set_status(trace::Status::Ok);
             }
             Ok(resp)
         }
         Err(err) => {
-            span.record("otel.status_code", "ERROR");
+            let span = cx.span();
+            defer! { span.end(); }
+            span.set_status(trace::Status::error(err.to_string()));
             debug!(error = err.to_string(), "proxying error");
             let status = match err {
                 SendRequestError::Connect(_) => StatusCode::SERVICE_UNAVAILABLE,
@@ -100,7 +111,8 @@ pub async fn proxy_to_upstream(
                 | SendRequestError::H2(_) => StatusCode::BAD_GATEWAY,
                 _ => return Err(err.to_string().into_lua_err()),
             };
-            span.record("response.status_code", status.as_u16());
+            let status_i64 = status.as_u16() as i64;
+            span.set_attribute(KeyValue::new("response.status_code", status_i64));
 
             let mut resp = LuaResponse::new(LuaBody::from(err.to_string()));
             *resp.status_mut() = status;

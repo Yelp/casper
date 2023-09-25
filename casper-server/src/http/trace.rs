@@ -42,3 +42,5 @@ impl<'a> Injector for RequestHeaderCarrierMut<'a> {
         self.headers.insert(header_name, header_value);
     }
 }
+
+pub struct ParentSamplingDecision(pub HeaderValue);

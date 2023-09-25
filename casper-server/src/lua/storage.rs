@@ -8,7 +8,7 @@ use mlua::{
     ErrorContext, FromLua, Lua, Result as LuaResult, String as LuaString, Table, UserData,
     UserDataMethods, UserDataRefMut, Value,
 };
-use tracing::{instrument, Span};
+use tracing::instrument;
 
 use super::http::LuaResponse;
 use crate::http::filter_hop_headers;
@@ -33,10 +33,7 @@ where
     ///
     /// Returns `nil` if response is not found.
     /// In case of error returns a second value with error message.
-    #[instrument(
-        skip_all,
-        fields(storage.name = self.0.name(), storage.backend = self.0.backend_type(), otel.status_message)
-    )]
+    #[instrument(skip_all, fields(name = self.0.name(), backend = self.0.backend_type()))]
     async fn get_response<'l>(
         &self,
         lua: &'l Lua,
@@ -45,11 +42,7 @@ where
         let start = Instant::now();
 
         let key = calculate_primary_key(lua, key).context("failed to calculate primary key")?;
-        let resp = self.0.get_response(key).await.map_err(|err| {
-            let err = err.into();
-            Span::current().record("otel.status_message", err.to_string());
-            err
-        });
+        let resp = self.0.get_response(key).await.map_err(Into::into);
 
         storage_counter_add!(1, "name" => self.0.name(), "operation" => "get");
         storage_histogram_rec!(start, "name" => self.0.name(), "operation" => "get");
@@ -67,10 +60,7 @@ where
     /// Returns a table of: { Response | string | false }
     ///   string - error message
     ///   `false` - if response is not found
-    #[instrument(
-        skip_all,
-        fields(storage.name = self.0.name(), storage.backend = self.0.backend_type(), otel.status_code)
-    )]
+    #[instrument(skip_all, fields(name = self.0.name(), backend = self.0.backend_type()))]
     async fn get_responses<'l>(&self, lua: &'l Lua, keys: Table<'l>) -> LuaResult<Vec<Value<'l>>> {
         let start = Instant::now();
 
@@ -84,11 +74,6 @@ where
 
         storage_counter_add!(items_count, "name" => self.0.name(), "operation" => "get");
         storage_histogram_rec!(start, "name" => self.0.name(), "operation" => "get");
-
-        // If any of them failed, mark span as error
-        if results.iter().any(|r| r.is_err()) {
-            Span::current().record("otel.status_code", "ERROR");
-        }
 
         // Convert results to a table of: { Response | string | false }
         // In case of error we return string
@@ -114,10 +99,7 @@ where
     /// In case of errors returns `false` and a table of: { string | true }
     ///   string - error message
     ///   `true` - if response was deleted
-    #[instrument(
-        skip_all,
-        fields(storage.name = self.0.name(), storage.backend = self.0.backend_type(), otel.status_code)
-    )]
+    #[instrument(skip_all, fields(name = self.0.name(), backend = self.0.backend_type()))]
     async fn delete_responses<'l>(
         &self,
         lua: &'l Lua,
@@ -166,7 +148,6 @@ where
                 Err(err) => Ok(Value::String(lua.create_string(&err.into().to_string())?)),
             })
             .collect::<LuaResult<Vec<_>>>()?;
-        Span::current().record("otel.status_code", "ERROR");
         Ok((false, Some(results)))
     }
 
@@ -174,10 +155,7 @@ where
     ///
     /// Returns `true` if the response was stored.
     /// In case of errors returns `nil` and a string with error message.
-    #[instrument(
-        skip_all,
-        fields(storage.name = self.0.name(), storage.backend = self.0.backend_type(), otel.status_message)
-    )]
+    #[instrument(skip_all, fields(name = self.0.name(), backend = self.0.backend_type()))]
     async fn store_response<'l>(&self, lua: &'l Lua, item: Table<'l>) -> LuaDoubleResult<bool> {
         let start = Instant::now();
 
@@ -217,11 +195,7 @@ where
         storage_counter_add!(1, "name" => self.0.name(), "operation" => "store");
         storage_histogram_rec!(start, "name" => self.0.name(), "operation" => "store");
 
-        Ok(result.map(|_| true).map_err(|err| {
-            let err = err.into().to_string();
-            Span::current().record("otel.status_message", &err);
-            err
-        }))
+        Ok(result.map(|_| true).map_err(|err| err.into().to_string()))
     }
 
     /// Stores responses in the storage.
@@ -230,10 +204,7 @@ where
     /// In case of errors returns `false` and a table of: { string | true }
     ///   string - error message
     ///   `true` - if response was stored
-    #[instrument(
-        skip_all,
-        fields(storage.name = self.0.name(), storage.backend = self.0.backend_type(), otel.status_code)
-    )]
+    #[instrument(skip_all, fields(name = self.0.name(), backend = self.0.backend_type()))]
     async fn store_responses<'l>(
         &self,
         lua: &'l Lua,
@@ -309,7 +280,6 @@ where
                 Err(err) => Ok(Value::String(lua.create_string(&err.into().to_string())?)),
             })
             .collect::<LuaResult<Vec<_>>>()?;
-        Span::current().record("otel.status_code", "ERROR");
         Ok((false, Some(results)))
     }
 }

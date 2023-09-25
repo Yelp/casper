@@ -69,11 +69,13 @@ pub struct MetricCounterConfig {
     pub description: Option<String>,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Default, Deserialize)]
 pub struct TracingConfig {
     #[serde(default)]
     pub enabled: bool,
+    pub start_new_traces: Option<bool>,
     pub collector_endpoint: Option<String>,
+    pub mode: Option<String>, // only one value is supported: "firehose"
 }
 
 pub(crate) fn read_config<P: AsRef<Path> + ?Sized>(path: &P) -> Result<Config> {
