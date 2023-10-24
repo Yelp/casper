@@ -175,7 +175,7 @@ impl RedisBackend {
 
             let mut surrogate_keys_new = Vec::with_capacity(surrogate_keys.len());
             for sk in surrogate_keys {
-                match self.internal_cache.get(&sk) {
+                match self.internal_cache.get(&sk).await {
                     // If we have a cached key that indicates expired record then don't go to Redis
                     Some((sk_item, _)) if response_item.timestamp <= sk_item.timestamp => {
                         METRICS.internal_cache_counter_inc(&self.name, "hit");
@@ -384,7 +384,7 @@ impl RedisBackend {
         // Update surrogate keys
         let int_cache_ttl = self.config.internal_cache_ttl;
         try_join_all(item.surrogate_keys.into_iter().map(|skey| async move {
-            let refresh_ttl = match self.internal_cache.get(&skey) {
+            let refresh_ttl = match self.internal_cache.get(&skey).await {
                 Some((_, t)) if t.elapsed().as_secs_f64() <= int_cache_ttl => {
                     // Do nothing, key is known
                     METRICS.internal_cache_counter_inc(&self.name, "hit");

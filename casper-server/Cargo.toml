@@ -24,7 +24,7 @@ itertools = "0.11"
 linked-hash-map = "0.5.4"
 log = "0.4"
 mini-moka = "0.10"
-moka = { version = "0.11", features = ["future"] }
+moka = { version = "0.12", features = ["future"] }
 ntex = { version = "0.7.2", features = ["tokio", "openssl"] }
 num_cpus = "1.13"
 num_threads = "0.1"
