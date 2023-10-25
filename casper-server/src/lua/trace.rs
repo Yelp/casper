@@ -162,8 +162,10 @@ mod tests {
     use opentelemetry::sdk::trace::{Tracer, TracerProvider};
     use opentelemetry::trace::{SpanKind, Status as SpanStatus, Tracer as _, TracerProvider as _};
     use opentelemetry::{global, Key, KeyValue};
+    use serial_test::serial;
 
     #[test]
+    #[serial]
     fn test_current_span() -> Result<()> {
         let lua = Lua::new();
         let trace = super::create_module(&lua)?;
@@ -208,6 +210,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_new_span() -> Result<()> {
         let lua = Lua::new();
         let trace = super::create_module(&lua)?;

@@ -63,6 +63,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 zstd = "0.13"
 
 [dev-dependencies]
+serial_test = "2.0"
 tokio-stream = { version = "0.1", features = ["time"] }
 
 [dependencies.mlua]
