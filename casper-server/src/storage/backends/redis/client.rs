@@ -9,9 +9,9 @@ use anyhow::{Context, Result};
 use async_trait::async_trait;
 use base64::Engine as _;
 use bitflags::bitflags;
+use fred::clients::RedisPool;
 use fred::error::RedisError;
-use fred::interfaces::KeysInterface;
-use fred::pool::RedisPool;
+use fred::interfaces::{ClientLike, KeysInterface};
 use fred::types::{
     Expiration, PerformanceConfig, ReconnectPolicy, RedisKey, RedisValue, SetOptions,
 };
@@ -101,11 +101,18 @@ impl RedisMetrics {
 impl RedisBackend {
     /// Creates a new Redis backend instance without connecting to the server.
     pub fn new(config: Config, name: impl Into<Option<String>>) -> Result<Self> {
-        let redis_config = config.clone().into_redis_config()?;
-        // Use default performance config
-        let perf = PerformanceConfig::default();
+        let (redis_config, conn_config) = config.clone().into_fred_configs()?;
+
+        // Use default performance config and connection config (with tcp nodelay)
+        let perf_config = PerformanceConfig::default();
         let policy = ReconnectPolicy::default();
-        let pool = RedisPool::new(redis_config, Some(perf), Some(policy), config.pool_size)?;
+        let pool = RedisPool::new(
+            redis_config,
+            Some(perf_config),
+            Some(conn_config),
+            Some(policy),
+            config.pool_size,
+        )?;
 
         let internal_cache_size = config.internal_cache_size;
         let backend = RedisBackend {

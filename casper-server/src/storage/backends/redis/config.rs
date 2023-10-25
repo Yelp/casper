@@ -1,4 +1,7 @@
+use std::time::Duration;
+
 use anyhow::{anyhow, bail, Context, Result};
+use fred::types::{ConnectionConfig, RedisConfig, TcpConfig, TlsConnector};
 use serde::Deserialize;
 
 /// Redis backend configuration
@@ -73,6 +76,10 @@ impl ServerConfig {
 
 #[derive(Clone, Copy, Debug, Deserialize)]
 pub struct TimeoutConfig {
+    /// A limit on the amount of time an application can take to establish a connection to Redis
+    #[serde(default = "TimeoutConfig::default_connect_timeout")]
+    pub connect_timeout: f32,
+
     /// A limit on the amount of time an application can take to fetch response or next chunk from Redis
     #[serde(default = "TimeoutConfig::default_fetch_timeout")]
     pub fetch_timeout: f32,
@@ -85,6 +92,7 @@ pub struct TimeoutConfig {
 impl Default for TimeoutConfig {
     fn default() -> Self {
         TimeoutConfig {
+            connect_timeout: TimeoutConfig::default_connect_timeout(),
             fetch_timeout: TimeoutConfig::default_fetch_timeout(),
             store_timeout: TimeoutConfig::default_store_timeout(),
         }
@@ -92,12 +100,16 @@ impl Default for TimeoutConfig {
 }
 
 impl TimeoutConfig {
+    const fn default_connect_timeout() -> f32 {
+        3.0
+    }
+
     const fn default_fetch_timeout() -> f32 {
         1.0
     }
 
     const fn default_store_timeout() -> f32 {
-        1.0
+        2.0
     }
 }
 
@@ -113,7 +125,7 @@ impl Default for Config {
             max_body_chunk_size: Config::default_max_body_chunk_size(),
             compression_level: None,
             max_ttl: None,
-            wait_for_connect: None,
+            wait_for_connect: Some(0.0),
             lazy: false,
             internal_cache_size: Config::default_internal_cache_size(),
             internal_cache_ttl: Config::default_internal_cache_ttl(),
@@ -123,7 +135,7 @@ impl Default for Config {
 
 impl Config {
     fn default_pool_size() -> usize {
-        8 * num_cpus::get()
+        2 * num_cpus::get()
     }
 
     const fn default_max_body_chunk_size() -> usize {
@@ -138,19 +150,28 @@ impl Config {
         0.0
     }
 
-    pub(super) fn into_redis_config(self) -> Result<fred::types::RedisConfig> {
-        Ok(fred::types::RedisConfig {
+    pub(super) fn into_fred_configs(self) -> Result<(RedisConfig, ConnectionConfig)> {
+        let redis_config = RedisConfig {
             fail_fast: !self.lazy,
             username: self.username,
             password: self.password,
             server: self.server.into_redis_server_config()?,
             tls: if self.enable_tls {
-                Some(fred::types::TlsConnector::default_native_tls()?.into())
+                Some(TlsConnector::default_native_tls()?.into())
             } else {
                 None
             },
             ..Default::default()
-        })
+        };
+        let conn_config = ConnectionConfig {
+            connection_timeout: Duration::from_secs_f32(self.timeouts.connect_timeout),
+            tcp: TcpConfig {
+                nodelay: Some(true),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        Ok((redis_config, conn_config))
     }
 }
 
