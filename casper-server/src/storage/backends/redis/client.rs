@@ -27,11 +27,8 @@ use serde::{Deserialize, Serialize};
 use tokio::time::timeout;
 
 use super::Config;
-use crate::storage::{
-    compress_with_zstd, decode_headers, decompress_with_zstd, encode_headers, Item, ItemKey, Key,
-    Storage,
-};
-use crate::utils::zstd::ZstdDecoder;
+use crate::storage::{decode_headers, encode_headers, Item, ItemKey, Key, Storage};
+use crate::utils::zstd::{compress_with_zstd, decompress_with_zstd, ZstdDecoder};
 
 // TODO: Define format version
 
@@ -251,7 +248,7 @@ impl RedisBackend {
         // If we have only one chunk, decode it in-place
         if response_item.num_chunks == 1 {
             let body = match flags.contains(Flags::COMPRESSED) {
-                true => Bytes::from(decompress_with_zstd(response_item.body).await?),
+                true => Bytes::from(decompress_with_zstd(&response_item.body)?),
                 false => response_item.body,
             };
 

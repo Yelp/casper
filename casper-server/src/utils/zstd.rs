@@ -7,6 +7,18 @@ use ntex::util::{Buf, Bytes, BytesMut};
 use pin_project_lite::pin_project;
 use zstd::stream::raw::Operation;
 
+pub async fn compress_with_zstd<B>(data: B, level: i32) -> Result<Vec<u8>, IoError>
+where
+    B: AsRef<[u8]> + Send + 'static,
+{
+    tokio::task::spawn_blocking(move || zstd::stream::encode_all(data.as_ref(), level)).await?
+}
+
+#[inline]
+pub fn decompress_with_zstd(data: &[u8]) -> Result<Vec<u8>, IoError> {
+    zstd::stream::decode_all(data)
+}
+
 enum State {
     Reading,
     Writing,

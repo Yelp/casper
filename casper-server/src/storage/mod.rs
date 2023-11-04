@@ -11,7 +11,7 @@ use ntex::http::{HeaderMap, Response, StatusCode};
 use ntex::util::Bytes;
 
 pub use backends::Backend;
-pub(crate) use common::{compress_with_zstd, decode_headers, decompress_with_zstd, encode_headers};
+pub(crate) use common::{decode_headers, encode_headers};
 
 pub type Key = Bytes;
 
