@@ -15,7 +15,7 @@ use fred::interfaces::{ClientLike, KeysInterface};
 use fred::types::{
     Expiration, PerformanceConfig, ReconnectPolicy, RedisKey, RedisValue, SetOptions,
 };
-use futures::future::{try_join, try_join_all, TryFutureExt};
+use futures::future::{try_join, try_join_all};
 use futures::stream::{self, StreamExt, TryStreamExt};
 use moka::future::Cache;
 use ntex::http::body::{Body, SizedStream};
@@ -48,8 +48,7 @@ pub struct RedisBackend {
 
 #[derive(Debug, Serialize, Deserialize)]
 struct ResponseItem {
-    #[serde(with = "serde_bytes")]
-    headers: Vec<u8>,
+    headers: Bytes,
     status_code: u16,
     timestamp: u64,
     surrogate_keys: Vec<Key>,
@@ -68,10 +67,15 @@ struct SurrogateKeyItem {
 bitflags! {
     #[derive(Default, Serialize, Deserialize)]
     struct Flags: u32 {
-        const COMPRESSED         = 0b00000001; // Full compression
-        const HEADERS_COMPRESSED = 0b00000010; // Headers only compression
+        const EX_COMPRESSED      = 0b00000001; // Deprecated
+        const HEADERS_COMPRESSED = 0b00000010; // Headers compression
+        const BODY_COMPRESSED    = 0b00000100; // Body compression
     }
 }
+
+const EX_COMPRESSED: Flags = Flags::EX_COMPRESSED; // Deprecated
+const HEADERS_COMPRESSED: Flags = Flags::HEADERS_COMPRESSED;
+const BODY_COMPRESSED: Flags = Flags::BODY_COMPRESSED;
 
 struct RedisMetrics {
     pub internal_cache_counter: Counter<u64>,
@@ -238,21 +242,20 @@ impl RedisBackend {
 
         let status = StatusCode::from_u16(response_item.status_code)?;
         let flags = response_item.flags;
-        let headers =
-            match flags.contains(Flags::COMPRESSED) || flags.contains(Flags::HEADERS_COMPRESSED) {
-                true => zstd::stream::decode_all(response_item.headers.as_slice())?,
-                false => response_item.headers,
-            };
-        let headers = decode_headers(&headers)?;
+
+        let headers = match flags.contains(HEADERS_COMPRESSED) || flags.contains(EX_COMPRESSED) {
+            true => decode_headers(&decompress_with_zstd(&response_item.headers)?)?,
+            false => decode_headers(&response_item.headers)?,
+        };
 
         // If we have only one chunk, decode it in-place
         if response_item.num_chunks == 1 {
-            let body = match flags.contains(Flags::COMPRESSED) {
-                true => Bytes::from(decompress_with_zstd(&response_item.body)?),
+            let body = match flags.contains(BODY_COMPRESSED) || flags.contains(EX_COMPRESSED) {
+                true => decompress_with_zstd(&response_item.body)?,
                 false => response_item.body,
             };
 
-            // Construct new Response object
+            // Construct a new Response object
             let mut resp = Response::with_body(status, Body::Bytes(body));
             *resp.headers_mut() = headers;
             return Ok(Some(resp));
@@ -281,7 +284,7 @@ impl RedisBackend {
 
         // Decompress the body if required
         let body_size = response_item.body_length as u64;
-        let body = if flags.contains(Flags::COMPRESSED) {
+        let body = if flags.contains(BODY_COMPRESSED) || flags.contains(EX_COMPRESSED) {
             let body_stream =
                 ZstdDecoder::new(body_stream).map_err(|err| Box::new(err) as Box<dyn StdError>);
             Body::Message(Box::new(SizedStream::new(body_size, Box::pin(body_stream))))
@@ -290,7 +293,7 @@ impl RedisBackend {
             Body::Message(Box::new(SizedStream::new(body_size, Box::pin(body_stream))))
         };
 
-        // Construct new Response object
+        // Construct a new Response object
         let mut resp = Response::with_body(status, body);
         *resp.headers_mut() = headers;
         Ok(Some(resp))
@@ -327,7 +330,7 @@ impl RedisBackend {
     }
 
     async fn store_response_inner<'a>(&self, item: Item<'a>) -> Result<()> {
-        let mut headers = encode_headers(&item.headers)?;
+        let mut headers = Bytes::from(encode_headers(&item.headers)?);
         let mut body = item.body;
         let body_length = body.len();
 
@@ -336,20 +339,28 @@ impl RedisBackend {
             .map(|max_ttl| std::cmp::max(max_ttl, item.ttl.as_secs()))
             .unwrap_or(item.ttl.as_secs());
 
-        // If compression level is set, compress the body and headers with the zstd encoding and update flags
+        // If compression level is set, compress the body and headers and update flags
         let mut flags = Flags::default();
         if let Some(level) = self.config.compression_level {
+            let (headers_comp, body_comp);
             if body.len() < COMPRESSION_THRESHOLD {
-                // Do not compress if the body is too small
-                headers = compress_with_zstd(headers, level).await?;
-                flags.insert(Flags::HEADERS_COMPRESSED);
+                // Compress only headers if the body is too small
+                headers_comp = compress_with_zstd(headers.clone(), level).await?;
+                body_comp = body.clone();
             } else {
-                (body, headers) = try_join(
-                    compress_with_zstd(body, level).map_ok(Bytes::from),
-                    compress_with_zstd(headers, level),
+                (headers_comp, body_comp) = try_join(
+                    compress_with_zstd(headers.clone(), level),
+                    compress_with_zstd(body.clone(), level),
                 )
                 .await?;
-                flags.insert(Flags::COMPRESSED);
+            }
+            if headers_comp.len() < headers.len() {
+                headers = headers_comp;
+                flags |= HEADERS_COMPRESSED;
+            }
+            if body_comp.len() < body.len() {
+                body = body_comp;
+                flags |= BODY_COMPRESSED;
             }
         }
 

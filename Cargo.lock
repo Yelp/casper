@@ -330,7 +330,6 @@ dependencies = [
  "scopeguard",
  "self_cell",
  "serde",
- "serde_bytes",
  "serde_json",
  "serde_qs",
  "serde_yaml",
@@ -2165,15 +2164,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f3a1a3341211875ef120e117ea7fd5228530ae7e7036a779fdc9117be6b3282c"
 dependencies = [
  "ordered-float 2.10.1",
- "serde",
-]
-
-[[package]]
-name = "serde_bytes"
-version = "0.11.12"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ab33ec92f677585af6d88c65593ae2375adde54efdbf16d597f2cbc7a6d368ff"
-dependencies = [
  "serde",
 ]
 
