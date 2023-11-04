@@ -37,6 +37,9 @@ use crate::utils::zstd::ZstdDecoder;
 
 const SURROGATE_KEYS_TTL: i64 = 86400; // 1 day
 
+// Do not compress data less than 100 bytes
+const COMPRESSION_THRESHOLD: usize = 100;
+
 #[derive(Clone)]
 pub struct RedisBackend {
     name: String,
@@ -68,7 +71,8 @@ struct SurrogateKeyItem {
 bitflags! {
     #[derive(Default, Serialize, Deserialize)]
     struct Flags: u32 {
-        const COMPRESSED = 0b1;
+        const COMPRESSED         = 0b00000001; // Full compression
+        const HEADERS_COMPRESSED = 0b00000010; // Headers only compression
     }
 }
 
@@ -236,15 +240,17 @@ impl RedisBackend {
         }
 
         let status = StatusCode::from_u16(response_item.status_code)?;
-        let headers = match response_item.flags.contains(Flags::COMPRESSED) {
-            true => zstd::stream::decode_all(response_item.headers.as_slice())?,
-            false => response_item.headers,
-        };
+        let flags = response_item.flags;
+        let headers =
+            match flags.contains(Flags::COMPRESSED) || flags.contains(Flags::HEADERS_COMPRESSED) {
+                true => zstd::stream::decode_all(response_item.headers.as_slice())?,
+                false => response_item.headers,
+            };
         let headers = decode_headers(&headers)?;
 
         // If we have only one chunk, decode it in-place
         if response_item.num_chunks == 1 {
-            let body = match response_item.flags.contains(Flags::COMPRESSED) {
+            let body = match flags.contains(Flags::COMPRESSED) {
                 true => Bytes::from(decompress_with_zstd(response_item.body).await?),
                 false => response_item.body,
             };
@@ -276,9 +282,9 @@ impl RedisBackend {
             });
         let body_stream = stream::iter(vec![Ok(response_item.body)]).chain(chunks_stream);
 
-        // Decompress the body and headers if required
+        // Decompress the body if required
         let body_size = response_item.body_length as u64;
-        let body = if response_item.flags.contains(Flags::COMPRESSED) {
+        let body = if flags.contains(Flags::COMPRESSED) {
             let body_stream =
                 ZstdDecoder::new(body_stream).map_err(|err| Box::new(err) as Box<dyn StdError>);
             Body::Message(Box::new(SizedStream::new(body_size, Box::pin(body_stream))))
@@ -333,15 +339,21 @@ impl RedisBackend {
             .map(|max_ttl| std::cmp::max(max_ttl, item.ttl.as_secs()))
             .unwrap_or(item.ttl.as_secs());
 
-        // If a compression level is set, compress the body and headers with the zstd encoding, if compressed update flags
+        // If compression level is set, compress the body and headers with the zstd encoding and update flags
         let mut flags = Flags::default();
         if let Some(level) = self.config.compression_level {
-            (body, headers) = try_join(
-                compress_with_zstd(body, level).map_ok(Bytes::from),
-                compress_with_zstd(headers, level),
-            )
-            .await?;
-            flags.insert(Flags::COMPRESSED);
+            if body.len() < COMPRESSION_THRESHOLD {
+                // Do not compress if the body is too small
+                headers = compress_with_zstd(headers, level).await?;
+                flags.insert(Flags::HEADERS_COMPRESSED);
+            } else {
+                (body, headers) = try_join(
+                    compress_with_zstd(body, level).map_ok(Bytes::from),
+                    compress_with_zstd(headers, level),
+                )
+                .await?;
+                flags.insert(Flags::COMPRESSED);
+            }
         }
 
         // Split body to chunks and save chunks first
