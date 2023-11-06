@@ -23,6 +23,7 @@ pub struct Item<'a> {
     pub body: Bytes,
     pub surrogate_keys: Vec<Key>,
     pub ttl: Duration,
+    pub encrypt: bool,
 }
 
 impl Item<'static> {
@@ -36,6 +37,7 @@ impl Item<'static> {
             body: body.as_ref().unwrap().clone(),
             surrogate_keys: Vec::new(),
             ttl,
+            encrypt: false,
         }
     }
 
@@ -54,6 +56,7 @@ impl Item<'static> {
             body: body.as_ref().unwrap().clone(),
             surrogate_keys: surrogate_keys.into_iter().map(|sk| sk.into()).collect(),
             ttl,
+            encrypt: false,
         }
     }
 }

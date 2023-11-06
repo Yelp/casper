@@ -2,6 +2,7 @@ use std::time::Duration;
 
 use anyhow::{anyhow, bail, Context, Result};
 use fred::types::{ConnectionConfig, RedisConfig, TcpConfig, TlsConnector};
+use ntex::util::Bytes;
 use serde::Deserialize;
 
 /// Redis backend configuration
@@ -35,6 +36,9 @@ pub struct Config {
     pub internal_cache_size: usize,
     #[serde(default = "Config::default_internal_cache_ttl")]
     pub internal_cache_ttl: f64,
+
+    // Optional encryption key
+    pub encryption_key: Option<Bytes>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -129,6 +133,7 @@ impl Default for Config {
             lazy: false,
             internal_cache_size: Config::default_internal_cache_size(),
             internal_cache_ttl: Config::default_internal_cache_ttl(),
+            encryption_key: None,
         }
     }
 }

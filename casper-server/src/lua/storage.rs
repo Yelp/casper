@@ -166,6 +166,7 @@ where
             .raw_get("surrogate_keys")
             .context("invalid `surrogate_keys`")?;
         let ttl: f32 = item.raw_get("ttl").context("invalid `ttl`")?;
+        let encrypt: Option<bool> = item.raw_get("encrypt").unwrap_or_default();
 
         // Read Response body (it's consumed and saved)
         let body = lua_try!(resp.body_mut().buffer().await).unwrap_or_default();
@@ -189,6 +190,7 @@ where
                 body,
                 surrogate_keys,
                 ttl: Duration::from_secs_f32(ttl),
+                encrypt: encrypt.unwrap_or_default(),
             })
             .await;
 
@@ -228,6 +230,7 @@ where
             let ttl: f32 = item
                 .raw_get("ttl")
                 .with_context(|_| format!("invalid `ttl` #{}", i + 1))?;
+            let encrypt: Option<bool> = item.raw_get("encrypt").unwrap_or_default();
 
             // Read Response body (it's consumed and saved)
             let body = resp.body_mut().buffer().await?.unwrap_or_default();
@@ -246,19 +249,20 @@ where
                 .map(|s| Key::copy_from_slice(s.as_bytes()))
                 .collect::<Vec<_>>();
 
-            items.push((i, key, resp, body, surrogate_keys, ttl));
+            items.push((i, key, resp, body, surrogate_keys, ttl, encrypt));
         }
 
         // Transform items elements from tuple to Item struct
         let items = items
             .iter()
-            .map(|(_, key, resp, body, surrogate_keys, ttl)| Item {
+            .map(|(_, key, resp, body, surrogate_keys, ttl, encrypt)| Item {
                 key: key.clone(),
                 status: resp.status(),
                 headers: Cow::Borrowed(resp.headers()),
                 body: body.clone(),
                 surrogate_keys: surrogate_keys.clone(),
                 ttl: Duration::from_secs_f32(*ttl),
+                encrypt: encrypt.unwrap_or_default(),
             })
             .collect::<Vec<_>>();
 

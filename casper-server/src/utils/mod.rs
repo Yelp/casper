@@ -29,6 +29,7 @@ pub fn random_string(len: usize, charset: Option<&str>) -> String {
     }
 }
 
+pub mod aes;
 pub mod zstd;
 
 #[cfg(test)]
