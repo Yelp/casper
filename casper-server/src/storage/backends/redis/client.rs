@@ -37,7 +37,7 @@ use crate::utils::zstd::{compress_with_zstd, decompress_with_zstd, ZstdDecoder};
 const SURROGATE_KEYS_TTL: i64 = 86400; // 1 day
 
 // Do not compress data less than 100 bytes
-const COMPRESSION_THRESHOLD: usize = 100;
+const _COMPRESSION_THRESHOLD: usize = 100;
 
 #[derive(Clone)]
 pub struct RedisBackend {
@@ -392,6 +392,15 @@ impl RedisBackend {
         // If compression level is set, compress the body and headers and update flags
         let mut flags = Flags::default();
         if let Some(level) = self.config.compression_level {
+            // Temporary use old compression behavior for compatibility
+            (headers, body) = try_join(
+                compress_with_zstd(headers, level),
+                compress_with_zstd(body, level),
+            )
+            .await?;
+            flags |= EX_COMPRESSED;
+
+            /*
             let (headers_comp, body_comp);
             if body.len() < COMPRESSION_THRESHOLD {
                 // Compress only headers if the body is too small
@@ -412,6 +421,7 @@ impl RedisBackend {
                 body = body_comp;
                 flags |= BODY_COMPRESSED;
             }
+            */
         }
 
         // If encryption is enabled, encrypt the body and headers and update flags
