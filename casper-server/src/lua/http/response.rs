@@ -15,6 +15,7 @@ use ntex::web::{HttpRequest, Responder};
 use opentelemetry::{Key as OTKey, Value as OTValue};
 
 use super::{EitherBody, LuaBody, LuaHttpHeaders, LuaHttpHeadersExt};
+use crate::types::EncryptedExt;
 
 #[derive(Default, Debug)]
 pub struct LuaResponse {
@@ -229,6 +230,14 @@ impl UserData for LuaResponse {
     fn add_fields<'lua, F: UserDataFields<'lua, Self>>(fields: &mut F) {
         fields.add_field_method_get("is_proxied", |_, this| Ok(this.is_proxied));
         fields.add_field_method_get("is_stored", |_, this| Ok(this.is_stored));
+        fields.add_field_method_get("is_encrypted", |_, this| {
+            Ok(this.is_stored
+                && this
+                    .extensions()
+                    .get::<EncryptedExt>()
+                    .map(|ext| ext.0)
+                    .unwrap_or_default())
+        });
 
         fields.add_field_method_get("status", |_, this| Ok(this.status().as_u16()));
         fields.add_field_method_set("status", |_, this, status: u16| {
@@ -360,6 +369,7 @@ mod tests {
             local resp = Response.new()
             assert(resp.is_proxied == false)
             assert(resp.is_stored == false)
+            assert(resp.is_encrypted == false)
             assert(resp.status == 200)
             assert(resp.body:read() == nil)
         })

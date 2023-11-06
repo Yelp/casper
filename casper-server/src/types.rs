@@ -2,6 +2,10 @@ use std::ops::Deref;
 
 use mlua::{IntoLua, Lua, OwnedTable, Result as LuaResult, Value};
 
+// Value stored in response extensions to indicate that response is encrypted
+#[derive(Clone, Copy, Debug, Default)]
+pub struct EncryptedExt(pub bool);
+
 #[derive(Clone, Debug)]
 pub(crate) struct LuaContext(pub(crate) OwnedTable);
 

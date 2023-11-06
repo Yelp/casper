@@ -28,6 +28,7 @@ use tokio::time::timeout;
 
 use super::Config;
 use crate::storage::{decode_headers, encode_headers, Item, ItemKey, Key, Storage};
+use crate::types::EncryptedExt;
 use crate::utils::aes::{aes256_decrypt, aes256_encrypt, AESDecoder};
 use crate::utils::zstd::{compress_with_zstd, decompress_with_zstd, ZstdDecoder};
 
@@ -280,6 +281,9 @@ impl RedisBackend {
             // Construct a new Response object
             let mut resp = Response::with_body(status, Body::Bytes(body));
             *resp.headers_mut() = headers;
+            if flags.contains(ENCRYPTED) {
+                resp.extensions_mut().insert(EncryptedExt(true));
+            }
             return Ok(Some(resp));
         }
 
@@ -339,6 +343,9 @@ impl RedisBackend {
         // Construct a new Response object
         let mut resp = Response::with_body(status, body);
         *resp.headers_mut() = headers;
+        if flags.contains(ENCRYPTED) {
+            resp.extensions_mut().insert(EncryptedExt(true));
+        }
         Ok(Some(resp))
     }
 
