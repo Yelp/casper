@@ -1,6 +1,6 @@
 use std::borrow::Cow;
+use std::future::Future;
 use std::io::{Error as IoError, ErrorKind as IoErrorKind};
-use std::mem;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
@@ -9,8 +9,10 @@ use ntex::util::{Bytes, BytesMut};
 use openssl::symm::{decrypt_aead, encrypt_aead, Cipher, Crypter, Mode};
 use pin_project_lite::pin_project;
 use rand::{thread_rng, RngCore};
+use tokio::task::{spawn_blocking, JoinHandle};
 
-/// Size of the tag used by AES256-GCM.
+/// Some constants used by AES256-GCM.
+const IV_SIZE: usize = 12;
 const TAG_SIZE: usize = 16;
 
 /// Encrypts data with AES256-GCM using the key.
@@ -20,11 +22,11 @@ pub async fn aes256_encrypt<B>(data: B, key: Bytes) -> Result<Bytes, IoError>
 where
     B: AsRef<[u8]> + Send + 'static,
 {
-    tokio::task::spawn_blocking(move || {
+    spawn_blocking(move || {
         let data = data.as_ref();
         let cipher = Cipher::aes_256_gcm();
 
-        let mut iv = vec![0; cipher.iv_len().unwrap()];
+        let mut iv = vec![0; IV_SIZE];
         thread_rng().fill_bytes(&mut iv);
         let mut tag = [0; TAG_SIZE];
 
@@ -49,16 +51,23 @@ where
 /// Decrypts data with AES256-GCM using the key.
 ///
 /// The data must be encrypted with `aes256_encrypt` and contain the iv and tag.
-pub fn aes256_decrypt(data: &[u8], key: &[u8]) -> Result<Bytes, IoError> {
-    let cipher = Cipher::aes_256_gcm();
+pub async fn aes256_decrypt<B>(data: B, key: Bytes) -> Result<Bytes, IoError>
+where
+    B: AsRef<[u8]> + Send + 'static,
+{
+    spawn_blocking(move || {
+        let cipher = Cipher::aes_256_gcm();
+        let data = data.as_ref();
 
-    let (iv_tag, data) = data.split_at(cipher.iv_len().unwrap() + TAG_SIZE);
-    let (iv, tag) = iv_tag.split_at(cipher.iv_len().unwrap());
+        let (iv_tag, data) = data.split_at(IV_SIZE + TAG_SIZE);
+        let (iv, tag) = iv_tag.split_at(IV_SIZE);
 
-    let key = normalize_key(key, cipher.key_len());
-    decrypt_aead(cipher, &key, Some(iv), &[], data, tag)
-        .map(Into::into)
-        .map_err(|_| IoError::new(IoErrorKind::Other, "failed to decrypt data"))
+        let key = normalize_key(&key, cipher.key_len());
+        decrypt_aead(cipher, &key, Some(iv), &[], data, tag)
+            .map(Into::into)
+            .map_err(|_| IoError::new(IoErrorKind::Other, "failed to decrypt data"))
+    })
+    .await?
 }
 
 /// Normalizes the key to the required length.
@@ -79,40 +88,32 @@ pin_project! {
         #[pin]
         stream: S,
         key: Bytes,
-        cipher: Option<Cipher>,
         decrypter: Option<Crypter>,
-        iv_len: usize,
-        block_size: usize,
         state: State,
-        input: Bytes,
-        buffer: BytesMut,
+        input: Option<Bytes>,
+        buffer: Option<BytesMut>,
     }
 }
+
+type InterimResult = Result<(Crypter, BytesMut, usize), IoError>;
 
 enum State {
     Init,
     Reading,
-    Decoding,
+    Decoding(Option<JoinHandle<InterimResult>>),
     Flushing,
     Done,
 }
 
 impl<S> AESDecoder<S> {
     pub fn new(stream: S, key: Bytes) -> Self {
-        let cipher = Cipher::aes_256_gcm();
-        let iv_len = cipher.iv_len().unwrap();
-        let block_size = cipher.block_size();
-
         Self {
             stream,
             key,
-            cipher: Some(cipher),
             decrypter: None,
-            iv_len,
-            block_size,
             state: State::Init,
-            input: Bytes::new(),
-            buffer: BytesMut::new(),
+            input: None,
+            buffer: Some(BytesMut::new()),
         }
     }
 }
@@ -126,29 +127,29 @@ where
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let mut this = self.project();
         loop {
-            match *this.state {
+            match this.state {
                 State::Init => {
                     // Fetch iv and tag to init decrypter
                     if let Some(chunk) = ready!(this.stream.as_mut().poll_next(cx)) {
-                        this.buffer.extend_from_slice(&chunk?);
-                        if this.buffer.len() < TAG_SIZE + *this.iv_len {
-                            // Not enough data, continue
-                            continue;
+                        let buffer = this.buffer.as_mut().unwrap();
+                        buffer.extend_from_slice(&chunk?);
+                        if buffer.len() < TAG_SIZE + IV_SIZE {
+                            continue; // Not enough data
                         }
 
                         // Init decrypter
-                        let iv_tag = this.buffer.split_to(*this.iv_len + TAG_SIZE);
-                        let (iv, tag) = iv_tag.split_at(*this.iv_len);
-                        let cipher = this.cipher.take().unwrap();
+                        let iv = &buffer[..IV_SIZE];
+                        let tag = &buffer[IV_SIZE..IV_SIZE + TAG_SIZE];
+                        let cipher = Cipher::aes_256_gcm();
                         let key = normalize_key(this.key, cipher.key_len());
-                        let mut decrypter = Crypter::new(cipher, Mode::Decrypt, &key, Some(iv))
+                        let decrypter = Crypter::new(cipher, Mode::Decrypt, &key, Some(iv))
+                            .and_then(|mut decr| decr.set_tag(tag).map(|_| decr))
                             .map_err(|_| {
-                                IoError::new(IoErrorKind::Other, "failed to create decrypter")
+                                IoError::new(IoErrorKind::Other, "failed to init decrypter")
                             })?;
-                        decrypter.set_tag(tag).unwrap();
+                        *this.input = Some(Bytes::copy_from_slice(&buffer[IV_SIZE + TAG_SIZE..]));
                         *this.decrypter = Some(decrypter);
-                        *this.input = mem::take(this.buffer).freeze(); // Consume the rest of the buffer
-                        *this.state = State::Decoding;
+                        *this.state = State::Decoding(None);
                     } else {
                         *this.state = State::Done;
                     }
@@ -156,39 +157,53 @@ where
 
                 State::Reading => {
                     if let Some(chunk) = ready!(this.stream.as_mut().poll_next(cx)) {
-                        *this.input = chunk?;
-                        *this.state = State::Decoding;
+                        *this.input = Some(chunk?);
+                        *this.state = State::Decoding(None);
                     } else {
                         *this.state = State::Flushing;
                     }
                 }
 
-                State::Decoding => {
-                    if this.input.is_empty() {
+                State::Decoding(join_handle @ None) => {
+                    if this.input.is_none() || this.input.as_ref().unwrap().is_empty() {
                         *this.state = State::Reading;
                         continue;
                     }
 
-                    let decrypter = this.decrypter.as_mut().unwrap();
-                    this.buffer.resize(this.input.len() + *this.block_size, 0);
-                    let count = decrypter.update(this.input, this.buffer).map_err(|_| {
-                        IoError::new(IoErrorKind::InvalidData, "failed to decrypt chunk")
-                    })?;
+                    let mut decrypter = this.decrypter.take().unwrap();
+                    let input = this.input.take().unwrap();
+                    let mut buffer = this.buffer.take().unwrap();
+                    buffer.resize(input.len(), 0);
+                    *join_handle = Some(spawn_blocking(move || {
+                        decrypter
+                            .update(&input, &mut buffer)
+                            .map(|count| (decrypter, buffer, count))
+                            .map_err(|_| {
+                                IoError::new(IoErrorKind::InvalidData, "failed to decrypt chunk")
+                            })
+                    }));
+                }
+
+                State::Decoding(Some(join_handle)) => {
+                    let (decrypter, buffer, count) = ready!(Pin::new(join_handle).poll(cx))??;
+                    *this.decrypter = Some(decrypter);
+                    *this.buffer = Some(buffer);
                     *this.state = State::Reading;
                     if count > 0 {
-                        break Poll::Ready(Some(Ok(Bytes::copy_from_slice(&this.buffer[..count]))));
+                        let buffer = this.buffer.as_ref().unwrap();
+                        break Poll::Ready(Some(Ok(Bytes::copy_from_slice(&buffer[..count]))));
                     }
                 }
 
                 State::Flushing => {
                     let decrypter = this.decrypter.as_mut().unwrap();
-                    this.buffer.resize(*this.block_size, 0);
-                    let count = decrypter.finalize(this.buffer).map_err(|_| {
+                    let buffer = this.buffer.as_mut().unwrap();
+                    let count = decrypter.finalize(buffer).map_err(|_| {
                         IoError::new(IoErrorKind::InvalidData, "failed to finalize decryption")
                     })?;
                     *this.state = State::Done;
                     if count > 0 {
-                        break Poll::Ready(Some(Ok(this.buffer.split_to(count).freeze())));
+                        break Poll::Ready(Some(Ok(buffer.split_to(count).freeze())));
                     }
                 }
 
@@ -212,7 +227,7 @@ mod tests {
         let data = Bytes::from_static(b"hello");
         let encrypted = aes256_encrypt(data.clone(), key.clone()).await.unwrap();
 
-        let decrypted = aes256_decrypt(&encrypted, &key).unwrap();
+        let decrypted = aes256_decrypt(encrypted, key).await.unwrap();
         assert_eq!(decrypted, data);
     }
 
@@ -220,17 +235,18 @@ mod tests {
     async fn test_decrypt_stream() {
         let key = Bytes::from_static(b"some key");
 
-        let data = b"hello world, this is a long string that will be encrypted and decrypted";
-        let encrypted = aes256_encrypt(data, key.clone()).await.unwrap();
+        let data =
+            b"hello world, this is a long string that will be encrypted and decrypted.".repeat(100);
+        let encrypted = aes256_encrypt(data.clone(), key.clone()).await.unwrap();
 
         let stream = stream::iter(
             encrypted
-                .chunks(8)
+                .chunks(256)
                 .map(|chunk| Ok(Bytes::copy_from_slice(chunk))),
         );
         let decoder = AESDecoder::new(stream, key.clone());
         let decoded_chunks = decoder.try_collect::<Vec<Bytes>>().await.unwrap();
-        assert_eq!(decoded_chunks.len(), 10);
+        assert_eq!(decoded_chunks.len(), 29);
         assert_eq!(decoded_chunks.concat(), data);
     }
 }

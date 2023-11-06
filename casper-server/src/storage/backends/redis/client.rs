@@ -251,16 +251,17 @@ impl RedisBackend {
         // Decrypt headers if required
         let encryption_key = self.config.encryption_key.as_ref();
         raw_headers = match (flags.contains(ENCRYPTED), encryption_key) {
-            (true, Some(key)) => {
-                aes256_decrypt(&raw_headers, key).context("failed to decrypt headers")?
-            }
+            (true, Some(key)) => aes256_decrypt(raw_headers, key.clone())
+                .await
+                .context("failed to decrypt headers")?,
             (true, None) => return Err(anyhow!("response is encrypted")),
             (false, _) => raw_headers,
         };
         // Decompress headers if required
         if flags.contains(HEADERS_COMPRESSED) || flags.contains(EX_COMPRESSED) {
-            raw_headers =
-                decompress_with_zstd(&raw_headers).context("failed to decompress headers")?;
+            raw_headers = decompress_with_zstd(raw_headers)
+                .await
+                .context("failed to decompress headers")?;
         }
 
         // Decode them
@@ -271,11 +272,11 @@ impl RedisBackend {
             let mut body = response_item.body;
             // Decrypt body
             if flags.contains(ENCRYPTED) {
-                body = aes256_decrypt(&body, encryption_key.unwrap())?;
+                body = aes256_decrypt(body, encryption_key.unwrap().clone()).await?;
             }
             // Decompress body
             if flags.contains(BODY_COMPRESSED) || flags.contains(EX_COMPRESSED) {
-                body = decompress_with_zstd(&body)?;
+                body = decompress_with_zstd(body).await?;
             }
 
             // Construct a new Response object
