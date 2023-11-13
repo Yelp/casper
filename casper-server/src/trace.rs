@@ -1,7 +1,7 @@
 use std::time::Duration;
 
-use opentelemetry::sdk::trace::{self, RandomIdGenerator, Sampler};
 use opentelemetry_http::hyper::HyperClient;
+use opentelemetry_sdk::trace::{self, RandomIdGenerator, Sampler};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt as _;
 use tracing_subscriber::EnvFilter;
@@ -55,6 +55,6 @@ fn init_opentelemetry(config: &Config) {
     }
 
     pipeline_builder
-        .install_batch(opentelemetry::runtime::TokioCurrentThread)
+        .install_batch(opentelemetry_sdk::runtime::TokioCurrentThread)
         .expect("failed to create zipkin tracer");
 }

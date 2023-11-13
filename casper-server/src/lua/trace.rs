@@ -158,10 +158,10 @@ mod tests {
 
     use futures_util::future::BoxFuture;
     use mlua::{chunk, Lua, Result};
-    use opentelemetry::sdk::export::trace::{ExportResult, SpanData, SpanExporter};
-    use opentelemetry::sdk::trace::{Tracer, TracerProvider};
     use opentelemetry::trace::{SpanKind, Status as SpanStatus, Tracer as _, TracerProvider as _};
-    use opentelemetry::{global, Key, KeyValue};
+    use opentelemetry::{global, KeyValue};
+    use opentelemetry_sdk::export::trace::{ExportResult, SpanData, SpanExporter};
+    use opentelemetry_sdk::trace::{Tracer, TracerProvider};
     use serial_test::serial;
 
     #[test]
@@ -190,14 +190,8 @@ mod tests {
         assert_eq!(spans.len(), 1);
         let span = &spans[0];
         assert_eq!(span.name, "root");
-        assert_eq!(
-            span.attributes.get(&Key::from_static_str("foo")).unwrap(),
-            &opentelemetry::Value::I64(1)
-        );
-        assert_eq!(
-            span.attributes.get(&Key::from_static_str("hello")).unwrap(),
-            &opentelemetry::Value::String("world".into())
-        );
+        assert!(span.attributes.contains(&KeyValue::new("foo", 1)));
+        assert!(span.attributes.contains(&KeyValue::new("hello", "world")));
         assert_eq!(span.status, SpanStatus::Ok);
 
         // Events
@@ -236,14 +230,8 @@ mod tests {
         let span = &spans[0];
         assert_eq!(span.name, "child");
         assert_eq!(span.span_kind, SpanKind::Client);
-        assert_eq!(
-            span.attributes.get(&Key::from_static_str("foo")).unwrap(),
-            &opentelemetry::Value::I64(1)
-        );
-        assert_eq!(
-            span.attributes.get(&Key::from_static_str("hello")).unwrap(),
-            &opentelemetry::Value::String("world".into())
-        );
+        assert!(span.attributes.contains(&KeyValue::new("foo", 1)));
+        assert!(span.attributes.contains(&KeyValue::new("hello", "world")));
         assert_eq!(span.status, SpanStatus::Ok);
 
         // Events

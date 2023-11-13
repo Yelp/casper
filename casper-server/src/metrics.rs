@@ -4,7 +4,7 @@ use std::sync::{Arc, OnceLock};
 
 use opentelemetry::global;
 use opentelemetry::metrics::{Counter, Histogram, MeterProvider as _};
-use opentelemetry::sdk::metrics::{self, MeterProvider};
+use opentelemetry_sdk::metrics::{self, MeterProvider};
 use tokio::sync::RwLock;
 
 use crate::config::Config;
