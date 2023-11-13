@@ -55,8 +55,8 @@ thiserror = "1"
 time = "0.3"
 tokio = { version = "1", features = ["full"] }
 tracing = "0.1"
-tracing-log = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-log = "0.2.0"
+tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 zstd = "0.13"
 
 [dev-dependencies]
