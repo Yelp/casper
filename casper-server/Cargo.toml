@@ -32,10 +32,10 @@ once_cell = "1"
 openssl = "0.10"
 opentelemetry = { version = "0.21", features = ["metrics"] }
 opentelemetry-http = { version = "0.10", features = ["hyper", "tokio"] }
-opentelemetry-prometheus = "0.14"
+opentelemetry-prometheus = "0.14.1"
 opentelemetry-semantic-conventions = "0.13"
 opentelemetry-zipkin = { version = "0.19", default-features = false }
-opentelemetry_sdk = { version = "0.21", features = ["rt-tokio-current-thread"] }
+opentelemetry_sdk = { version = "0.21.1", features = ["rt-tokio-current-thread"] }
 ouroboros = "0.18"
 parking_lot = "0.12"
 percent-encoding = "2.2"
