@@ -1,15 +1,16 @@
 use std::collections::{HashMap, HashSet};
 use std::ops::{Deref, DerefMut};
 
+use itertools::Itertools;
 use mlua::{
     AnyUserData, ExternalError, ExternalResult, FromLua, Function, IntoLua, Lua, MetaMethod,
     RegistryKey, Result as LuaResult, String as LuaString, Table, UserData, UserDataMethods,
     UserDataRef, UserDataRefMut, Value, Variadic,
 };
 use ntex::http::header::{HeaderMap, HeaderName, HeaderValue};
+use serde::ser::Serializer;
 
 use super::super::Regex;
-use crate::http::serde::header_map::serialize_sorted as serialize_headers;
 
 pub trait LuaHttpHeadersExt {
     /// Returns a first value of the header of Nil if not found.
@@ -336,10 +337,10 @@ impl LuaHttpHeadersExt for HeaderMap {
         let mut writer = Vec::new();
         if pretty.unwrap_or_default() {
             let mut serializer = serde_json::Serializer::pretty(&mut writer);
-            lua_try!(serialize_headers(self, &mut serializer));
+            lua_try!(serialize_headers_sorted(self, &mut serializer));
         } else {
             let mut serializer = serde_json::Serializer::new(&mut writer);
-            lua_try!(serialize_headers(self, &mut serializer));
+            lua_try!(serialize_headers_sorted(self, &mut serializer));
         }
         Ok(Ok(lua.create_string(writer)?))
     }
@@ -402,6 +403,16 @@ fn set_headers_metatable(lua: &Lua, headers: Table) -> LuaResult<()> {
     lua.set_app_data(MetatableHelperKey(registry_key));
 
     metatable_helper.call(headers)
+}
+
+/// Serialize headers sorting them by name.
+fn serialize_headers_sorted<S: Serializer>(headers: &HeaderMap, ser: S) -> Result<S::Ok, S::Error> {
+    ser.collect_map(
+        headers
+            .iter_inner()
+            .map(|(k, v)| (k.as_str(), v))
+            .sorted_by_key(|(k, _)| *k),
+    )
 }
 
 #[cfg(test)]
