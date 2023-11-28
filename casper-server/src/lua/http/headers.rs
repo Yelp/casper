@@ -86,8 +86,7 @@ impl<'lua> FromLua<'lua> for LuaHttpHeaders {
             Value::Nil => Ok(Self::new()),
             Value::Table(table) => {
                 let mut headers = Self::with_capacity(table.raw_len());
-                for kv in table.pairs::<String, Value>() {
-                    let (name, value) = kv?;
+                table.for_each::<String, Value>(|name, value| {
                     // Maybe `value` is a list of header values
                     if let Value::Table(values) = value {
                         let name = HeaderName::from_bytes(name.as_bytes()).into_lua_err()?;
@@ -104,7 +103,8 @@ impl<'lua> FromLua<'lua> for LuaHttpHeaders {
                             HeaderValue::from_bytes(value.as_bytes()).into_lua_err()?,
                         );
                     }
-                }
+                    Ok(())
+                })?;
                 Ok(headers)
             }
             Value::UserData(ud) => {

@@ -20,23 +20,24 @@ impl UserData for U64Counter {
 fn from_lua_attributes(attributes: Option<Table>) -> Result<Vec<KeyValue>> {
     let mut attrs = Vec::new();
     if let Some(attributes) = attributes {
-        for kv in attributes.pairs::<String, Value>() {
-            match kv? {
-                (k, Value::Boolean(b)) => {
+        attributes.for_each::<String, Value>(|k, v| {
+            match v {
+                Value::Boolean(b) => {
                     attrs.push(KeyValue::new(k, b));
                 }
-                (k, Value::Integer(i)) => {
+                Value::Integer(i) => {
                     attrs.push(KeyValue::new(k, i as i64));
                 }
-                (k, Value::Number(n)) => {
+                Value::Number(n) => {
                     attrs.push(KeyValue::new(k, n));
                 }
-                (k, Value::String(v)) => {
+                Value::String(v) => {
                     attrs.push(KeyValue::new(k, v.to_string_lossy().into_owned()));
                 }
                 _ => {}
             }
-        }
+            Ok(())
+        })?;
     }
     Ok(attrs)
 }
