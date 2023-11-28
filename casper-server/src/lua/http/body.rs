@@ -331,6 +331,7 @@ impl<'lua> FromLua<'lua> for LuaBody {
     }
 }
 
+#[allow(clippy::await_holding_refcell_ref)]
 impl UserData for LuaBody {
     fn add_methods<'lua, M: mlua::UserDataMethods<'lua, Self>>(methods: &mut M) {
         // Static constructor
