@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::future::{ready, Ready};
 use std::mem;
 
 use mlua::{
@@ -168,9 +167,7 @@ where
 }
 
 impl Responder for LuaResponse {
-    type Future = Ready<Response>;
-
-    fn respond_to(self, req: &HttpRequest) -> Self::Future {
+    async fn respond_to(self, req: &HttpRequest) -> Response {
         let Self {
             status,
             headers,
@@ -191,7 +188,7 @@ impl Responder for LuaResponse {
             _ => {}
         }
 
-        ready(resp.set_body(body.into()))
+        resp.set_body(body.into())
     }
 }
 

@@ -4,7 +4,6 @@ use std::mem;
 use std::net::SocketAddr;
 use std::time::Duration;
 
-use futures::future::{self, Ready};
 use mlua::{
     AnyUserData, ExternalError, ExternalResult, FromLua, IntoLua, Lua, LuaSerdeExt,
     Result as LuaResult, String as LuaString, Table, UserData, UserDataFields, UserDataMethods,
@@ -168,9 +167,11 @@ impl LuaRequest {
 /// Provides an Extractor to make LuaRequest from ntex request
 impl<Err> FromRequest<Err> for LuaRequest {
     type Error = Infallible;
-    type Future = Ready<Result<Self, Self::Error>>;
 
-    fn from_request(request: &HttpRequest, payload: &mut Payload) -> Self::Future {
+    async fn from_request(
+        request: &HttpRequest,
+        payload: &mut Payload,
+    ) -> Result<Self, Self::Error> {
         let content_length = request
             .headers()
             .get(CONTENT_LENGTH)
@@ -187,7 +188,7 @@ impl<Err> FromRequest<Err> for LuaRequest {
             }
         };
 
-        future::ready(Ok(LuaRequest {
+        Ok(LuaRequest {
             orig_req: Some(request.clone()),
             uri: request.uri().clone(),
             method: request.method().clone(),
@@ -196,7 +197,7 @@ impl<Err> FromRequest<Err> for LuaRequest {
             body: EitherBody::Body(body),
             remote_addr: request.peer_addr(),
             timeout: None,
-        }))
+        })
     }
 }
 
