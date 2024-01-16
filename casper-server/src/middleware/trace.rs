@@ -1,18 +1,13 @@
 use std::error::Error;
 use std::fmt::Display;
-use std::future::Future;
-use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use ntex::http::body::{Body, BodySize, MessageBody, ResponseBody};
-use ntex::service::{
-    forward_poll_ready, forward_poll_shutdown, Middleware, Service, ServiceCall, ServiceCtx,
-};
+use ntex::service::{forward_poll_ready, forward_poll_shutdown, Middleware, Service, ServiceCtx};
 use ntex::util::Bytes;
 use ntex::web::{ErrorRenderer, WebRequest, WebResponse};
-use opentelemetry::trace::{self, TraceContextExt, Tracer, TracerProvider as _};
+use opentelemetry::trace::{self, FutureExt, TraceContextExt, Tracer, TracerProvider as _};
 use opentelemetry::{global, Context as OtelContext, KeyValue};
-use pin_project_lite::pin_project;
 
 use crate::config::TracingConfig;
 use crate::http::trace::{ParentSamplingDecision, RequestHeaderCarrier};
@@ -66,19 +61,22 @@ where
 {
     type Response = WebResponse;
     type Error = S::Error;
-    type Future<'f> = TracingResponse<'f, S, E> where S: 'f, E: 'f;
 
     forward_poll_ready!(service);
     forward_poll_shutdown!(service);
 
     #[inline]
-    fn call<'a>(&'a self, req: WebRequest<E>, ctx: ServiceCtx<'a, Self>) -> Self::Future<'a> {
+    async fn call(
+        &self,
+        req: WebRequest<E>,
+        ctx: ServiceCtx<'_, Self>,
+    ) -> Result<Self::Response, Self::Error> {
         // Get parent context from request headers
         let parent_context = opentelemetry::global::get_text_map_propagator(|propagator| {
             propagator.extract(&RequestHeaderCarrier::new(req.headers()))
         });
 
-        let mut cx = OtelContext::new();
+        let mut otel_cx = OtelContext::new();
 
         if self.config.enabled
             && (parent_context.span().span_context().is_valid()
@@ -103,78 +101,46 @@ where
             let span = self
                 .tracer
                 .build_with_context(span_builder, &parent_context);
-            cx = parent_context.with_span(span);
+            otel_cx = parent_context.with_span(span);
 
             // In the firehose mode we need to propagate the sampling decision
             // but ignore it in the app (e.g. always sample).
             if self.config.mode.as_deref() == Some("firehose") {
                 if let Some(sampled) = req.headers().get("X-B3-Sampled") {
-                    cx = cx.with_value(ParentSamplingDecision(sampled.clone()));
+                    otel_cx = otel_cx.with_value(ParentSamplingDecision(sampled.clone()));
                 }
             }
         }
 
-        let fut = ctx.call(&self.service, req);
+        let res = ctx
+            .call(&self.service, req)
+            .with_context(otel_cx.clone())
+            .await;
+        res.map(|response| {
+            let span = otel_cx.span();
+            span.add_event("received response headers", vec![]);
 
-        TracingResponse { fut, otel_cx: cx }
-    }
-}
+            let status = response.status();
+            span.set_attribute(KeyValue::new(
+                "response.status_code",
+                status.as_u16() as i64,
+            ));
+            if status.is_server_error() {
+                span.set_status(trace::Status::error(status.to_string()));
+            } else if status.is_success() {
+                span.set_status(trace::Status::Ok);
+            }
 
-//
-// Response handling
-//
-
-pin_project! {
-    pub struct TracingResponse<'f, S: Service<WebRequest<E>>, E>
-    where S: 'f, E: 'f
-    {
-        #[pin]
-        fut: ServiceCall<'f, S, WebRequest<E>>,
-        otel_cx: OtelContext,
-    }
-}
-
-impl<'f, S, E> Future for TracingResponse<'f, S, E>
-where
-    S: Service<WebRequest<E>, Response = WebResponse>,
-    S::Error: Display,
-{
-    type Output = Result<WebResponse, S::Error>;
-
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let this = self.project();
-
-        let _cx_guard = this.otel_cx.clone().attach();
-
-        let res = futures::ready!(this.fut.poll(cx));
-        Poll::Ready(
-            res.map(|response| {
-                let span = this.otel_cx.span();
-
-                span.add_event("received response headers", vec![]);
-
-                let status = response.status();
-                span.set_attribute(KeyValue::new(
-                    "response.status_code",
-                    status.as_u16() as i64,
-                ));
-                if status.is_server_error() {
-                    span.set_status(trace::Status::error(status.to_string()));
-                } else if status.is_success() {
-                    span.set_status(trace::Status::Ok);
-                }
-
-                let otel_cx = this.otel_cx.clone();
-                response.map_body(move |_, body| {
-                    ResponseBody::Other(Body::from_message(StreamSpan { body, otel_cx }))
-                })
+            let otel_cx = otel_cx.clone();
+            response.map_body(move |_, body| {
+                ResponseBody::Other(Body::from_message(StreamSpan { body, otel_cx }))
             })
-            .map_err(|err| {
-                let span = this.otel_cx.span();
-                span.set_status(trace::Status::error(err.to_string()));
-                err
-            }),
-        )
+        })
+        .map_err(|err| {
+            let span = otel_cx.span();
+            span.set_status(trace::Status::error(err.to_string()));
+            err
+        })
     }
 }
 

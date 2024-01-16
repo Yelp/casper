@@ -1,19 +1,13 @@
 use std::error::Error;
 use std::fmt::Debug;
-use std::future::Future;
-use std::marker::PhantomData;
-use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 
 use mlua::LuaSerdeExt;
 use ntex::http::body::{Body, BodySize, MessageBody, ResponseBody};
-use ntex::service::{
-    forward_poll_ready, forward_poll_shutdown, Middleware, Service, ServiceCall, ServiceCtx,
-};
+use ntex::service::{forward_poll_ready, forward_poll_shutdown, Middleware, Service, ServiceCtx};
 use ntex::util::Bytes;
 use ntex::web::{WebRequest, WebResponse};
-use pin_project_lite::pin_project;
 use serde::Serialize;
 use tracing::error;
 
@@ -84,85 +78,49 @@ where
 {
     type Response = WebResponse;
     type Error = S::Error;
-    type Future<'f> = LoggerResponse<'f, S, E> where S: 'f, E: 'f;
 
     forward_poll_ready!(service);
     forward_poll_shutdown!(service);
 
     #[inline]
-    fn call<'a>(&'a self, req: WebRequest<E>, ctx: ServiceCtx<'a, Self>) -> Self::Future<'a> {
+    async fn call(
+        &self,
+        req: WebRequest<E>,
+        ctx: ServiceCtx<'_, Self>,
+    ) -> Result<Self::Response, Self::Error> {
         let start = Instant::now();
 
         let app_context: AppContext = req.app_state::<AppContext>().unwrap().clone();
-
-        let log_data = app_context.access_log.as_ref().map(|_| LogData {
+        let mut log_data = app_context.access_log.as_ref().map(|_| LogData {
             uri: req.uri().to_string(),
             method: req.method().to_string(),
             remote_addr: req.peer_addr().map(|addr| addr.to_string()),
             ..Default::default()
         });
 
-        LoggerResponse {
-            fut: ctx.call(&self.service, req),
-            start,
-            app_context,
-            lua_context: None,
-            log_data,
-            _phantom: PhantomData,
-        }
-    }
-}
+        let res = ctx.call(&self.service, req).await?;
 
-pin_project! {
-    pub struct LoggerResponse<'f, S: Service<WebRequest<E>>, E>
-    where S: 'f, E: 'f
-    {
-        #[pin]
-        fut: ServiceCall<'f, S, WebRequest<E>>,
-        start: Instant,
-        app_context: AppContext,
-        lua_context: Option<LuaContext>,
-        log_data: Option<LogData>,
-        _phantom: PhantomData<E>,
-    }
-}
-
-impl<'f, S, E> Future for LoggerResponse<'f, S, E>
-where
-    S: Service<WebRequest<E>, Response = WebResponse>,
-{
-    type Output = Result<WebResponse, S::Error>;
-
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let this = self.project();
-
-        // TODO: Execute error log
-
-        let res = match futures::ready!(this.fut.poll(cx)) {
-            Ok(res) => res,
-            Err(e) => return Poll::Ready(Err(e)),
-        };
-
-        if let Some(log_data) = this.log_data.as_mut() {
-            log_data.elapsed = this.start.elapsed();
+        let mut lua_context = None;
+        if let Some(log_data) = log_data.as_mut() {
+            log_data.elapsed = start.elapsed();
             log_data.active_conns = metrics::global().active_connections_counter.get();
             log_data.active_requests = metrics::global().active_requests_counter.get();
 
             // Collect response fields
             log_data.status = res.status().as_u16();
 
-            *this.lua_context = res.response().extensions().get::<LuaContext>().cloned();
+            lua_context = res.response().extensions().get::<LuaContext>().cloned();
         }
 
-        Poll::Ready(Ok(res.map_body(move |_, body| {
+        Ok(res.map_body(move |_, body| {
             ResponseBody::Other(Body::from_message(StreamLog {
                 body,
                 body_size: 0,
-                app_context: this.app_context.clone(),
-                lua_context: this.lua_context.take(),
-                log_data: this.log_data.take(),
+                app_context,
+                lua_context,
+                log_data,
             }))
-        })))
+        }))
     }
 }
 
