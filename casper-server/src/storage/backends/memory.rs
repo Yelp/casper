@@ -2,7 +2,6 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::SystemTime;
 
-use async_trait::async_trait;
 use linked_hash_map::LinkedHashMap;
 use ntex::http::body::Body;
 use ntex::http::{Response, StatusCode};
@@ -143,7 +142,6 @@ impl MemoryBackendImpl {
     }
 }
 
-#[async_trait(?Send)]
 impl Storage for MemoryBackend {
     type Body = Body;
     type Error = anyhow::Error;

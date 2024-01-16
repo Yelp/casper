@@ -1,5 +1,4 @@
 use anyhow::{anyhow, bail, Context, Result};
-use futures::future::LocalBoxFuture;
 use memory::MemoryBackend;
 use ntex::http::Response;
 use redis::RedisBackend;
@@ -65,109 +64,70 @@ impl Storage for Backend {
     }
 
     #[inline]
-    fn connect<'s, 'async_trait>(&'s self) -> LocalBoxFuture<'async_trait, Result<(), Self::Error>>
-    where
-        's: 'async_trait,
-        Self: 'async_trait,
-    {
+    async fn connect(&self) -> Result<(), Self::Error> {
         match self {
-            Backend::Memory(inner) => inner.connect(),
-            Backend::Redis(inner) => Storage::connect(inner),
+            Backend::Memory(inner) => inner.connect().await,
+            Backend::Redis(inner) => Storage::connect(inner).await,
         }
     }
 
     #[inline]
-    fn get_response<'s, 'async_trait>(
-        &'s self,
-        key: Key,
-    ) -> LocalBoxFuture<'async_trait, Result<Option<Response<Self::Body>>, Self::Error>>
-    where
-        's: 'async_trait,
-        Self: 'async_trait,
-    {
+    async fn get_response(&self, key: Key) -> Result<Option<Response<Self::Body>>, Self::Error> {
         match self {
-            Backend::Memory(inner) => inner.get_response(key),
-            Backend::Redis(inner) => inner.get_response(key),
+            Backend::Memory(inner) => inner.get_response(key).await,
+            Backend::Redis(inner) => inner.get_response(key).await,
         }
     }
 
     #[inline]
-    fn delete_responses<'s, 'async_trait>(
-        &'s self,
-        key: ItemKey,
-    ) -> LocalBoxFuture<'async_trait, Result<(), Self::Error>>
-    where
-        's: 'async_trait,
-        Self: 'async_trait,
-    {
+    async fn delete_responses(&self, key: ItemKey) -> Result<(), Self::Error> {
         match self {
-            Backend::Memory(inner) => inner.delete_responses(key),
-            Backend::Redis(inner) => inner.delete_responses(key),
+            Backend::Memory(inner) => inner.delete_responses(key).await,
+            Backend::Redis(inner) => inner.delete_responses(key).await,
         }
     }
 
     #[inline]
-    fn store_response<'r, 's, 'async_trait>(
-        &'s self,
-        item: Item<'r>,
-    ) -> LocalBoxFuture<'async_trait, Result<(), Self::Error>>
-    where
-        'r: 'async_trait,
-        's: 'async_trait,
-        Self: 'async_trait,
-    {
+    async fn store_response<'a>(&self, item: Item<'a>) -> Result<(), Self::Error> {
         match self {
-            Backend::Memory(inner) => inner.store_response(item),
-            Backend::Redis(inner) => inner.store_response(item),
+            Backend::Memory(inner) => inner.store_response(item).await,
+            Backend::Redis(inner) => inner.store_response(item).await,
         }
     }
 
     #[inline]
-    fn get_responses<'s, 'async_trait, KI>(
-        &'s self,
+    async fn get_responses<KI>(
+        &self,
         keys: KI,
-    ) -> LocalBoxFuture<'async_trait, Vec<Result<Option<Response<Self::Body>>, Self::Error>>>
+    ) -> Vec<Result<Option<Response<Self::Body>>, Self::Error>>
     where
-        's: 'async_trait,
-        Self: 'async_trait,
-        KI: IntoIterator<Item = Key> + 'async_trait,
+        KI: IntoIterator<Item = Key>,
     {
         match self {
-            Backend::Memory(inner) => inner.get_responses(keys),
-            Backend::Redis(inner) => inner.get_responses(keys),
+            Backend::Memory(inner) => inner.get_responses(keys).await,
+            Backend::Redis(inner) => inner.get_responses(keys).await,
         }
     }
 
     #[inline]
-    fn delete_responses_multi<'s, 'async_trait, KI>(
-        &'s self,
-        keys: KI,
-    ) -> LocalBoxFuture<'async_trait, Vec<Result<(), Self::Error>>>
+    async fn delete_responses_multi<KI>(&self, keys: KI) -> Vec<Result<(), Self::Error>>
     where
-        's: 'async_trait,
-        Self: 'async_trait,
-        KI: IntoIterator<Item = ItemKey> + 'async_trait,
+        KI: IntoIterator<Item = ItemKey>,
     {
         match self {
-            Backend::Memory(inner) => inner.delete_responses_multi(keys),
-            Backend::Redis(inner) => inner.delete_responses_multi(keys),
+            Backend::Memory(inner) => inner.delete_responses_multi(keys).await,
+            Backend::Redis(inner) => inner.delete_responses_multi(keys).await,
         }
     }
 
     #[inline]
-    fn store_responses<'r, 's, 'async_trait, I>(
-        &'s self,
-        items: I,
-    ) -> LocalBoxFuture<'async_trait, Vec<Result<(), Self::Error>>>
+    async fn store_responses<'a, I>(&self, items: I) -> Vec<Result<(), Self::Error>>
     where
-        'r: 'async_trait,
-        's: 'async_trait,
-        Self: 'async_trait,
-        I: IntoIterator<Item = Item<'r>> + 'async_trait,
+        I: IntoIterator<Item = Item<'a>>,
     {
         match self {
-            Backend::Memory(inner) => inner.store_responses(items),
-            Backend::Redis(inner) => inner.store_responses(items),
+            Backend::Memory(inner) => inner.store_responses(items).await,
+            Backend::Redis(inner) => inner.store_responses(items).await,
         }
     }
 }

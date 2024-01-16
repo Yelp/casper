@@ -6,7 +6,6 @@ use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 
 use anyhow::{anyhow, Context, Result};
-use async_trait::async_trait;
 use base64::Engine as _;
 use bitflags::bitflags;
 use fred::clients::RedisPool;
@@ -525,7 +524,6 @@ impl RedisBackend {
     }
 }
 
-#[async_trait(?Send)]
 impl Storage for RedisBackend {
     type Body = Body;
     type Error = anyhow::Error;
