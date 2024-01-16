@@ -3,7 +3,6 @@ use std::fmt;
 use std::iter::IntoIterator;
 use std::time::Duration;
 
-use async_trait::async_trait;
 use futures::stream::{self, StreamExt};
 pub(crate) use ntex::http::body::Body;
 use ntex::http::body::MessageBody;
@@ -76,7 +75,6 @@ impl fmt::Display for ItemKey {
     }
 }
 
-#[async_trait(?Send)]
 pub trait Storage {
     type Body: MessageBody;
     type Error;
