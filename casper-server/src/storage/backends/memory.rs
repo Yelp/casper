@@ -162,13 +162,10 @@ impl Storage for MemoryBackend {
         self.get_responses([key]).await.remove(0)
     }
 
-    async fn get_responses<KI>(
+    async fn get_responses(
         &self,
-        keys: KI,
-    ) -> Vec<Result<Option<Response<Self::Body>>, Self::Error>>
-    where
-        KI: IntoIterator<Item = Key>,
-    {
+        keys: impl IntoIterator<Item = Key>,
+    ) -> Vec<Result<Option<Response<Self::Body>>, Self::Error>> {
         let mut memory = self.inner.lock().await;
         let mut responses = Vec::new();
         for key in keys {
@@ -193,10 +190,10 @@ impl Storage for MemoryBackend {
         self.delete_responses_multi([key]).await.remove(0)
     }
 
-    async fn delete_responses_multi<KI>(&self, keys: KI) -> Vec<Result<(), Self::Error>>
-    where
-        KI: IntoIterator<Item = ItemKey>,
-    {
+    async fn delete_responses_multi(
+        &self,
+        keys: impl IntoIterator<Item = ItemKey>,
+    ) -> Vec<Result<(), Self::Error>> {
         let mut memory = self.inner.lock().await;
         let mut results = Vec::new();
         for key in keys {
@@ -217,10 +214,10 @@ impl Storage for MemoryBackend {
         self.store_responses([item]).await.remove(0)
     }
 
-    async fn store_responses<'a, I>(&self, items: I) -> Vec<Result<(), Self::Error>>
-    where
-        I: IntoIterator<Item = Item<'a>>,
-    {
+    async fn store_responses(
+        &self,
+        items: impl IntoIterator<Item = Item<'_>>,
+    ) -> Vec<Result<(), Self::Error>> {
         let mut memory = self.inner.lock().await;
         let mut results = Vec::new();
         for item in items {

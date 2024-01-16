@@ -96,13 +96,10 @@ impl Storage for Backend {
     }
 
     #[inline]
-    async fn get_responses<KI>(
+    async fn get_responses(
         &self,
-        keys: KI,
-    ) -> Vec<Result<Option<Response<Self::Body>>, Self::Error>>
-    where
-        KI: IntoIterator<Item = Key>,
-    {
+        keys: impl IntoIterator<Item = Key>,
+    ) -> Vec<Result<Option<Response<Self::Body>>, Self::Error>> {
         match self {
             Backend::Memory(inner) => inner.get_responses(keys).await,
             Backend::Redis(inner) => inner.get_responses(keys).await,
@@ -110,10 +107,10 @@ impl Storage for Backend {
     }
 
     #[inline]
-    async fn delete_responses_multi<KI>(&self, keys: KI) -> Vec<Result<(), Self::Error>>
-    where
-        KI: IntoIterator<Item = ItemKey>,
-    {
+    async fn delete_responses_multi(
+        &self,
+        keys: impl IntoIterator<Item = ItemKey>,
+    ) -> Vec<Result<(), Self::Error>> {
         match self {
             Backend::Memory(inner) => inner.delete_responses_multi(keys).await,
             Backend::Redis(inner) => inner.delete_responses_multi(keys).await,
@@ -121,10 +118,10 @@ impl Storage for Backend {
     }
 
     #[inline]
-    async fn store_responses<'a, I>(&self, items: I) -> Vec<Result<(), Self::Error>>
-    where
-        I: IntoIterator<Item = Item<'a>>,
-    {
+    async fn store_responses(
+        &self,
+        items: impl IntoIterator<Item = Item<'_>>,
+    ) -> Vec<Result<(), Self::Error>> {
         match self {
             Backend::Memory(inner) => inner.store_responses(items).await,
             Backend::Redis(inner) => inner.store_responses(items).await,
