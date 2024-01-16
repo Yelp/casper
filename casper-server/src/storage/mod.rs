@@ -97,13 +97,10 @@ pub trait Storage {
     // Provided implementation
     //
 
-    async fn get_responses<KI>(
+    async fn get_responses(
         &self,
-        keys: KI,
-    ) -> Vec<Result<Option<Response<Self::Body>>, Self::Error>>
-    where
-        KI: IntoIterator<Item = Key>,
-    {
+        keys: impl IntoIterator<Item = Key>,
+    ) -> Vec<Result<Option<Response<Self::Body>>, Self::Error>> {
         // Create list of pending futures to poll them in parallel
         stream::iter(keys.into_iter().map(|key| self.get_response(key)))
             .buffered(Self::MAX_CONCURRENCY)
@@ -111,10 +108,10 @@ pub trait Storage {
             .await
     }
 
-    async fn delete_responses_multi<KI>(&self, keys: KI) -> Vec<Result<(), Self::Error>>
-    where
-        KI: IntoIterator<Item = ItemKey>,
-    {
+    async fn delete_responses_multi(
+        &self,
+        keys: impl IntoIterator<Item = ItemKey>,
+    ) -> Vec<Result<(), Self::Error>> {
         // Create list of pending futures to poll them in parallel
         stream::iter(keys.into_iter().map(|key| self.delete_responses(key)))
             .buffered(Self::MAX_CONCURRENCY)
@@ -122,10 +119,10 @@ pub trait Storage {
             .await
     }
 
-    async fn store_responses<'a, I>(&self, items: I) -> Vec<Result<(), Self::Error>>
-    where
-        I: IntoIterator<Item = Item<'a>>,
-    {
+    async fn store_responses(
+        &self,
+        items: impl IntoIterator<Item = Item<'_>>,
+    ) -> Vec<Result<(), Self::Error>> {
         // Create list of pending futures to poll them in parallel
         stream::iter(items.into_iter().map(|it| self.store_response(it)))
             .buffered(Self::MAX_CONCURRENCY)
