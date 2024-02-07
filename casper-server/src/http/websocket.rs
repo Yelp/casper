@@ -6,7 +6,7 @@ use mlua::Result as LuaResult;
 use ntex::connect::openssl::{self, SslConnector, SslMethod};
 use ntex::connect::{ConnectError, Connector};
 use ntex::http::body::BodySize;
-use ntex::http::error::{ParseError, PayloadError};
+use ntex::http::error::{DecodeError, EncodeError, PayloadError};
 use ntex::http::header::{self, HeaderValue, CONTENT_LENGTH};
 use ntex::http::{
     h1, ConnectionType, Payload, RequestHead, RequestHeadType, Response, ResponseHead, StatusCode,
@@ -31,9 +31,12 @@ pub enum WsError {
     /// Connector has been disconnected
     #[error("Connector has been disconnected: {0:?}")]
     Disconnected(Option<io::Error>),
+    /// Invalid request
+    #[error("Invalid request")]
+    Request(#[from] EncodeError),
     /// Invalid response
     #[error("Invalid response")]
-    InvalidResponse(#[from] ParseError),
+    Response(#[from] DecodeError),
     /// Response took too long
     #[error("Timeout while waiting for response")]
     Timeout,
@@ -53,10 +56,19 @@ impl From<Either<io::Error, io::Error>> for WsError {
     }
 }
 
-impl From<Either<ParseError, io::Error>> for WsError {
-    fn from(err: Either<ParseError, io::Error>) -> Self {
+impl From<Either<EncodeError, io::Error>> for WsError {
+    fn from(err: Either<EncodeError, io::Error>) -> Self {
         match err {
-            Either::Left(err) => WsError::InvalidResponse(err),
+            Either::Left(err) => WsError::Request(err),
+            Either::Right(err) => WsError::Disconnected(Some(err)),
+        }
+    }
+}
+
+impl From<Either<DecodeError, io::Error>> for WsError {
+    fn from(err: Either<DecodeError, io::Error>) -> Self {
+        match err {
+            Either::Left(err) => WsError::Response(err),
             Either::Right(err) => WsError::Disconnected(Some(err)),
         }
     }
@@ -88,7 +100,8 @@ pub(super) async fn proxy_websocket_upgrade(req: &LuaRequest) -> LuaResult<LuaRe
                 WsError::Connect(_) | WsError::Io(_) => StatusCode::SERVICE_UNAVAILABLE,
                 WsError::ConnectTimeout | WsError::Timeout => StatusCode::GATEWAY_TIMEOUT,
                 WsError::Disconnected(_)
-                | WsError::InvalidResponse(_)
+                | WsError::Request(_)
+                | WsError::Response(_)
                 | WsError::Frame
                 | WsError::Protocol(_) => StatusCode::BAD_GATEWAY,
             };
@@ -174,7 +187,7 @@ async fn forward_websocket_upgrade(req: &LuaRequest) -> Result<LuaResponse, WsEr
     };
 
     // Prepare response to send back to the downstream client
-    let (req_io, req_codec) = *req
+    let (req_io, req_codec) = req
         .orig_req()
         .unwrap()
         .head()
