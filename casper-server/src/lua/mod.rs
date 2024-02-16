@@ -4,6 +4,8 @@ pub use {
     storage::LuaStorage,
 };
 
+pub(crate) use types::FlexBytes;
+
 #[macro_use]
 mod macros;
 
@@ -21,6 +23,7 @@ pub mod regex;
 pub mod storage;
 pub mod tasks;
 pub mod trace;
+mod types;
 pub mod udp;
 pub mod uri;
 pub mod utils;
