@@ -8,6 +8,13 @@ use ntex::util::BytesMut;
 
 // TODO: Full implementation of CSV writer and reader
 
+/*
+--- @class CSV
+---
+--- Module to work with CSV format
+local csv = {}
+*/
+
 #[derive(Clone)]
 struct BytesMutCell(Rc<RefCell<BytesMut>>);
 
@@ -24,6 +31,23 @@ impl io::Write for BytesMutCell {
 
 struct CSVWriter(csv::Writer<BytesMutCell>, BytesMutCell);
 
+/*
+--- @within CSV
+--- Encodes the Lua table (array) into CSV row.
+---
+--- ### Example
+---
+--- ```lua
+--- local csv = require("@core/csv")
+--- local row = csv.encode_record({"a", "b,c", 1})
+--- assert(row == `a,"b,c",1\n`)
+--- ```
+---
+--- @param array The Lua array to encode.
+function csv.encode_record(array: { string | number }): string
+    return nil :: any
+end
+*/
 fn encode_record<'lua>(lua: &'lua Lua, record: Table) -> Result<LuaString<'lua>> {
     let mut rec = ByteRecord::new();
     for field in record.sequence_values::<LuaString>() {
@@ -34,6 +58,7 @@ fn encode_record<'lua>(lua: &'lua Lua, record: Table) -> Result<LuaString<'lua>>
         return lua.create_string("");
     }
 
+    // Cache the CSV writer in the Lua state
     let mut csv_writer = match lua.app_data_mut::<CSVWriter>() {
         Some(val) => val,
         None => {
@@ -61,6 +86,10 @@ fn encode_record<'lua>(lua: &'lua Lua, record: Table) -> Result<LuaString<'lua>>
 pub fn create_module(lua: &Lua) -> Result<Table> {
     lua.create_table_from([("encode_record", lua.create_function(encode_record)?)])
 }
+
+/*
+return csv
+*/
 
 #[cfg(test)]
 mod tests {
