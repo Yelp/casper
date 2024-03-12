@@ -10,6 +10,7 @@ use ntex::util::BytesMut;
 
 /*
 --- @class CSV
+--- @tag module
 ---
 --- Module to work with CSV format
 local csv = {}
@@ -35,7 +36,7 @@ struct CSVWriter(csv::Writer<BytesMutCell>, BytesMutCell);
 --- @within CSV
 --- Encodes the Lua table (array) into CSV row.
 ---
---- ### Example
+--- #example
 ---
 --- ```lua
 --- local csv = require("@core/csv")
