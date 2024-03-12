@@ -16,6 +16,7 @@ local bytes = require("@core/bytes")
 type Bytes = bytes.Bytes
 
 --- @class Crypto
+--- @tag module
 ---
 --- Module with various crypto functions
 local crypto = {}
@@ -60,7 +61,7 @@ fn blake3(_: &Lua, input: FlexBytes) -> Result<String> {
 --- Returns the BLAKE3 hash of the json data.
 --- The hash is calculated from normalized json where all keys sorted.
 ---
---- ### Example usage
+--- #example
 ---
 --- ```lua
 --- local crypto = require("@core/crypto")
