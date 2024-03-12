@@ -1,21 +1,22 @@
 use std::ops::Deref;
-use std::rc::Rc;
+use std::sync::Arc;
 
-use mini_moka::unsync::Cache;
+use mini_moka::sync::Cache;
 use mlua::{
     Lua, MetaMethod, Result as LuaResult, String as LuaString, Table, UserData, UserDataMethods,
     Value, Variadic,
 };
-use self_cell::self_cell;
+use once_cell::sync::Lazy;
+use ouroboros::self_referencing;
 
 // TODO: Move to config
 const REGEX_CACHE_SIZE: u64 = 512;
 
 #[derive(Clone, Debug)]
-pub struct Regex(Rc<regex::Regex>);
+pub struct Regex(Arc<regex::bytes::Regex>);
 
 impl Deref for Regex {
-    type Target = regex::Regex;
+    type Target = regex::bytes::Regex;
 
     #[inline]
     fn deref(&self) -> &Self::Target {
@@ -23,52 +24,30 @@ impl Deref for Regex {
     }
 }
 
-type RegexCache = Cache<String, Regex>;
+// Global cache for regexes shared across all Lua states.
+static CACHE: Lazy<Cache<String, Regex>> = Lazy::new(|| Cache::new(REGEX_CACHE_SIZE));
 
 impl Regex {
-    pub fn new(lua: &Lua, mut re: String) -> Result<Self, regex::Error> {
-        match lua.app_data_mut::<RegexCache>() {
-            Some(mut cache) => {
-                if let Some(regex) = cache.get(&re) {
-                    return Ok(regex.clone());
-                }
-                let regex = regex::Regex::new(&re).map(|r| Self(Rc::new(r)))?;
-                re.shrink_to_fit();
-                cache.insert(re, regex.clone());
-                Ok(regex)
-            }
+    pub fn new(_: &Lua, re: String) -> Result<Self, regex::Error> {
+        match CACHE.get(&re) {
+            Some(regex) => Ok(regex),
             None => {
-                let mut cache = Cache::new(REGEX_CACHE_SIZE);
-                let regex = regex::Regex::new(&re).map(|r| Self(Rc::new(r)))?;
-                re.shrink_to_fit();
-                cache.insert(re, regex.clone());
-                lua.set_app_data::<RegexCache>(cache);
+                let regex = Self(Arc::new(regex::bytes::Regex::new(&re)?));
+                CACHE.insert(re, regex.clone());
                 Ok(regex)
             }
         }
     }
 }
 
-type RegexCaptures<'a> = regex::Captures<'a>;
-
-self_cell!(
-    struct Captures {
-        owner: Box<str>,
-
-        #[covariant]
-        dependent: RegexCaptures,
-    }
-);
-
-struct CaptureLocations(regex::CaptureLocations);
-
 impl UserData for Regex {
     fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
-        methods.add_method("is_match", |_, this, text: String| {
-            Ok(this.0.is_match(&text))
+        methods.add_method("is_match", |_, this, text: LuaString| {
+            Ok(this.0.is_match(text.as_bytes()))
         });
 
-        methods.add_method("match", |lua, this, text: Box<str>| {
+        methods.add_method("match", |lua, this, text: LuaString| {
+            let text = text.as_bytes().into();
             let caps = Captures::try_new(text, |text| this.0.captures(text).ok_or(()));
             match caps {
                 Ok(caps) => Ok(Value::UserData(lua.create_userdata(caps)?)),
@@ -77,9 +56,9 @@ impl UserData for Regex {
         });
 
         // Returns low level information about raw offsets of each submatch.
-        methods.add_method("captures_read", |lua, this, text: Box<str>| {
+        methods.add_method("captures_read", |lua, this, text: LuaString| {
             let mut locs = this.capture_locations();
-            match this.captures_read(&mut locs, &text) {
+            match this.captures_read(&mut locs, text.as_bytes()) {
                 Some(_) => Ok(Value::UserData(
                     lua.create_userdata(CaptureLocations(locs))?,
                 )),
@@ -87,40 +66,59 @@ impl UserData for Regex {
             }
         });
 
-        methods.add_method("split", |_, this, text: String| {
-            Ok(this.split(&text).map(String::from).collect::<Vec<_>>())
+        methods.add_method("split", |lua, this, text: LuaString| {
+            lua.create_sequence_from(
+                this.split(text.as_bytes())
+                    .map(|s| lua.create_string(s).unwrap()),
+            )
         });
 
-        methods.add_method("splitn", |_, this, (text, limit): (String, usize)| {
-            Ok(this
-                .splitn(&text, limit)
-                .map(String::from)
-                .collect::<Vec<_>>())
+        methods.add_method("splitn", |lua, this, (text, limit): (LuaString, usize)| {
+            lua.create_sequence_from(
+                this.splitn(text.as_bytes(), limit)
+                    .map(|s| lua.create_string(s).unwrap()),
+            )
         });
 
-        methods.add_method("replace", |lua, this, (text, rep): (String, String)| {
-            lua.create_string(this.replace(&text, &rep).as_bytes())
-        });
+        methods.add_method(
+            "replace",
+            |lua, this, (text, rep): (LuaString, LuaString)| {
+                lua.create_string(this.replace(text.as_bytes(), rep.as_bytes()))
+            },
+        );
     }
+}
+
+#[self_referencing]
+struct Captures {
+    text: Box<[u8]>,
+
+    #[borrows(text)]
+    #[covariant]
+    caps: regex::bytes::Captures<'this>,
 }
 
 impl UserData for Captures {
     fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
-        methods.add_meta_method(MetaMethod::Index, |_, this, key: Value| match key {
+        methods.add_meta_method(MetaMethod::Index, |lua, this, key: Value| match key {
             Value::String(s) => {
-                let name = std::str::from_utf8(s.as_bytes())?;
-                let caps = this.borrow_dependent();
-                let res = caps.name(name).map(|v| v.as_str().to_string());
-                Ok(res)
+                let name = s.to_string_lossy();
+                this.borrow_caps()
+                    .name(&name)
+                    .map(|v| lua.create_string(v.as_bytes()))
+                    .transpose()
             }
-            Value::Integer(i) => Ok(this
-                .borrow_dependent()
+            Value::Integer(i) => this
+                .borrow_caps()
                 .get(i as usize)
-                .map(|v| v.as_str().to_string())),
+                .map(|v| lua.create_string(v.as_bytes()))
+                .transpose(),
             _ => Ok(None),
         })
     }
 }
+
+struct CaptureLocations(regex::bytes::CaptureLocations);
 
 impl UserData for CaptureLocations {
     fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
@@ -137,11 +135,12 @@ impl UserData for CaptureLocations {
     }
 }
 
-struct RegexSet(regex::RegexSet);
+struct RegexSet(regex::bytes::RegexSet);
 
 impl Deref for RegexSet {
-    type Target = regex::RegexSet;
+    type Target = regex::bytes::RegexSet;
 
+    #[inline]
     fn deref(&self) -> &Self::Target {
         &self.0
     }
@@ -150,16 +149,19 @@ impl Deref for RegexSet {
 impl UserData for RegexSet {
     fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
         methods.add_function("new", |_, patterns: Vec<String>| {
-            Ok(Ok(lua_try!(regex::RegexSet::new(patterns).map(RegexSet))))
+            let set = lua_try!(regex::bytes::RegexSet::new(patterns).map(RegexSet));
+            Ok(Ok(set))
         });
 
-        methods.add_method("is_match", |_, this, text: String| Ok(this.is_match(&text)));
+        methods.add_method("is_match", |_, this, text: LuaString| {
+            Ok(this.is_match(text.as_bytes()))
+        });
 
         methods.add_method("len", |_, this, ()| Ok(this.len()));
 
-        methods.add_method("matches", |_, this, text: String| {
+        methods.add_method("matches", |_, this, text: LuaString| {
             Ok(this
-                .matches(&text)
+                .matches(text.as_bytes())
                 .iter()
                 .map(|i| i + 1)
                 .collect::<Vec<_>>())
@@ -168,6 +170,7 @@ impl UserData for RegexSet {
 }
 
 fn regex_new(lua: &Lua, re: String) -> LuaResult<Result<Regex, String>> {
+    // TODO: Support flag to use global/local/no cache
     Ok(Ok(lua_try!(Regex::new(lua, re))))
 }
 
@@ -176,9 +179,9 @@ fn regex_escape(_: &Lua, text: LuaString) -> LuaResult<String> {
 }
 
 // A shortcut for testing a match for the regex in the string given.
-fn regex_is_match(lua: &Lua, (re, text): (String, String)) -> LuaResult<Result<bool, String>> {
+fn regex_is_match(lua: &Lua, (re, text): (String, LuaString)) -> LuaResult<Result<bool, String>> {
     let re = lua_try!(Regex::new(lua, re));
-    Ok(Ok(re.is_match(&text)))
+    Ok(Ok(re.is_match(text.as_bytes())))
 }
 
 // A shortcut for matching text against a regex and collecting all capture groups
@@ -187,20 +190,16 @@ fn regex_match<'lua>(
     (re, text): (String, LuaString),
 ) -> LuaResult<Result<Value<'lua>, String>> {
     let re = lua_try!(Regex::new(lua, re));
-    let caps = re.captures(lua_try!(text.to_str()));
-    match caps {
-        Some(caps) => match caps
-            .iter()
-            .map(|om| om.map(|m| m.as_str()))
-            .collect::<Option<Vec<_>>>()
-        {
-            Some(matches) => {
-                let table = lua.create_sequence_from(matches.iter().skip(1).copied())?;
-                table.raw_set(0, matches[0])?;
-                Ok(Ok(Value::Table(table)))
-            }
-            None => Ok(Ok(Value::Nil)),
-        },
+    match re.captures(text.as_bytes()) {
+        Some(caps) => {
+            let mut it = caps
+                .iter()
+                .map(|om| om.map(|m| lua.create_string(m.as_bytes()).unwrap()));
+            let first = it.next().unwrap();
+            let table = lua.create_sequence_from(it)?;
+            table.raw_set(0, first)?;
+            Ok(Ok(Value::Table(table)))
+        }
         None => Ok(Ok(Value::Nil)),
     }
 }
@@ -233,26 +232,28 @@ mod tests {
         lua.load(chunk! {
             local re = $regex.new(".*(?P<gr1>abc)")
 
-            assert(re:is_match("123abc321"))
-            assert(not re:is_match("123"))
+            assert(re:is_match("123abc321"), "is_match() should have matches")
+            assert(not re:is_match("123"), "is_match() should not have matches")
 
             local matches = re:match("123abc321")
-            assert(matches[0] == "123abc")
-            assert(matches[1] == "abc")
-            assert(matches["gr1"] == "abc")
-            assert(matches[true] == nil) // Bad key
+            assert(matches[0] == "123abc", "zero capture group should match the whole text")
+            assert(matches[1] == "abc", "first capture group should match `abc`")
+            assert(matches["gr1"] == "abc", "named capture group should match `abc`")
+            assert(matches[true] == nil, "bad key should have no match") // Bad key
 
             // Test split
             local re = $regex.new("[,.]")
             local vec = re:split("abc.qwe,rty.asd")
-            assert(#vec == 4)
+            assert(#vec == 4, "vec len should be 4")
+            assert(vec[1] == "abc" and vec[2] == "qwe" and vec[3] == "rty" and vec[4] == "asd", "vec must be 'abc', 'qwe', 'rty', 'asd'")
             vec = re:splitn("abc,bcd,cde", 2)
-            assert(#vec == 2 and vec[1] == "abc" and vec[2] == "bcd,cde")
+            assert(#vec == 2, "vec len should be 2")
+            assert(vec[1] == "abc" and vec[2] == "bcd,cde", "vec must be 'abc', 'bcd,cde'")
 
             // Test invalid regex
             local re, err = $regex.new("(")
-            assert(re == nil)
-            assert(string.find(err, "regex parse error") ~= nil)
+            assert(re == nil, "re is not nil")
+            assert(string.find(err, "regex parse error") ~= nil, "err must contain 'regex parse error'")
 
             // Test replace
             local re = $regex.new("(?P<last>[^,\\s]+),\\s+(?P<first>\\S+)")
@@ -273,7 +274,7 @@ mod tests {
 
             // Test "is_match"
             assert($regex.is_match("\\b\\w{13}\\b", "I categorically deny having ..."), "is_match should have matches")
-            assert(not $regex.is_match("abc", "bca"), "is_match should have not matches")
+            assert(not $regex.is_match("abc", "bca"), "is_match should not have matches")
             local is_match, err = $regex.is_match("(", "")
             assert(is_match == nil and string.find(err, "regex parse error") ~= nil, "is_match should return error")
 
@@ -296,9 +297,9 @@ mod tests {
         let regex = super::create_module(&lua)?;
         lua.load(chunk! {
             local set = $regex.RegexSet.new({"\\w+", "\\d+", "\\pL+", "foo", "bar", "barfoo", "foobar"})
-            assert(set:len() == 7)
-            assert(set:is_match("foobar"))
-            assert(table.concat(set:matches("foobar"), ",") == "1,3,4,5,7")
+            assert(set:len() == 7, "len should be 7")
+            assert(set:is_match("foobar"), "is_match should have matches")
+            assert(table.concat(set:matches("foobar"), ",") == "1,3,4,5,7", "matches should return 1,3,4,5,7")
         })
         .exec()
     }
