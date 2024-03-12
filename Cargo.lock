@@ -322,7 +322,6 @@ dependencies = [
  "rand",
  "regex",
  "scopeguard",
- "self_cell",
  "serde",
  "serde_json",
  "serde_qs",
@@ -2122,12 +2121,6 @@ dependencies = [
  "core-foundation-sys",
  "libc",
 ]
-
-[[package]]
-name = "self_cell"
-version = "1.0.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "58bf37232d3bb9a2c4e641ca2a11d83b5062066f88df7fed36c28772046d65ba"
 
 [[package]]
 name = "semver"
