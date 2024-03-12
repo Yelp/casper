@@ -1,63 +1,92 @@
 use std::rc::Rc;
+use std::result::Result as StdResult;
 
 use mlua::{
-    AnyUserData, Error as LuaError, ExternalResult, Integer as LuaInteger, Lua, LuaSerdeExt,
-    MetaMethod, Result, String as LuaString, Table, UserData, UserDataMethods, Value, Variadic,
+    AnyUserData, Error as LuaError, ExternalResult, Function, Integer as LuaInteger, IntoLuaMulti,
+    Lua, LuaSerdeExt, MetaMethod, Result, String as LuaString, Table, UserData, UserDataMethods,
+    UserDataRefMut, Value,
 };
-use ntex::util::Bytes;
-use self_cell::self_cell;
-use serde::Serialize;
+use ouroboros::self_referencing;
+use serde::{Serialize, Serializer};
+
+use super::FlexBytes;
+
+/*
+local bytes = require("@core/bytes")
+type Bytes = bytes.Bytes
+
+--- @class Json
+--- @tag module
+---
+--- Built-in module for working with JSON.
+local json = {}
+
+type JsonObjectMeta = {
+    __index: (JsonObject, string|number) -> ValueOrJsonObject,
+    __iter: (JsonObject) -> ((any) -> (string?, any), any),
+}
+
+--- @class JsonObject
+--- Represents a Rust native JSON object (map or array) in Lua.
+local jsonObject = {}
+jsonObject.prototype = {} :: JsonObjectMeta
+
+export type JsonObject = typeof(setmetatable(jsonObject, jsonObject.prototype))
+
+--- @type ValueOrJsonObject nil | boolean | string | number | JsonObject
+--- @within Json
+--- A simple Lua value or a complex `JsonObject`.
+export type ValueOrJsonObject = nil | boolean | string | number | JsonObject
+*/
 
 #[derive(Clone)]
-struct JsonValue {
+struct JsonObject {
     root: Rc<serde_json::Value>,
     current: *const serde_json::Value,
 }
 
-impl Serialize for JsonValue {
-    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
+impl Serialize for JsonObject {
+    fn serialize<S: Serializer>(&self, serializer: S) -> StdResult<S::Ok, S::Error> {
         self.current().serialize(serializer)
     }
 }
 
-impl JsonValue {
+impl JsonObject {
+    fn new(root: &Rc<serde_json::Value>, current: *const serde_json::Value) -> Self {
+        let root = root.clone();
+        Self { root, current }
+    }
+
     /// Returns a reference to the current value.
     const fn current(&self) -> &serde_json::Value {
         unsafe { &*self.current }
     }
 
-    /// Returns a new non-cloned `JsonValue` which points to the value at the given key.
-    fn get(&self, key: Value) -> Option<JsonValue> {
+    /// Returns a new `JsonObject` which points to the value at the given key.
+    ///
+    /// This operation is cheap and does not clone the underlying data.
+    fn get(&self, key: Value) -> Option<JsonObject> {
         let current = self.current();
         let value = match key {
             Value::Integer(index) if index > 0 => current.get(index as usize - 1),
             Value::String(key) => key.to_str().ok().and_then(|s| current.get(s)),
             _ => None,
         }?;
-        Some(JsonValue {
-            root: self.root.clone(),
-            current: value,
-        })
+        Some(Self::new(&self.root, value))
     }
 
-    fn pointer(&self, path: &str) -> Option<JsonValue> {
-        Some(JsonValue {
+    /// Returns a new `JsonObject` by following the given JSON Pointer path.
+    fn pointer(&self, path: &str) -> Option<JsonObject> {
+        Some(JsonObject {
             root: self.root.clone(),
             current: self.current().pointer(path)?,
         })
     }
 
-    /// Converts a `JsonValue` to a Lua `Value`.
-    fn to_lua<'lua>(value: Option<&Self>, lua: &'lua Lua) -> Result<Value<'lua>> {
-        let value = match value {
-            Some(value) => value,
-            None => return Ok(Value::Nil),
-        };
-        match value.current() {
-            serde_json::Value::Null => Ok(lua.null()),
+    /// Converts this `JsonObject` into a Lua `Value`.
+    fn into_lua(self, lua: &Lua) -> Result<Value> {
+        match self.current() {
+            serde_json::Value::Null => Ok(Value::NULL),
             serde_json::Value::Bool(b) => Ok(Value::Boolean(*b)),
             serde_json::Value::Number(n) => {
                 if let Some(n) = n.as_i64() {
@@ -73,153 +102,187 @@ impl JsonValue {
                 }
             }
             serde_json::Value::String(s) => Ok(Value::String(lua.create_string(s)?)),
-            array @ serde_json::Value::Array(_) => {
-                Ok(Value::UserData(lua.create_ser_userdata(JsonValue {
-                    root: value.root.clone(),
-                    current: array,
-                })?))
-            }
-            object @ serde_json::Value::Object(_) => {
-                Ok(Value::UserData(lua.create_ser_userdata(JsonValue {
-                    root: value.root.clone(),
-                    current: object,
-                })?))
-            }
+            array @ serde_json::Value::Array(_) => Ok(Value::UserData(
+                lua.create_ser_userdata(JsonObject::new(&self.root, array))?,
+            )),
+            object @ serde_json::Value::Object(_) => Ok(Value::UserData(
+                lua.create_ser_userdata(JsonObject::new(&self.root, object))?,
+            )),
         }
     }
 }
 
-impl UserData for JsonValue {
+impl UserData for JsonObject {
     fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
+        /*
+        --- @within JsonObject
+        --- Follows the given JSON Pointer and returns the value.
+        ---
+        --- @param path json pointer
+        function jsonObject:pointer(path: string): ValueOrJsonObject
+            local _ = path
+            return nil :: any
+        end
+        */
         methods.add_method("pointer", |lua, this, path: String| {
-            JsonValue::to_lua(this.pointer(&path).as_ref(), lua)
+            this.pointer(&path)
+                .map(|obj| obj.into_lua(lua))
+                .unwrap_or(Ok(Value::Nil))
         });
 
-        // Recursively converts this userdata to a Lua table.
+        /*
+        --- @within JsonObject
+        --- Dumps this object to a Lua table.
+        function jsonObject:dump(): any
+            return nil :: any
+        end
+        */
         methods.add_method("dump", |lua, this, ()| lua.to_value(this.current()));
 
+        /*
+        --- @within JsonObject
+        --- Returns the value at the given key.
+        ---
+        --- @param key string | number
+        function jsonObject.prototype.__index(self: JsonObject, key: string|number): ValueOrJsonObject
+            local _, _ = self, key
+            return nil :: any
+        end
+        */
         methods.add_meta_method(MetaMethod::Index, |lua, this, key: Value| {
-            JsonValue::to_lua(this.get(key).as_ref(), lua)
+            this.get(key)
+                .map(|obj| obj.into_lua(lua))
+                .unwrap_or(Ok(Value::Nil))
         });
 
+        /*
+        --- @within JsonObject
+        --- Iterate over the key value pairs of this object.
+        function jsonObject.prototype.__iter(self: JsonObject): ((any) -> (string?, any), any)
+            local _ = self
+            return nil :: any
+        end
+        */
         methods.add_meta_method(MetaMethod::Iter, |lua, this, ()| {
             match this.current() {
                 serde_json::Value::Array(_) => {
-                    let next = lua.create_function(move |lua, ud: AnyUserData| {
-                        let mut it = ud.borrow_mut::<LuaJsonArrayIter>()?;
+                    let next = Function::wrap(|lua, mut it: UserDataRefMut<LuaJsonArrayIter>| {
                         it.next += 1;
                         match it.value.get(Value::Integer(it.next - 1)) {
-                            Some(next_value) => Ok(Variadic::from_iter([
-                                Value::Integer(it.next - 1),
-                                JsonValue::to_lua(Some(&next_value), lua)?,
-                            ])),
-                            None => Ok(Variadic::new()),
+                            Some(next_value) => (it.next - 1, next_value.into_lua(lua)?).into_lua_multi(lua),
+                            None => ().into_lua_multi(lua),
                         }
-                    })?;
-
-                    let iter_ud = lua.create_userdata(LuaJsonArrayIter {
+                    });
+                    let iter_ud = AnyUserData::wrap(LuaJsonArrayIter {
                         value: this.clone(),
                         next: 1, // index starts at 1
-                    })?;
-                    Ok((Value::Function(next), Some(iter_ud)))
+                    });
+                    (next, iter_ud).into_lua_multi(lua)
                 }
                 serde_json::Value::Object(_) => {
-                    let next = lua.create_function(move |lua, ud: AnyUserData| {
-                        let mut iter = ud.borrow_mut::<LuaJsonMapIter>()?;
-                        let root = iter.borrow_owner().root.clone();
-                        iter.with_dependent_mut(|_, it| match it.next() {
-                            Some((key, value)) => Ok(Variadic::from_iter([
-                                Value::String(lua.create_string(key)?),
-                                JsonValue::to_lua(
-                                    Some(&JsonValue {
-                                        root,
-                                        current: value,
-                                    }),
-                                    lua,
-                                )?,
-                            ])),
-                            None => Ok(Variadic::new()),
+                    let next = Function::wrap(|lua, mut it: UserDataRefMut<LuaJsonMapIter>| {
+                        let root = it.borrow_value().root.clone();
+                        it.with_iter_mut(move |iter| match iter.next() {
+                            Some((key, value)) => {
+                                let key = lua.create_string(key)?;
+                                let value = JsonObject::new(&root, value).into_lua(lua)?;
+                                (key, value).into_lua_multi(lua)
+                            }
+                            None => ().into_lua_multi(lua),
                         })
-                    })?;
-
-                    let ud = LuaJsonMapIter::new(this.clone(), |json| match json.current() {
-                        serde_json::Value::Object(object) => object.iter(),
-                        _ => unreachable!(),
                     });
-                    let iter_ud = lua.create_userdata(ud)?;
-                    Ok((Value::Function(next), Some(iter_ud)))
+                    let iter_builder = LuaJsonMapIterBuilder {
+                        value: this.clone(),
+                        iter_builder: |value| value.current().as_object().unwrap().iter(),
+                    };
+                    let iter_ud = AnyUserData::wrap(iter_builder.build());
+                    (next, iter_ud).into_lua_multi(lua)
                 }
-                _ => Ok((Value::Nil, None)),
+                _ => ().into_lua_multi(lua),
             }
         });
     }
 }
 
 struct LuaJsonArrayIter {
-    value: JsonValue,
+    value: JsonObject,
     next: LuaInteger,
 }
 
 impl UserData for LuaJsonArrayIter {}
 
-type JsonMapIter<'a> = serde_json::map::Iter<'a>;
+#[self_referencing]
+struct LuaJsonMapIter {
+    value: JsonObject,
 
-self_cell!(
-    struct LuaJsonMapIter {
-        owner: JsonValue,
-
-        #[not_covariant]
-        dependent: JsonMapIter,
-    }
-);
+    #[borrows(value)]
+    #[covariant]
+    iter: serde_json::map::Iter<'this>,
+}
 
 impl UserData for LuaJsonMapIter {}
 
-fn try_with_slice<R>(value: Value, f: impl FnOnce(&[u8]) -> R) -> Result<R> {
-    match value {
-        Value::String(s) => Ok(f(s.as_bytes())),
-        Value::UserData(ud) if ud.is::<Bytes>() => {
-            let bytes = ud.borrow::<Bytes>()?;
-            Ok(f(bytes.as_ref()))
-        }
-        _ => Err(LuaError::FromLuaConversionError {
-            from: value.type_name(),
-            to: "string",
-            message: None,
-        }),
-    }
+/*
+--- @within Json
+--- Decodes a JSON string to a Lua value.
+--- Returns `nil` and an error message if the input is not a valid JSON string.
+---
+--- @param data string | Bytes
+function json.decode(data: string | Bytes): (any, string?)
+    local _ = data
+    return nil :: any
+end
+*/
+fn decode<'l>(lua: &'l Lua, data: FlexBytes) -> Result<StdResult<Value<'l>, String>> {
+    let json: serde_json::Value = lua_try!(serde_json::from_slice(data.as_ref()).into_lua_err());
+    Ok(Ok(lua.to_value(&json)?))
 }
 
-fn decode_json<'l>(lua: &'l Lua, data: Value) -> Result<Value<'l>> {
-    let json: serde_json::Value = match data {
-        Value::Nil => return Ok(Value::Nil),
-        _ => try_with_slice(data, |s| serde_json::from_slice(s))?.into_lua_err()?,
-    };
-    lua.to_value(&json)
-}
-
-fn decode_json_native<'l>(lua: &'l Lua, data: Value) -> Result<Value<'l>> {
-    let json: serde_json::Value = match data {
-        Value::Nil => return Ok(Value::Nil),
-        _ => try_with_slice(data, |s| serde_json::from_slice(s))?.into_lua_err()?,
-    };
+/*
+--- @within Json
+--- Decodes a JSON string to a simple Lua value or a complex `JsonObject`.
+--- Returns `nil` and an error message if the input is not a valid JSON string.
+---
+--- @param data string | Bytes
+function json.decode_native(data: string | Bytes): (ValueOrJsonObject, string?)
+    local _ = data
+    return nil :: any
+end
+*/
+fn decode_native<'l>(lua: &'l Lua, data: FlexBytes) -> Result<StdResult<Value<'l>, String>> {
+    let json: serde_json::Value = lua_try!(serde_json::from_slice(data.as_ref()).into_lua_err());
     let root = Rc::new(json);
     let current = Rc::as_ptr(&root);
-    JsonValue::to_lua(Some(&JsonValue { root, current }), lua)
+    Ok(Ok(lua_try!(JsonObject { root, current }.into_lua(lua))))
 }
 
-fn encode_json<'l>(lua: &'l Lua, value: Value) -> Result<LuaString<'l>> {
+/*
+--- @within Json
+--- Encodes a Lua value to a JSON string.
+--- Returns `nil` and an error message if the input value cannot be encoded.
+---
+--- @param value Lua value
+function json.encode(value: any): (string?, string?)
+    local _ = value
+    return nil :: any
+end
+*/
+fn encode<'l>(lua: &'l Lua, value: Value) -> Result<LuaString<'l>> {
     let data = serde_json::to_vec(&value).into_lua_err()?;
     lua.create_string(data)
 }
 
 pub fn create_module(lua: &Lua) -> Result<Table> {
     lua.create_table_from([
-        ("decode", lua.create_function(decode_json)?),
-        ("decode_native", lua.create_function(decode_json_native)?),
-        ("encode", lua.create_function(encode_json)?),
+        ("decode", lua.create_function(decode)?),
+        ("decode_native", lua.create_function(decode_native)?),
+        ("encode", lua.create_function(encode)?),
     ])
 }
+
+/*
+return json
+*/
 
 #[cfg(test)]
 mod tests {
