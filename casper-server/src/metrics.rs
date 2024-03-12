@@ -4,7 +4,7 @@ use std::sync::{Arc, OnceLock};
 
 use opentelemetry::global;
 use opentelemetry::metrics::{Counter, Histogram, MeterProvider as _};
-use opentelemetry_sdk::metrics::{self, MeterProvider};
+use opentelemetry_sdk::metrics::{self, SdkMeterProvider};
 use tokio::sync::RwLock;
 
 use crate::config::Config;
@@ -71,7 +71,7 @@ impl OpenTelemetryMetrics {
             .build()
             .expect("failed to create prometheus exporter");
 
-        let provider = MeterProvider::builder()
+        let provider = SdkMeterProvider::builder()
             .with_reader(exporter)
             .with_view(
                 metrics::new_view(
