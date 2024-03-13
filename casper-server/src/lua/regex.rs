@@ -9,6 +9,21 @@ use mlua::{
 use once_cell::sync::Lazy;
 use ouroboros::self_referencing;
 
+/*
+--- @class module
+--- @tag module
+---
+--- Built-in module for working with regular expressions.
+local module = {}
+
+--- @class Regex
+--- Represents a compiled Regex object in Lua.
+local Regex = {}
+Regex.__index = Regex
+
+export type Regex = typeof(setmetatable({}, Regex))
+*/
+
 // TODO: Move to config
 const REGEX_CACHE_SIZE: u64 = 512;
 
@@ -42,10 +57,29 @@ impl Regex {
 
 impl UserData for Regex {
     fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
+        /*
+        --- @within Regex
+        --- Returns true if there is a match for the regex anywhere in the given text.
+        ---
+        --- @param text haystack to search in
+        function Regex:is_match(text: string): boolean
+            return nil :: any
+        end
+        */
         methods.add_method("is_match", |_, this, text: LuaString| {
             Ok(this.0.is_match(text.as_bytes()))
         });
 
+        /*
+        --- @within Regex
+        --- Returns the first match of the regex in the given text.
+        --- Returns `nil` if there is no match.
+        ---
+        --- @param text haystack to search in
+        function Regex:match(text: string): Captures?
+            return nil :: any
+        end
+        */
         methods.add_method("match", |lua, this, text: LuaString| {
             let text = text.as_bytes().into();
             let caps = Captures::try_new(text, |text| this.0.captures(text).ok_or(()));
@@ -66,6 +100,16 @@ impl UserData for Regex {
             }
         });
 
+        /*
+        --- @within Regex
+        --- Returns a table substrings of the text given, delimited by a
+        --- match of the regex.
+        ---
+        --- @param text The text to split
+        function Regex:split(text: string): {string}
+            return nil :: any
+        end
+        */
         methods.add_method("split", |lua, this, text: LuaString| {
             lua.create_sequence_from(
                 this.split(text.as_bytes())
@@ -73,6 +117,18 @@ impl UserData for Regex {
             )
         });
 
+        /*
+        --- @within Regex
+        --- Returns a table substrings of the text given, delimited by a
+        --- match of the regex. The number of substrings is limited by the
+        --- `limit` parameter.
+        ---
+        --- @param text The text to split
+        --- @param limit The maximum number of substrings to return
+        function Regex:splitn(text: string, limit: number): {string}
+            return nil :: any
+        end
+        */
         methods.add_method("splitn", |lua, this, (text, limit): (LuaString, usize)| {
             lua.create_sequence_from(
                 this.splitn(text.as_bytes(), limit)
@@ -89,6 +145,16 @@ impl UserData for Regex {
     }
 }
 
+/*
+type CapturesMetatable = {
+    __index: (Regex, string|number) -> string?,
+}
+
+--- @type Captures Captures
+--- @within module
+--- Represents a set of captures from a regex match.
+export type Captures = typeof(setmetatable({}, {} :: CapturesMetatable))
+*/
 #[self_referencing]
 struct Captures {
     text: Box<[u8]>,
@@ -169,22 +235,60 @@ impl UserData for RegexSet {
     }
 }
 
+/*
+--- @within module
+--- Compiles a regular expression. Once compiled, it can be used repeatedly
+--- to search, split or replace substrings in a text.
+--- Returns `nil` and an error message if the input is not a valid regular expression.
+---
+--- @param re The regular expression to compile
+function module.new(re: string): (Regex?, string?)
+    return nil :: any
+end
+*/
 fn regex_new(lua: &Lua, re: String) -> LuaResult<Result<Regex, String>> {
     // TODO: Support flag to use global/local/no cache
     Ok(Ok(lua_try!(Regex::new(lua, re))))
 }
 
+/*
+--- @within module
+--- Escapes a string so that it can be used as a literal in a regular expression.
+---
+--- @param text The string to escape
+function module.escape(text: string): string
+    return nil :: any
+end
+*/
 fn regex_escape(_: &Lua, text: LuaString) -> LuaResult<String> {
     Ok(regex::escape(text.to_str()?))
 }
 
-// A shortcut for testing a match for the regex in the string given.
+/*
+--- @within module
+--- Returns true if there is a match for the regex anywhere in the given text.
+---
+--- @param re The regular expression to match
+--- @param text The text to search in
+function module.is_match(re: string, text: string): (boolean?, string?)
+    return nil :: any
+end
+*/
 fn regex_is_match(lua: &Lua, (re, text): (String, LuaString)) -> LuaResult<Result<bool, String>> {
     let re = lua_try!(Regex::new(lua, re));
     Ok(Ok(re.is_match(text.as_bytes())))
 }
 
-// A shortcut for matching text against a regex and collecting all capture groups
+/*
+--- @within module
+--- Returns all matches of the regex in the given text or nil if there is no match.
+---
+--- @param re The regular expression to match
+--- @param text The text to search in
+function module.match(re: string, text: string): ({string}?, string?)
+    return nil :: any
+end
+*/
 fn regex_match<'lua>(
     lua: &'lua Lua,
     (re, text): (String, LuaString),
@@ -219,6 +323,10 @@ pub fn create_module(lua: &Lua) -> LuaResult<Table> {
         ("RegexSet", Value::UserData(lua.create_proxy::<RegexSet>()?)),
     ])
 }
+
+/*
+return module
+*/
 
 #[cfg(test)]
 mod tests {
