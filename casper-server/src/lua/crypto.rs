@@ -4,7 +4,7 @@ use bstr::BString;
 use mlua::{ExternalResult, Lua, Result, String as LuaString, Table};
 use ntex::rt::spawn_blocking;
 use openssl::hash::MessageDigest;
-use openssl::symm::Cipher;
+use openssl::symm::{Cipher, Crypter, Mode};
 use serde_json::{
     from_slice as json_from_slice, to_vec_pretty as json_to_vec_pretty, Value as JsonValue,
 };
@@ -136,18 +136,26 @@ fn ciper_from_str(cipher: &[u8]) -> StdResult<Cipher, &'static str> {
 --- @param key The key to use for encryption.
 --- @param iv The initialization vector to use for encryption.
 --- @param data The input data to encrypt.
-function crypto.encrypt(cipher: string, key: string, iv: string?, data: Bytes | string): (string?, string?)
+--- @param padding If `false`, disables padding (default: `true`).
+function crypto.encrypt(cipher: string, key: string, iv: string?, data: Bytes | string, padding: boolean?): (string?, string?)
     return nil :: any
 end
 */
 async fn encrypt<'lua>(
     _: &'lua Lua,
-    (cipher, key, iv, data): (LuaString<'lua>, BString, Option<BString>, FlexBytes<'lua>),
+    (cipher, key, iv, data, padding): (
+        LuaString<'lua>,
+        BString,
+        Option<BString>,
+        FlexBytes<'lua>,
+        Option<bool>,
+    ),
 ) -> Result<StdResult<BString, String>> {
     let t = lua_try!(ciper_from_str(cipher.as_bytes()));
     let data = data.into_bytes();
     let result = spawn_blocking(move || {
-        openssl::symm::encrypt(t, &key, iv.as_ref().map(|iv| iv.as_ref()), &data)
+        let iv = iv.as_ref().map(|iv| iv.as_ref());
+        run_crypter(t, Mode::Encrypt, &key, iv, &data, padding.unwrap_or(true))
     })
     .await
     .expect("failed to join thread");
@@ -164,23 +172,48 @@ async fn encrypt<'lua>(
 --- @param key The key to use for decryption.
 --- @param iv The initialization vector to use for decryption.
 --- @param data The input data to decrypt.
-function crypto.decrypt(cipher: string, key: string, iv: string?, data: Bytes | string): (string?, string?)
+--- @param padding If `false`, disables padding (default: `true`).
+function crypto.decrypt(cipher: string, key: string, iv: string?, data: Bytes | string, padding: boolean?): (string?, string?)
     return nil :: any
 end
 */
 async fn decrypt<'lua>(
     _: &'lua Lua,
-    (cipher, key, iv, data): (LuaString<'lua>, BString, Option<BString>, FlexBytes<'lua>),
+    (cipher, key, iv, data, padding): (
+        LuaString<'lua>,
+        BString,
+        Option<BString>,
+        FlexBytes<'lua>,
+        Option<bool>,
+    ),
 ) -> Result<StdResult<BString, String>> {
     let t = lua_try!(ciper_from_str(cipher.as_bytes()));
     let data = data.into_bytes();
     let result = spawn_blocking(move || {
-        openssl::symm::decrypt(t, &key, iv.as_ref().map(|iv| iv.as_ref()), &data)
+        let iv = iv.as_ref().map(|iv| iv.as_ref());
+        run_crypter(t, Mode::Decrypt, &key, iv, &data, padding.unwrap_or(true))
     })
     .await
     .expect("failed to join thread");
     let output = BString::new(lua_try!(result));
     Ok(Ok(output))
+}
+
+fn run_crypter(
+    t: Cipher,
+    mode: Mode,
+    key: &[u8],
+    iv: Option<&[u8]>,
+    data: &[u8],
+    padding: bool,
+) -> StdResult<Vec<u8>, openssl::error::ErrorStack> {
+    let mut c = Crypter::new(t, mode, key, iv)?;
+    c.pad(padding);
+    let mut out = vec![0; data.len() + t.block_size()];
+    let count = c.update(data, &mut out)?;
+    let rest = c.finalize(&mut out[count..])?;
+    out.truncate(count + rest);
+    Ok(out)
 }
 
 pub fn create_module(lua: &Lua) -> Result<Table> {
