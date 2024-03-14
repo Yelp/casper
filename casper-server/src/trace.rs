@@ -2,10 +2,10 @@ use std::fmt;
 use std::str::FromStr;
 
 use bytes::Bytes;
+use ntex::rt::Arbiter;
 use ntex::time::Millis;
 use opentelemetry_http::{HttpClient, HttpError, Request, Response};
 use opentelemetry_sdk::trace::{self, RandomIdGenerator, Sampler};
-use tokio::runtime;
 use tokio::sync::{mpsc, oneshot};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt as _;
@@ -87,14 +87,8 @@ impl HttpClient for BatchHttpClient {
 fn spawn_http_client() -> BatchHttpClient {
     let (tx, mut rx) = mpsc::channel::<BatchHttpClientRequest>(100);
 
-    let runtime = runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .expect("failed to create tokio runtime");
-
-    // Spawn dedicated thread to send tracing batches
-    std::thread::spawn(move || {
-        runtime.block_on(async move {
+    Arbiter::new().exec_fn(move || {
+        ntex::rt::spawn(async move {
             let client = ntex::http::client::Client::build()
                 .disable_redirects()
                 .timeout(Millis(5000))
