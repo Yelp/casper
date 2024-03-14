@@ -26,29 +26,37 @@ local crypto = {}
 /*
 --- @within crypto
 --- Returns the SHA1 hash of the input.
+--- If `raw` is `true`, returns the raw hash instead of hex-encoded string.
 ---
 --- @param input The input data to calculate hash.
-function crypto.sha1(input: Bytes | string): string
+function crypto.sha1(input: Bytes | string, raw: boolean?): string
     return nil :: any
 end
 */
-fn sha1(_: &Lua, input: FlexBytes) -> Result<String> {
+fn sha1<'l>(lua: &'l Lua, (input, raw): (FlexBytes, Option<bool>)) -> Result<LuaString<'l>> {
     let hashsum = openssl::hash::hash(MessageDigest::sha1(), input.as_ref()).into_lua_err()?;
-    Ok(hex::encode(hashsum))
+    if !raw.unwrap_or(false) {
+        return lua.create_string(hex::encode(hashsum));
+    }
+    lua.create_string(hashsum.as_ref())
 }
 
 /*
 --- @within crypto
 --- Returns the SHA256 hash of the input.
+--- If `raw` is `true`, returns the raw hash instead of hex-encoded string.
 ---
 --- @param input The input data to calculate hash.
 function crypto.sha256(input: Bytes | string): string
     return nil :: any
 end
 */
-fn sha256(_: &Lua, input: FlexBytes) -> Result<String> {
+fn sha256<'l>(lua: &'l Lua, (input, raw): (FlexBytes, Option<bool>)) -> Result<LuaString<'l>> {
     let hashsum = openssl::hash::hash(MessageDigest::sha256(), input.as_ref()).into_lua_err()?;
-    Ok(hex::encode(hashsum))
+    if !raw.unwrap_or(false) {
+        return lua.create_string(hex::encode(hashsum));
+    }
+    lua.create_string(hashsum.as_ref())
 }
 
 /*
@@ -194,18 +202,30 @@ return crypto
 
 #[cfg(test)]
 mod tests {
-    use mlua::{chunk, Lua, Result};
+    use bstr::BString;
+    use mlua::{chunk, Function, Lua, Result};
 
     #[ntex::test]
     async fn test_hashing() -> Result<()> {
         let lua = Lua::new();
 
         let crypto = super::create_module(&lua)?;
+        lua.globals().set(
+            "hex_encode",
+            Function::wrap(|_, x: BString| Ok(hex::encode(x))),
+        )?;
+
         lua.load(chunk! {
             local sha1 = $crypto.sha1("hello")
             assert(sha1 == "aaf4c61ddcc5e8a2dabede0f3b482cd9aea9434d", "sha1 hash mismatch")
+            local sha1raw = $crypto.sha1("hello", true)
+            assert(hex_encode(sha1raw) == "aaf4c61ddcc5e8a2dabede0f3b482cd9aea9434d", "sha1 raw hash mismatch")
+
             local sha256 = $crypto.sha256("hello")
             assert(sha256 == "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824", "sha256 hash mismatch")
+            local sha256raw = $crypto.sha256("hello", true)
+            assert(hex_encode(sha256raw) == "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824", "sha256 raw hash mismatch")
+
             local blake3 = $crypto.blake3("hello")
             assert(blake3 == "ea8f163db38682925e4491c5e58d4bb3506ef8c14eb78a86e908c5624a67200f", "blake3 hash mismatch")
         })
