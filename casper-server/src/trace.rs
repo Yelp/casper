@@ -1,10 +1,15 @@
 use std::fmt;
 use std::str::FromStr;
+use std::sync::atomic::{AtomicI64, Ordering};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use bytes::Bytes;
 use ntex::rt::Arbiter;
 use ntex::time::Millis;
+use opentelemetry::global::{handle_error, Error as OtelGlobalError};
+use opentelemetry::trace::TraceError;
 use opentelemetry_http::{HttpClient, HttpError, Request, Response};
+use opentelemetry_sdk::runtime::TrySendError;
 use opentelemetry_sdk::trace::{self, RandomIdGenerator, Sampler};
 use tokio::sync::{mpsc, oneshot};
 use tracing_subscriber::layer::SubscriberExt;
@@ -32,6 +37,33 @@ fn init_opentelemetry(config: &Config) {
     };
 
     opentelemetry::global::set_text_map_propagator(opentelemetry_zipkin::Propagator::new());
+
+    opentelemetry::global::set_error_handler(|err| match err {
+        OtelGlobalError::Trace(TraceError::Other(ref trace_err)) => {
+            use Ordering::Relaxed;
+            match trace_err.downcast_ref::<TrySendError>() {
+                Some(_) => {
+                    // Log this error only once per sec to avoid spamming the logs
+                    static LAST_ERROR_TIMESTAMP: AtomicI64 = AtomicI64::new(0);
+                    let now = SystemTime::now();
+                    let now = now.duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
+                    let res = LAST_ERROR_TIMESTAMP.fetch_update(Relaxed, Relaxed, |prev| {
+                        if (now - prev).abs() > 1 {
+                            Some(now)
+                        } else {
+                            None
+                        }
+                    });
+                    if res.is_ok() {
+                        handle_error(err)
+                    }
+                }
+                None => handle_error(err),
+            }
+        }
+        _ => handle_error(err),
+    })
+    .expect("failed to set opentelemetry error handler");
 
     let sampler = if tracing_conf.mode.as_deref() == Some("firehose") {
         // In "firehose" mode we always sample but propagate the original sampling decision.
@@ -66,12 +98,12 @@ type BatchHttpClientRequest = (
     oneshot::Sender<Result<Response<Bytes>, HttpError>>,
 );
 
-// Http client to send batches based on ntex with usage of dedicated thread
+// Http client to send batches using ntex client running on a dedicated thread
 struct BatchHttpClient(mpsc::Sender<BatchHttpClientRequest>);
 
 impl fmt::Debug for BatchHttpClient {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("OtelHttpClient").finish()
+        f.debug_struct("BatchHttpClient").finish()
     }
 }
 
@@ -91,7 +123,7 @@ fn spawn_http_client() -> BatchHttpClient {
         ntex::rt::spawn(async move {
             let client = ntex::http::client::Client::build()
                 .disable_redirects()
-                .timeout(Millis(5000))
+                .timeout(Millis(5000)) // TODO: configure
                 .finish();
 
             while let Some((inner_req, sender)) = rx.recv().await {
