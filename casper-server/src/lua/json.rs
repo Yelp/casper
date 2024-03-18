@@ -169,7 +169,9 @@ impl UserData for JsonObject {
                     let next = Function::wrap(|lua, mut it: UserDataRefMut<LuaJsonArrayIter>| {
                         it.next += 1;
                         match it.value.get(Value::Integer(it.next - 1)) {
-                            Some(next_value) => (it.next - 1, next_value.into_lua(lua)?).into_lua_multi(lua),
+                            Some(next_value) => {
+                                (it.next - 1, next_value.into_lua(lua)?).into_lua_multi(lua)
+                            }
                             None => ().into_lua_multi(lua),
                         }
                     });
