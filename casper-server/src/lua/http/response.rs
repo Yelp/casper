@@ -544,7 +544,7 @@ mod tests {
             })
             local json, err = resp:body_json()
             assert(json == nil, "`json` var must be nil")
-            assert(err == "wrong content type", "error must be 'wrong content type'")
+            assert(err:find("wrong content type"), "error must contain 'wrong content type'")
         })
         .exec_async()
         .await
