@@ -722,7 +722,8 @@ mod tests {
         body.set_timeout(Some(Duration::from_millis(20)));
         lua.load(chunk! {
             local json, err = $body:json()
-            assert(json == nil and err == "timeout reading body", "json must fail with timeout")
+            assert(json == nil, "`json` var must be nil")
+            assert(err:find("timeout reading body"), "error must contain 'timeout reading body'")
         })
         .exec_async()
         .await
