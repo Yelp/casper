@@ -40,7 +40,7 @@ export type ValueOrJsonObject = nil | boolean | string | number | JsonObject
 */
 
 #[derive(Clone)]
-struct JsonObject {
+pub(crate) struct JsonObject {
     root: Rc<serde_json::Value>,
     current: *const serde_json::Value,
 }
@@ -109,6 +109,14 @@ impl JsonObject {
                 lua.create_ser_userdata(JsonObject::new(&self.root, object))?,
             )),
         }
+    }
+}
+
+impl From<serde_json::Value> for JsonObject {
+    fn from(value: serde_json::Value) -> Self {
+        let root = Rc::new(value);
+        let current = Rc::as_ptr(&root);
+        Self { root, current }
     }
 }
 
@@ -253,9 +261,7 @@ end
 */
 fn decode_native<'l>(lua: &'l Lua, data: FlexBytes) -> Result<StdResult<Value<'l>, String>> {
     let json: serde_json::Value = lua_try!(serde_json::from_slice(data.as_ref()).into_lua_err());
-    let root = Rc::new(json);
-    let current = Rc::as_ptr(&root);
-    Ok(Ok(lua_try!(JsonObject { root, current }.into_lua(lua))))
+    Ok(Ok(lua_try!(JsonObject::from(json).into_lua(lua))))
 }
 
 /*

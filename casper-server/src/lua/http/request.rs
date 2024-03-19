@@ -275,7 +275,7 @@ impl UserData for LuaRequest {
 
         fields.add_field_function_get("body", |lua, this| {
             let mut this = this.borrow_mut::<Self>()?;
-            this.body_mut().as_userdata(lua)
+            this.body_mut().to_userdata(lua)
         });
     }
 
