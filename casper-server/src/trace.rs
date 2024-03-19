@@ -1,15 +1,10 @@
 use std::fmt;
 use std::str::FromStr;
-use std::sync::atomic::{AtomicI64, Ordering};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use bytes::Bytes;
 use ntex::rt::Arbiter;
 use ntex::time::Millis;
-use opentelemetry::global::{handle_error, Error as OtelGlobalError};
-use opentelemetry::trace::TraceError;
 use opentelemetry_http::{HttpClient, HttpError, Request, Response};
-use opentelemetry_sdk::runtime::TrySendError;
 use opentelemetry_sdk::trace::{self, RandomIdGenerator, Sampler};
 use tokio::sync::{mpsc, oneshot};
 use tracing_subscriber::layer::SubscriberExt;
@@ -38,33 +33,6 @@ fn init_opentelemetry(config: &Config) {
 
     opentelemetry::global::set_text_map_propagator(opentelemetry_zipkin::Propagator::new());
 
-    opentelemetry::global::set_error_handler(|err| match err {
-        OtelGlobalError::Trace(TraceError::Other(ref trace_err)) => {
-            use Ordering::Relaxed;
-            match trace_err.downcast_ref::<TrySendError>() {
-                Some(_) => {
-                    // Log this error only once per sec to avoid spamming the logs
-                    static LAST_ERROR_TIMESTAMP: AtomicI64 = AtomicI64::new(0);
-                    let now = SystemTime::now();
-                    let now = now.duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
-                    let res = LAST_ERROR_TIMESTAMP.fetch_update(Relaxed, Relaxed, |prev| {
-                        if (now - prev).abs() > 1 {
-                            Some(now)
-                        } else {
-                            None
-                        }
-                    });
-                    if res.is_ok() {
-                        handle_error(err)
-                    }
-                }
-                None => handle_error(err),
-            }
-        }
-        _ => handle_error(err),
-    })
-    .expect("failed to set opentelemetry error handler");
-
     let sampler = if tracing_conf.mode.as_deref() == Some("firehose") {
         // In "firehose" mode we always sample but propagate the original sampling decision.
         Sampler::AlwaysOn
@@ -90,7 +58,7 @@ fn init_opentelemetry(config: &Config) {
 
     pipeline_builder
         .install_batch(opentelemetry_sdk::runtime::TokioCurrentThread)
-        .expect("failed to create zipkin tracer");
+        .expect("Failed to create zipkin tracer");
 }
 
 type BatchHttpClientRequest = (
