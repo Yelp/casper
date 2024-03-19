@@ -72,6 +72,7 @@ bitflags! {
         const HEADERS_COMPRESSED = 0b00000010; // Headers compression
         const BODY_COMPRESSED    = 0b00000100; // Body compression
         const ENCRYPTED          = 0b00001000;
+        const HEADERS_V2         = 0b00010000; // Headers format version 2 (temporary)
     }
 }
 
@@ -79,6 +80,7 @@ const EX_COMPRESSED: Flags = Flags::EX_COMPRESSED; // Deprecated
 const HEADERS_COMPRESSED: Flags = Flags::HEADERS_COMPRESSED;
 const BODY_COMPRESSED: Flags = Flags::BODY_COMPRESSED;
 const ENCRYPTED: Flags = Flags::ENCRYPTED;
+const HEADERS_V2: Flags = Flags::HEADERS_V2;
 
 struct RedisMetrics {
     pub internal_cache_counter: Counter<u64>,
@@ -264,7 +266,8 @@ impl RedisBackend {
         }
 
         // Decode them
-        let headers = decode_headers(&raw_headers).context("failed to decode headers")?;
+        let v2format = flags.contains(HEADERS_V2);
+        let headers = decode_headers(&raw_headers, v2format).context("failed to decode headers")?;
 
         // If we have only one chunk, decode it in-place
         if response_item.num_chunks == 1 {
@@ -380,7 +383,7 @@ impl RedisBackend {
     }
 
     async fn store_response_inner<'a>(&self, item: Item<'a>) -> Result<()> {
-        let mut headers = Bytes::from(encode_headers(&item.headers)?);
+        let mut headers = Bytes::from(encode_headers(&item.headers, false)?);
         let mut body = item.body;
         let body_length = body.len();
 
