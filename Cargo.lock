@@ -302,6 +302,7 @@ dependencies = [
  "itertools",
  "linked-hash-map",
  "log",
+ "mime",
  "mini-moka",
  "mlua",
  "moka",

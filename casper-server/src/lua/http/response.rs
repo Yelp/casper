@@ -1,5 +1,7 @@
+use std::cell::{Ref, RefCell, RefMut};
 use std::collections::HashMap;
 use std::mem;
+use std::time::Duration;
 
 use mlua::{
     ExternalError, ExternalResult, FromLua, IntoLua, Lua, Result as LuaResult, String as LuaString,
@@ -8,20 +10,21 @@ use mlua::{
 use ntex::http::body::MessageBody;
 use ntex::http::client::ClientResponse;
 use ntex::http::header::{HeaderMap, CONTENT_LENGTH};
-use ntex::http::{Method, Response, ResponseHead, StatusCode, Version};
+use ntex::http::{HttpMessage, Method, Response, ResponseHead, StatusCode, Version};
 use ntex::util::{Bytes, Extensions};
 use ntex::web::{HttpRequest, Responder};
 use opentelemetry::{Key as OTKey, Value as OTValue};
 
 use super::{EitherBody, LuaBody, LuaHttpHeaders, LuaHttpHeadersExt};
+use crate::lua::json::JsonObject;
 use crate::types::EncryptedExt;
 
 #[derive(Default, Debug)]
 pub struct LuaResponse {
-    version: Option<Version>, // Useful in client response
+    version: Option<Version>, // Used in client response
     status: StatusCode,
     headers: HeaderMap,
-    extensions: Extensions,
+    extensions: RefCell<Extensions>,
     body: EitherBody,
     labels: Option<HashMap<OTKey, OTValue>>, // For metrics
     pub is_proxied: bool,
@@ -37,35 +40,42 @@ impl LuaResponse {
         }
     }
 
+    #[inline]
     pub fn version(&self) -> Option<Version> {
         self.version
     }
 
+    #[inline]
     pub fn status(&self) -> StatusCode {
         self.status
     }
 
+    #[inline]
     pub fn status_mut(&mut self) -> &mut StatusCode {
         &mut self.status
     }
 
+    #[inline]
     pub fn headers(&self) -> &HeaderMap {
         &self.headers
     }
 
+    #[inline]
     pub fn headers_mut(&mut self) -> &mut HeaderMap {
         &mut self.headers
     }
 
-    #[allow(unused)]
-    pub fn extensions(&self) -> &Extensions {
-        &self.extensions
+    #[inline]
+    pub fn extensions(&self) -> Ref<'_, Extensions> {
+        self.extensions.borrow()
     }
 
-    pub fn extensions_mut(&mut self) -> &mut Extensions {
-        &mut self.extensions
+    #[inline]
+    pub fn extensions_mut(&self) -> RefMut<'_, Extensions> {
+        self.extensions.borrow_mut()
     }
 
+    #[inline]
     pub fn body_mut(&mut self) -> &mut EitherBody {
         &mut self.body
     }
@@ -97,7 +107,7 @@ impl LuaResponse {
             version: self.version,
             status: self.status,
             headers: self.headers.clone(),
-            extensions: Extensions::new(),
+            extensions: RefCell::new(Extensions::new()),
             body: EitherBody::Body(body),
             labels: self.labels.clone(),
             is_proxied: self.is_proxied,
@@ -120,7 +130,7 @@ impl From<ClientResponse> for LuaResponse {
             version: Some(response.version()),
             status: response.status(),
             headers: mem::take(response.headers_mut()),
-            extensions,
+            extensions: RefCell::new(extensions),
             body: EitherBody::Body(LuaBody::from((response.take_payload(), content_length))),
             labels: None,
             is_proxied: true,
@@ -137,7 +147,7 @@ impl From<ResponseHead> for LuaResponse {
             version: Some(head.version),
             status: head.status,
             headers: head.headers,
-            extensions,
+            extensions: RefCell::new(extensions),
             body: EitherBody::Body(LuaBody::None),
             labels: None,
             is_proxied: false,
@@ -157,12 +167,29 @@ where
             version: None,
             status: response.status(),
             headers: mem::take(response.headers_mut()),
-            extensions,
+            extensions: RefCell::new(extensions),
             body: EitherBody::Body(LuaBody::from(response.take_body())),
             labels: None,
             is_proxied: false,
             is_stored: false,
         }
+    }
+}
+
+impl HttpMessage for LuaResponse {
+    #[inline]
+    fn message_headers(&self) -> &HeaderMap {
+        self.headers()
+    }
+
+    #[inline]
+    fn message_extensions(&self) -> Ref<'_, Extensions> {
+        self.extensions.borrow()
+    }
+
+    #[inline]
+    fn message_extensions_mut(&self) -> RefMut<'_, Extensions> {
+        self.extensions.borrow_mut()
     }
 }
 
@@ -177,7 +204,7 @@ impl Responder for LuaResponse {
         } = self;
         let mut resp = Response::new(status);
         *resp.headers_mut() = headers;
-        *resp.extensions_mut() = extensions;
+        mem::swap(&mut *resp.extensions_mut(), &mut *extensions.borrow_mut());
 
         let mut body = LuaBody::from(body);
         match *req.method() {
@@ -251,7 +278,7 @@ impl UserData for LuaResponse {
 
         fields.add_field_function_get("body", |lua, this| {
             let mut this = this.borrow_mut::<Self>()?;
-            this.body_mut().as_userdata(lua)
+            this.body_mut().to_userdata(lua)
         });
     }
 
@@ -326,6 +353,18 @@ impl UserData for LuaResponse {
             Ok(())
         });
 
+        methods.add_async_method_mut("body_json", |lua, this, timeout: Option<f64>| async move {
+            // Check that content type is JSON
+            match this.mime_type() {
+                Ok(Some(m)) if m.subtype() == mime::JSON || m.suffix() == Some(mime::JSON) => {}
+                _ => return Ok(Err("wrong content type".to_string())),
+            };
+            let body = this.body_mut();
+            body.set_timeout(timeout.map(Duration::from_secs_f64));
+            let json = lua_try!(body.json().await);
+            Ok(Ok(JsonObject::from(json).into_lua(lua)?))
+        });
+
         // Metric labels manipulation
         methods.add_method_mut("set_label", |lua, this, (key, value): (String, Value)| {
             let labels = this.labels.get_or_insert_with(HashMap::new);
@@ -364,11 +403,11 @@ mod tests {
         // Check default response params
         lua.load(chunk! {
             local resp = Response.new()
-            assert(resp.is_proxied == false)
-            assert(resp.is_stored == false)
-            assert(resp.is_encrypted == false)
-            assert(resp.status == 200)
-            assert(resp.body:read() == nil)
+            assert(resp.is_proxied == false, "is_proxied must be false")
+            assert(resp.is_stored == false, "is_stored must be false")
+            assert(resp.is_encrypted == false, "is_encrypted must be false")
+            assert(resp.status == 200, "status must be 200")
+            assert(resp.body:read() == nil, "body must be nil")
         })
         .exec()
         .unwrap();
@@ -376,8 +415,8 @@ mod tests {
         // Construct simple response
         lua.load(chunk! {
             local resp = Response.new(400, "bad response")
-            assert(resp.status == 400)
-            assert(resp.body:to_string() == "bad response")
+            assert(resp.status == 400, "status must be 400")
+            assert(resp.body:to_string() == "bad response", "body must be 'bad response'")
         })
         .exec()
         .unwrap();
@@ -391,13 +430,22 @@ mod tests {
                     ["content-type"] = "text/plain",
                 },
             })
-            assert(resp.status == 201)
-            assert(resp.body:to_string() == "hello, world")
+            assert(resp.status == 201, "status must be 201")
+            assert(resp.body:to_string() == "hello, world", "body must be 'hello, world'")
         })
         .exec()
         .unwrap();
 
-        // Check headers manipulation
+        Ok(())
+    }
+
+    #[ntex::test]
+    async fn test_response_headers() -> Result<()> {
+        let lua = Lua::new();
+
+        lua.globals()
+            .set("Response", lua.create_proxy::<LuaResponse>()?)?;
+
         lua.load(chunk! {
             local resp = Response.new({
                 headers = {
@@ -431,7 +479,14 @@ mod tests {
             assert(type(resp:headers()) == "userdata")
         })
         .exec()
-        .unwrap();
+    }
+
+    #[ntex::test]
+    async fn test_response_clone() -> Result<()> {
+        let lua = Lua::new();
+
+        lua.globals()
+            .set("Response", lua.create_proxy::<LuaResponse>()?)?;
 
         // Check cloning Response
         lua.load(chunk! {
@@ -449,36 +504,89 @@ mod tests {
                 end,
             })
             local resp2 = resp:clone()
-            assert(resp2.status == 202)
-            assert(resp2:header("foo") == "bar")
-            assert(resp2.body:to_string() == "hello, world")
+            assert(resp2.status == 202, "status must be 202")
+            assert(resp2:header("foo") == "bar", "header `foo` must be 'bar'")
+            assert(resp2.body:to_string() == "hello, world", "body must be 'hello, world'")
+        })
+        .exec_async()
+        .await
+    }
+
+    #[ntex::test]
+    async fn test_response_json() -> Result<()> {
+        let lua = Lua::new();
+
+        lua.globals()
+            .set("Response", lua.create_proxy::<LuaResponse>()?)?;
+
+        // Check JSON parsing
+        lua.load(chunk! {
+            local resp = Response.new({
+                headers = {
+                    ["content-type"] = "application/json",
+                },
+                body = "{\"hello\": \"world\"}",
+            })
+            local json = resp:body_json()
+            assert(json.hello == "world", "`json.hello` must be 'world'")
         })
         .exec_async()
         .await
         .unwrap();
 
-        // Check rewriting body
+        // Check parsing JSON with wrong content type
         lua.load(chunk! {
-            local resp = Response.new(200, "hello")
+            local resp = Response.new({
+                headers = {
+                    ["content-type"] = "text/plain",
+                },
+                body = "{\"hello\": \"world\"}",
+            })
+            local json, err = resp:body_json()
+            assert(json == nil, "`json` var must be nil")
+            assert(err == "wrong content type", "error must be 'wrong content type'")
+        })
+        .exec_async()
+        .await
+        .unwrap();
+
+        Ok(())
+    }
+
+    // Test rewriting body
+    #[ntex::test]
+    async fn test_response_body() -> Result<()> {
+        let lua = Lua::new();
+
+        lua.globals()
+            .set("Response", lua.create_proxy::<LuaResponse>()?)?;
+
+        lua.load(chunk! {
+            local resp = Response.new(200, "bla")
             resp:set_body("world")
             assert(resp.body:to_string() == "world")
         })
-        .exec()
-        .unwrap();
+        .exec_async()
+        .await
+    }
 
-        // Check setting labels
-        {
-            let resp: AnyUserData = lua
-                .load(chunk! {
-                    local resp = Response.new(200)
-                    resp:set_label("hello", "world")
-                    return resp
-                })
-                .eval()
-                .unwrap();
-            let resp = resp.take::<LuaResponse>()?;
-            assert_eq!(resp.labels().unwrap()[&"hello".into()], "world".into());
-        }
+    #[ntex::test]
+    async fn test_response_labels() -> Result<()> {
+        let lua = Lua::new();
+
+        lua.globals()
+            .set("Response", lua.create_proxy::<LuaResponse>()?)?;
+
+        let resp: AnyUserData = lua
+            .load(chunk! {
+                local resp = Response.new()
+                resp:set_label("hello", "world")
+                return resp
+            })
+            .eval()
+            .unwrap();
+        let resp = resp.take::<LuaResponse>()?;
+        assert_eq!(resp.labels().unwrap()[&"hello".into()], "world".into());
 
         Ok(())
     }
