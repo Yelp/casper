@@ -383,7 +383,7 @@ impl RedisBackend {
     }
 
     async fn store_response_inner<'a>(&self, item: Item<'a>) -> Result<()> {
-        let mut headers = Bytes::from(encode_headers(&item.headers, false)?);
+        let mut headers = Bytes::from(encode_headers(&item.headers, true)?);
         let mut body = item.body;
         let body_length = body.len();
 
@@ -394,6 +394,7 @@ impl RedisBackend {
 
         // If compression level is set, compress the body and headers and update flags
         let mut flags = Flags::default();
+        flags |= HEADERS_V2; // Temporary flag to indicate headers format version 2
         if let Some(level) = self.config.compression_level {
             let (headers_comp, body_comp);
             if body.len() < COMPRESSION_THRESHOLD {
