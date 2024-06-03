@@ -2,7 +2,7 @@ use std::rc::Rc;
 
 use ntex::http::header::{HeaderValue, CONTENT_TYPE};
 use ntex::http::Response;
-use ntex::service::{forward_poll_ready, forward_poll_shutdown, Middleware, Service, ServiceCtx};
+use ntex::service::{forward_ready, forward_shutdown, Middleware, Service, ServiceCtx};
 use ntex::web::{ErrorRenderer, WebRequest, WebResponse};
 
 use prometheus::{Encoder, TextEncoder, TEXT_FORMAT};
@@ -81,8 +81,8 @@ where
     type Response = WebResponse;
     type Error = S::Error;
 
-    forward_poll_ready!(inner);
-    forward_poll_shutdown!(inner);
+    forward_ready!(inner);
+    forward_shutdown!(inner);
 
     #[inline]
     async fn call(
