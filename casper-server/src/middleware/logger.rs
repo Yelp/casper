@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 
 use mlua::LuaSerdeExt;
 use ntex::http::body::{Body, BodySize, MessageBody, ResponseBody};
-use ntex::service::{forward_poll_ready, forward_poll_shutdown, Middleware, Service, ServiceCtx};
+use ntex::service::{forward_ready, forward_shutdown, Middleware, Service, ServiceCtx};
 use ntex::util::Bytes;
 use ntex::web::{WebRequest, WebResponse};
 use serde::Serialize;
@@ -79,8 +79,8 @@ where
     type Response = WebResponse;
     type Error = S::Error;
 
-    forward_poll_ready!(service);
-    forward_poll_shutdown!(service);
+    forward_ready!(service);
+    forward_shutdown!(service);
 
     #[inline]
     async fn call(

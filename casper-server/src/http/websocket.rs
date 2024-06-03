@@ -3,7 +3,7 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use mlua::Result as LuaResult;
-use ntex::connect::openssl::{self, SslConnector, SslMethod};
+use ntex::connect::openssl::SslConnector as NtexSslConnector;
 use ntex::connect::{ConnectError, Connector};
 use ntex::http::body::BodySize;
 use ntex::http::error::{DecodeError, EncodeError, PayloadError};
@@ -16,6 +16,7 @@ use ntex::io::{Io, RecvError, Sealed};
 use ntex::time::Millis;
 use ntex::util::{ready, Bytes, Either, Stream};
 use ntex::ws;
+use openssl::ssl::{SslConnector as OpenSslConnector, SslMethod};
 use tracing::{trace, warn};
 
 use crate::lua::{LuaBody, LuaRequest, LuaResponse};
@@ -260,10 +261,10 @@ async fn connect(uri: &Uri, timeout: Option<Millis>) -> Result<Io<Sealed>, WsErr
     let scheme = uri.scheme_str();
     let fut = async {
         if scheme == Some("wss") || scheme == Some("https") {
-            let ssl_connector = SslConnector::builder(SslMethod::tls_client())
+            let ssl_connector = OpenSslConnector::builder(SslMethod::tls_client())
                 .expect("Failed to create SSL connector")
                 .build();
-            let io = openssl::Connector::new(ssl_connector)
+            let io = NtexSslConnector::new(ssl_connector)
                 .connect(uri.clone())
                 .await?
                 .seal();
