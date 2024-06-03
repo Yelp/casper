@@ -54,12 +54,11 @@ struct LuaSpan(BoxedSpan);
 impl LuaSpan {
     /// Create a new span
     fn new(_: &Lua, (name, kind): (String, Option<String>)) -> Result<LuaSpan> {
-        let tracer = global::tracer_provider().versioned_tracer(
-            "casper-opentelemetry",
-            Some(env!("CARGO_PKG_VERSION")),
-            Some(opentelemetry_semantic_conventions::SCHEMA_URL),
-            None,
-        );
+        let tracer = global::tracer_provider()
+            .tracer_builder("casper-opentelemetry")
+            .with_version(env!("CARGO_PKG_VERSION"))
+            .with_schema_url(opentelemetry_semantic_conventions::SCHEMA_URL)
+            .build();
 
         let mut builder = tracer.span_builder(name);
         match kind.as_deref() {
