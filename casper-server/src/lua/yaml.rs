@@ -187,7 +187,7 @@ fn traverse_value<'a>(
     value: &'a serde_yaml::Value,
     keys: &[IndexKey],
 ) -> Option<&'a serde_yaml::Value> {
-    let next_value = match keys.get(0) {
+    let next_value = match keys.first() {
         Some(IndexKey::Index(i)) => value.get(i)?,
         Some(IndexKey::String(s)) => value.get(s)?,
         None => return Some(value),
