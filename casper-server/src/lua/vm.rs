@@ -20,8 +20,8 @@ impl UserData for CompiledFunction {
     }
 }
 
-fn compile<'lua>(
-    lua: &'lua Lua,
+fn compile(
+    lua: &Lua,
     (chunk, name): (String, Option<String>),
 ) -> Result<StdResult<CompiledFunction, String>> {
     let env = lua.create_table()?;
