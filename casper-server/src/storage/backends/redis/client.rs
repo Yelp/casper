@@ -68,19 +68,16 @@ struct SurrogateKeyItem {
 bitflags! {
     #[derive(Default, Serialize, Deserialize)]
     struct Flags: u32 {
-        const EX_COMPRESSED      = 0b00000001; // Deprecated
+        const UNUSED             = 0b00000001;
         const HEADERS_COMPRESSED = 0b00000010; // Headers compression
         const BODY_COMPRESSED    = 0b00000100; // Body compression
         const ENCRYPTED          = 0b00001000;
-        const HEADERS_V2         = 0b00010000; // Headers format version 2 (temporary)
     }
 }
 
-const EX_COMPRESSED: Flags = Flags::EX_COMPRESSED; // Deprecated
 const HEADERS_COMPRESSED: Flags = Flags::HEADERS_COMPRESSED;
 const BODY_COMPRESSED: Flags = Flags::BODY_COMPRESSED;
 const ENCRYPTED: Flags = Flags::ENCRYPTED;
-const HEADERS_V2: Flags = Flags::HEADERS_V2;
 
 struct RedisMetrics {
     pub internal_cache_counter: Counter<u64>,
@@ -259,15 +256,14 @@ impl RedisBackend {
             (false, _) => raw_headers,
         };
         // Decompress headers if required
-        if flags.contains(HEADERS_COMPRESSED) || flags.contains(EX_COMPRESSED) {
+        if flags.contains(HEADERS_COMPRESSED) {
             raw_headers = decompress_with_zstd(raw_headers)
                 .await
                 .context("failed to decompress headers")?;
         }
 
         // Decode them
-        let v2format = flags.contains(HEADERS_V2);
-        let headers = decode_headers(&raw_headers, v2format).context("failed to decode headers")?;
+        let headers = decode_headers(&raw_headers).context("failed to decode headers")?;
 
         // If we have only one chunk, decode it in-place
         if response_item.num_chunks == 1 {
@@ -277,7 +273,7 @@ impl RedisBackend {
                 body = aes256_decrypt(body, encryption_key.unwrap().clone()).await?;
             }
             // Decompress body
-            if flags.contains(BODY_COMPRESSED) || flags.contains(EX_COMPRESSED) {
+            if flags.contains(BODY_COMPRESSED) {
                 body = decompress_with_zstd(body).await?;
             }
 
@@ -313,10 +309,7 @@ impl RedisBackend {
 
         // Decrypt and/or decompress the body if required
         let body_size = response_item.body_length as u64;
-        let body = match (
-            flags.contains(ENCRYPTED),
-            flags.contains(BODY_COMPRESSED) || flags.contains(EX_COMPRESSED),
-        ) {
+        let body = match (flags.contains(ENCRYPTED), flags.contains(BODY_COMPRESSED)) {
             (true, true) => {
                 // Decrypt and decompress
                 let body_stream = AESDecoder::new(body_stream, encryption_key.unwrap().clone());
@@ -383,7 +376,7 @@ impl RedisBackend {
     }
 
     async fn store_response_inner<'a>(&self, item: Item<'a>) -> Result<()> {
-        let mut headers = Bytes::from(encode_headers(&item.headers, true)?);
+        let mut headers = Bytes::from(encode_headers(&item.headers)?);
         let mut body = item.body;
         let body_length = body.len();
 
@@ -394,7 +387,6 @@ impl RedisBackend {
 
         // If compression level is set, compress the body and headers and update flags
         let mut flags = Flags::default();
-        flags |= HEADERS_V2; // Temporary flag to indicate headers format version 2
         if let Some(level) = self.config.compression_level {
             let (headers_comp, body_comp);
             if body.len() < COMPRESSION_THRESHOLD {

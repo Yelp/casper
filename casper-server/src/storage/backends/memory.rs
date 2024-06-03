@@ -172,7 +172,7 @@ impl Storage for MemoryBackend {
             let resp = memory
                 .get_unexpired(&key)
                 .map(|value| {
-                    let headers = decode_headers(&value.headers, true)?;
+                    let headers = decode_headers(&value.headers)?;
                     let body = Body::Bytes(value.body.clone());
 
                     let mut resp = Response::with_body(value.status, body);
@@ -224,7 +224,7 @@ impl Storage for MemoryBackend {
             let result = (|| {
                 let value = Value {
                     status: item.status,
-                    headers: encode_headers(&item.headers, true)?,
+                    headers: encode_headers(&item.headers)?,
                     body: item.body,
                     expires: SystemTime::now() + item.ttl,
                     surrogate_keys: item.surrogate_keys,
