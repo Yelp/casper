@@ -31,12 +31,11 @@ impl<S> Middleware<S> for RequestTracing {
     type Service = RequestTracingService<S>;
 
     fn create(&self, service: S) -> Self::Service {
-        let tracer = global::tracer_provider().versioned_tracer(
-            "casper-opentelemetry",
-            Some(env!("CARGO_PKG_VERSION")),
-            Some(opentelemetry_semantic_conventions::SCHEMA_URL),
-            None,
-        );
+        let tracer = global::tracer_provider()
+            .tracer_builder("casper-opentelemetry")
+            .with_version(env!("CARGO_PKG_VERSION"))
+            .with_schema_url(opentelemetry_semantic_conventions::SCHEMA_URL)
+            .build();
 
         RequestTracingService {
             config: self.config.clone(),
