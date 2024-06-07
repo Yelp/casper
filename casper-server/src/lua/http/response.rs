@@ -518,6 +518,10 @@ mod tests {
 
         lua.globals()
             .set("Response", lua.create_proxy::<LuaResponse>()?)?;
+        lua.globals().set(
+            "json_encode",
+            lua.create_function(|_, value: Value| Ok(serde_json::to_string(&value).unwrap()))?,
+        )?;
 
         // Check JSON parsing
         lua.load(chunk! {
@@ -527,8 +531,9 @@ mod tests {
                 },
                 body = "{\"hello\": \"world\"}",
             })
-            local json = resp:body_json()
-            assert(json.hello == "world", "`json.hello` must be 'world'")
+            local body_json = resp:body_json()
+            assert(body_json.hello == "world", "`json.hello` must be 'world'")
+            assert(json_encode(body_json) == "{\"hello\":\"world\"}", "`body_json` must be encoded correctly")
         })
         .exec_async()
         .await

@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 
 use futures::{Stream, TryStreamExt};
 use mlua::{
-    AnyUserData, Error as LuaError, ErrorContext as _, ExternalError, FromLua, IntoLua, Lua,
+    AnyUserData, Error as LuaError, ErrorContext as _, ExternalError, FromLua, Lua,
     OwnedAnyUserData, Result as LuaResult, String as LuaString, UserData, Value,
 };
 use ntex::http::body::{self, BodySize, BoxedBodyStream, MessageBody, ResponseBody, SizedStream};
@@ -453,7 +453,7 @@ mod tests {
     use std::io::{Error as IoError, ErrorKind};
     use std::time::Duration;
 
-    use mlua::{chunk, Lua, Result as LuaResult};
+    use mlua::{chunk, Lua, Result as LuaResult, Value};
     use ntex::http::body::BoxedBodyStream;
     use tokio_stream::{self as stream, StreamExt};
 
@@ -700,12 +700,18 @@ mod tests {
         let lua = Lua::new();
         super::super::super::bytes::register_types(&lua)?;
 
+        lua.globals().set(
+            "json_encode",
+            lua.create_function(|_, value: Value| Ok(serde_json::to_string(&value).unwrap()))?,
+        )?;
+
         let body = LuaBody::from(r#"{"hello": "world"}"#);
         lua.load(chunk! {
             local json = $body:json()
             assert(typeof(json) == "JsonObject", "variable is not JsonObject")
             assert(json.hello == "world", "`json.hello` is not 'world'")
             assert($body:json() ~= nil, "`json()` method must not consume body")
+            assert(json_encode(json) == "{\"hello\":\"world\"}", "`body_json` must be encoded correctly")
         })
         .exec_async()
         .await
