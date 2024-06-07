@@ -84,7 +84,7 @@ impl JsonObject {
     }
 
     /// Converts this `JsonObject` into a Lua `Value`.
-    fn into_lua(self, lua: &Lua) -> Result<Value> {
+    pub(crate) fn into_lua(self, lua: &Lua) -> Result<Value> {
         match self.current() {
             serde_json::Value::Null => Ok(Value::NULL),
             serde_json::Value::Bool(b) => Ok(Value::Boolean(*b)),
