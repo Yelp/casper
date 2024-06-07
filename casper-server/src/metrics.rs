@@ -24,11 +24,9 @@ pub fn init(config: &Config) {
 
 #[inline]
 pub fn global() -> &'static OpenTelemetryMetrics {
-    #[cfg(test)]
-    if METRICS.get().is_none() {
-        init(&Config::default());
+    if cfg!(test) {
+        return METRICS.get_or_init(|| OpenTelemetryMetrics::new(&Config::default()));
     }
-
     METRICS.get().unwrap()
 }
 
