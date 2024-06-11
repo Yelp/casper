@@ -375,7 +375,8 @@ impl RedisBackend {
         }
     }
 
-    async fn store_response_inner<'a>(&self, item: Item<'a>) -> Result<()> {
+    async fn store_response_inner<'a>(&self, item: Item<'a>) -> Result<usize> {
+        let mut stored_bytes = 0;
         let mut headers = Bytes::from(encode_headers(&item.headers)?);
         let mut body = item.body;
         let body_length = body.len();
@@ -437,6 +438,7 @@ impl RedisBackend {
                         false,
                     )
                     .await?;
+                stored_bytes += chunk.len();
             }
         }
 
@@ -452,6 +454,7 @@ impl RedisBackend {
             flags,
         };
         let response_item_enc = flexbuffers::to_vec(&response_item)?;
+        let response_item_size = response_item_enc.len();
 
         // Store response item
         self.pool
@@ -463,6 +466,7 @@ impl RedisBackend {
                 false,
             )
             .await?;
+        stored_bytes += response_item_size;
 
         // Update surrogate keys
         let int_cache_ttl = self.config.internal_cache_ttl;
@@ -508,7 +512,7 @@ impl RedisBackend {
         }))
         .await?;
 
-        Ok(())
+        Ok(stored_bytes)
     }
 
     fn get_fetch_timeout(&self) -> Duration {
@@ -556,7 +560,7 @@ impl Storage for RedisBackend {
             .with_context(|| format!("Failed to delete Response(s) for key `{}`", key))
     }
 
-    async fn store_response<'a>(&self, item: Item<'a>) -> Result<(), Self::Error> {
+    async fn store_response<'a>(&self, item: Item<'a>) -> Result<usize, Self::Error> {
         self.lazy_connect();
         let key = item.key.clone();
         let store_timeout = self.get_store_timeout();

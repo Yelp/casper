@@ -210,14 +210,14 @@ impl Storage for MemoryBackend {
         results
     }
 
-    async fn store_response<'a>(&self, item: Item<'a>) -> Result<(), Self::Error> {
+    async fn store_response<'a>(&self, item: Item<'a>) -> Result<usize, Self::Error> {
         self.store_responses([item]).await.remove(0)
     }
 
     async fn store_responses(
         &self,
         items: impl IntoIterator<Item = Item<'_>>,
-    ) -> Vec<Result<(), Self::Error>> {
+    ) -> Vec<Result<usize, Self::Error>> {
         let mut memory = self.inner.lock().await;
         let mut results = Vec::new();
         for item in items {
@@ -229,8 +229,9 @@ impl Storage for MemoryBackend {
                     expires: SystemTime::now() + item.ttl,
                     surrogate_keys: item.surrogate_keys,
                 };
+                let size = value.headers.len() + value.body.len();
                 memory.insert(item.key, value);
-                Ok(())
+                Ok(size)
             })();
             results.push(result);
         }
