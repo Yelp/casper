@@ -88,7 +88,7 @@ impl Storage for Backend {
     }
 
     #[inline]
-    async fn store_response<'a>(&self, item: Item<'a>) -> Result<(), Self::Error> {
+    async fn store_response<'a>(&self, item: Item<'a>) -> Result<usize, Self::Error> {
         match self {
             Backend::Memory(inner) => inner.store_response(item).await,
             Backend::Redis(inner) => inner.store_response(item).await,
@@ -121,7 +121,7 @@ impl Storage for Backend {
     async fn store_responses(
         &self,
         items: impl IntoIterator<Item = Item<'_>>,
-    ) -> Vec<Result<(), Self::Error>> {
+    ) -> Vec<Result<usize, Self::Error>> {
         match self {
             Backend::Memory(inner) => inner.store_responses(items).await,
             Backend::Redis(inner) => inner.store_responses(items).await,

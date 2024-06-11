@@ -153,10 +153,10 @@ where
 
     /// Stores a response in the storage.
     ///
-    /// Returns `true` if the response was stored.
+    /// Returns number of written bytes to the cache if the response was stored.
     /// In case of errors returns `nil` and a string with error message.
     #[instrument(skip_all, fields(name = self.0.name(), backend = self.0.backend_type()))]
-    async fn store_response<'l>(&self, lua: &'l Lua, item: Table<'l>) -> LuaDoubleResult<bool> {
+    async fn store_response<'l>(&self, lua: &'l Lua, item: Table<'l>) -> LuaDoubleResult<usize> {
         let start = Instant::now();
 
         let key: Value = item.raw_get("key").context("invalid `key`")?;
@@ -197,21 +197,21 @@ where
         storage_counter_add!(1, "name" => self.0.name(), "operation" => "store");
         storage_histogram_rec!(start, "name" => self.0.name(), "operation" => "store");
 
-        Ok(result.map(|_| true).map_err(|err| err.into().to_string()))
+        Ok(result.map_err(|err| err.into().to_string()))
     }
 
     /// Stores responses in the storage.
     ///
-    /// Returns `true` if all the responses were stored.
-    /// In case of errors returns `false` and a table of: { string | true }
+    /// Returns total number of written bytes to the cache if all the responses were stored.
+    /// In case of errors returns `nil` and a table of: { string | number }
     ///   string - error message
-    ///   `true` - if response was stored
+    ///   number - number of bytes written to the cache
     #[instrument(skip_all, fields(name = self.0.name(), backend = self.0.backend_type()))]
     async fn store_responses<'l>(
         &self,
         lua: &'l Lua,
         lua_items: Table<'l>,
-    ) -> LuaResult<(bool, Option<Vec<Value<'l>>>)> {
+    ) -> LuaResult<(Option<usize>, Option<Vec<Value<'l>>>)> {
         let start = Instant::now();
 
         // Read rest of the fields
@@ -273,18 +273,22 @@ where
         storage_histogram_rec!(start, "name" => self.0.name(), "operation" => "store");
 
         // If all responses were stored then return `true`
-        if results.iter().all(|r| r.is_ok()) {
-            return Ok((true, None));
+        let mut total_size = 0;
+        if results.iter().all(|r| {
+            total_size += r.as_ref().cloned().unwrap_or_default();
+            r.is_ok()
+        }) {
+            return Ok((Some(total_size), None));
         }
 
         let results = results
             .into_iter()
             .map(|res| match res {
-                Ok(_) => Ok(Value::Boolean(true)),
+                Ok(size) => Ok(Value::Integer(size as _)),
                 Err(err) => Ok(Value::String(lua.create_string(&err.into().to_string())?)),
             })
             .collect::<LuaResult<Vec<_>>>()?;
-        Ok((false, Some(results)))
+        Ok((None, Some(results)))
     }
 }
 
@@ -378,13 +382,13 @@ mod tests {
                 headers = { hello = "world" },
                 body = "test response 1",
             })
-            local ok, err = $storage:store_response({
+            local size, err = $storage:store_response({
                 key = {"a", "bc"}, // key parts should be concatenated
                 response = resp,
                 surrogate_keys = {"skey1", "skey2"},
                 ttl = 10,
             })
-            assert(ok and err == nil)
+            assert(size > 0 and err == nil)
             resp = $storage:get_response("abc")
             assert(resp.status == 201)
             assert(resp:header("hello") == "world")
@@ -423,7 +427,7 @@ mod tests {
             assert(responses[2] == false, "response#2 should not exist")
 
             // Store few responses with different keys and surrogate keys
-            local ok, err = $storage:store_responses({
+            local size, err = $storage:store_responses({
                 {
                     key = {"a", "bc"}, // key parts should be concatenated
                     response = Response.new({
@@ -445,7 +449,7 @@ mod tests {
                     ttl = 10,
                 }
             })
-            assert(ok == true and err == nil, "responses should be stored")
+            assert(size > 0 and err == nil, "responses should be stored")
 
             // Fetch them back
             responses = $storage:get_responses({"abc", "cde", "def"})
