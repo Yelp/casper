@@ -91,7 +91,7 @@ pub trait Storage {
 
     async fn delete_responses(&self, key: ItemKey) -> Result<(), Self::Error>;
 
-    async fn store_response<'a>(&self, item: Item<'a>) -> Result<(), Self::Error>;
+    async fn store_response<'a>(&self, item: Item<'a>) -> Result<usize, Self::Error>;
 
     //
     // Provided implementation
@@ -122,7 +122,7 @@ pub trait Storage {
     async fn store_responses(
         &self,
         items: impl IntoIterator<Item = Item<'_>>,
-    ) -> Vec<Result<(), Self::Error>> {
+    ) -> Vec<Result<usize, Self::Error>> {
         // Create list of pending futures to poll them in parallel
         stream::iter(items.into_iter().map(|it| self.store_response(it)))
             .buffered(Self::MAX_CONCURRENCY)
