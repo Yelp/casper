@@ -31,8 +31,8 @@ fn normalize_uri(_: &Lua, uri: LuaString) -> LuaResult<String> {
             // Split query to a list of (k, v) items (where `v` is optional)
             let mut query_pairs = query
                 .split('&')
-                .map(|it| it.splitn(2, '=').collect::<Box<_>>())
-                .collect::<Box<_>>();
+                .map(|it| it.splitn(2, '=').collect::<Vec<&str>>())
+                .collect::<Vec<Vec<&str>>>();
 
             // Sort the list
             query_pairs.sort_by_key(|x| x[0]);
@@ -41,7 +41,7 @@ fn normalize_uri(_: &Lua, uri: LuaString) -> LuaResult<String> {
             let query = query_pairs
                 .iter()
                 .map(|kv| kv.join("="))
-                .collect::<Box<_>>()
+                .collect::<Vec<String>>()
                 .join("&");
 
             parts.path_and_query = Some(format!("{}?{}", path, query).parse().into_lua_err()?)
