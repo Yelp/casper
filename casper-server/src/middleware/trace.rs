@@ -84,7 +84,7 @@ where
             let connection_info = req.connection_info();
             let span_builder = self
                 .tracer
-                .span_builder(format!("{} {}", req.method(), req.uri().path()))
+                .span_builder(format!("{}", req.method()))
                 .with_kind(trace::SpanKind::Server)
                 .with_attributes([
                     KeyValue::new("request.method", req.method().to_string()),
