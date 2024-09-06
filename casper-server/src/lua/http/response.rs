@@ -390,6 +390,7 @@ impl UserData for LuaResponse {
 #[cfg(test)]
 mod tests {
     use mlua::{chunk, AnyUserData, Lua, Result};
+    use opentelemetry::Key;
 
     use super::*;
 
@@ -591,7 +592,7 @@ mod tests {
             .eval()
             .unwrap();
         let resp = resp.take::<LuaResponse>()?;
-        assert_eq!(resp.labels().unwrap()[&"hello".into()], "world".into());
+        assert_eq!(resp.labels().unwrap()[&Key::from("hello")], "world".into());
 
         Ok(())
     }
