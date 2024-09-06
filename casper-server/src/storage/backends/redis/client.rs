@@ -430,7 +430,7 @@ impl RedisBackend {
                 num_chunks += 1;
                 // Store chunk in Redis
                 self.pool
-                    .set(
+                    .set::<(), _, _>(
                         make_chunk_key(&item.key, i as u32 + 1),
                         RedisValue::Bytes(chunk.to_vec().into()),
                         Some(Expiration::EX(ttl as i64)),
@@ -458,7 +458,7 @@ impl RedisBackend {
 
         // Store response item
         self.pool
-            .set(
+            .set::<(), _, _>(
                 make_redis_key(&item.key),
                 RedisValue::Bytes(response_item_enc.into()),
                 Some(Expiration::EX(ttl as i64)),
@@ -505,7 +505,7 @@ impl RedisBackend {
             if refresh_ttl && rand::random::<u8>() % 100 < 1 {
                 // Refresh TTL with 1% probability
                 self.pool
-                    .expire(make_redis_key(&skey), SURROGATE_KEYS_TTL)
+                    .expire::<(), _>(make_redis_key(&skey), SURROGATE_KEYS_TTL)
                     .await?;
             }
             anyhow::Ok(())
