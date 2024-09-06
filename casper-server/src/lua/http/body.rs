@@ -82,9 +82,8 @@ impl LuaBody {
         match self {
             LuaBody::None => Ok(None),
             LuaBody::Bytes(bytes) => Ok(Some(bytes.clone())),
-            _ => Ok(self.read().await?.map(|b| {
+            _ => Ok(self.read().await?.inspect(|b| {
                 *self = LuaBody::Bytes(b.clone());
-                b
             })),
         }
     }

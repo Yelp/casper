@@ -135,10 +135,9 @@ where
                 ResponseBody::Other(Body::from_message(StreamSpan { body, otel_cx }))
             })
         })
-        .map_err(|err| {
+        .inspect_err(|err| {
             let span = otel_cx.span();
             span.set_status(trace::Status::error(err.to_string()));
-            err
         })
     }
 }

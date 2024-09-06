@@ -145,7 +145,7 @@ where
             .into_iter()
             .map(|res| match res {
                 Ok(_) => Ok(Value::Boolean(true)),
-                Err(err) => Ok(Value::String(lua.create_string(&err.into().to_string())?)),
+                Err(err) => Ok(Value::String(lua.create_string(err.into().to_string())?)),
             })
             .collect::<LuaResult<Vec<_>>>()?;
         Ok((false, Some(results)))
@@ -285,7 +285,7 @@ where
             .into_iter()
             .map(|res| match res {
                 Ok(size) => Ok(Value::Integer(size as _)),
-                Err(err) => Ok(Value::String(lua.create_string(&err.into().to_string())?)),
+                Err(err) => Ok(Value::String(lua.create_string(err.into().to_string())?)),
             })
             .collect::<LuaResult<Vec<_>>>()?;
         Ok((None, Some(results)))
