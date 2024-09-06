@@ -43,7 +43,7 @@ fn init_opentelemetry(config: &Config) {
     let mut pipeline_builder = opentelemetry_zipkin::new_pipeline()
         .with_http_client(spawn_http_client())
         .with_trace_config(
-            trace::config()
+            trace::Config::default()
                 .with_sampler(sampler)
                 .with_id_generator(RandomIdGenerator::default()),
         );
