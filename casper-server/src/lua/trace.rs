@@ -102,6 +102,12 @@ impl UserData for LuaSpan {
             Ok(())
         });
 
+        // Update the span name.
+        methods.add_method_mut("update_name", |_, this, name: String| {
+            this.0.update_name(name);
+            Ok(())
+        });
+
         // Signals that the operation described by this span has now ended.
         methods.add_method_mut("finish", |_, this, ()| {
             this.0.end();
@@ -213,7 +219,8 @@ mod tests {
 
         tracer.in_span("root", |_cx| {
             lua.load(chunk! {
-                local span = $trace.new_span("child", "client")
+                local span = $trace.new_span("TBC", "client")
+                span:update_name("child")
                 span:set_attributes({ foo = 1, hello = "world" })
                 span:set_status("ok")
                 span:add_event("event", { bar = 1 })
