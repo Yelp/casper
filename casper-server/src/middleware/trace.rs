@@ -8,6 +8,9 @@ use ntex::util::Bytes;
 use ntex::web::{ErrorRenderer, WebRequest, WebResponse};
 use opentelemetry::trace::{self, FutureExt, TraceContextExt, Tracer, TracerProvider as _};
 use opentelemetry::{global, Context as OtelContext, KeyValue};
+use opentelemetry_semantic_conventions::trace::{
+    HTTP_REQUEST_METHOD, HTTP_RESPONSE_STATUS_CODE, NETWORK_PEER_ADDRESS, URL_PATH, URL_QUERY,
+};
 
 use crate::config::TracingConfig;
 use crate::http::trace::{ParentSamplingDecision, RequestHeaderCarrier};
@@ -64,7 +67,6 @@ where
     forward_ready!(service);
     forward_shutdown!(service);
 
-    #[inline]
     async fn call(
         &self,
         req: WebRequest<E>,
@@ -87,11 +89,15 @@ where
                 .span_builder(format!("{} {}", req.method(), req.uri().path()))
                 .with_kind(trace::SpanKind::Server)
                 .with_attributes([
-                    KeyValue::new("request.method", req.method().to_string()),
-                    KeyValue::new("request.uri", req.uri().to_string()),
-                    KeyValue::new("request.host", connection_info.host().to_string()),
+                    KeyValue::new(HTTP_REQUEST_METHOD, req.method().to_string()),
+                    KeyValue::new(URL_PATH, req.uri().path().to_string()),
+                    KeyValue::new(URL_QUERY, req.uri().query().unwrap_or_default().to_string()),
                     KeyValue::new(
-                        "request.peer_addr",
+                        "http.request.header.host",
+                        connection_info.host().to_string(),
+                    ),
+                    KeyValue::new(
+                        NETWORK_PEER_ADDRESS,
                         req.peer_addr()
                             .map(|addr| addr.to_string())
                             .unwrap_or_default(),
@@ -121,7 +127,7 @@ where
 
             let status = response.status();
             span.set_attribute(KeyValue::new(
-                "response.status_code",
+                HTTP_RESPONSE_STATUS_CODE,
                 status.as_u16() as i64,
             ));
             if status.is_server_error() {

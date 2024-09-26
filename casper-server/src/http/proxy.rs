@@ -8,6 +8,9 @@ use ntex::http::uri::{InvalidUri, InvalidUriParts, Scheme, Uri};
 use ntex::http::StatusCode;
 use opentelemetry::trace::{self, TraceContextExt as _, Tracer as _};
 use opentelemetry::{global, Context, KeyValue};
+use opentelemetry_semantic_conventions::trace::{
+    HTTP_REQUEST_METHOD, HTTP_RESPONSE_STATUS_CODE, URL_PATH, URL_QUERY,
+};
 use scopeguard::defer;
 use tracing::{debug, instrument, Span};
 
@@ -67,8 +70,9 @@ pub async fn proxy_to_upstream(
             .span_builder("proxy_to_upstream")
             .with_kind(trace::SpanKind::Client)
             .with_attributes([
-                KeyValue::new("request.method", req.method().to_string()),
-                KeyValue::new("request.uri", req.uri().to_string()),
+                KeyValue::new(HTTP_REQUEST_METHOD, req.method().to_string()),
+                KeyValue::new(URL_PATH, req.uri().path().to_string()),
+                KeyValue::new(URL_QUERY, req.uri().query().unwrap_or_default().to_string()),
             ])
             .start(&tracer);
         cx = cx.with_span(span);
@@ -89,7 +93,7 @@ pub async fn proxy_to_upstream(
             let span = cx.span();
             defer! { span.end(); }
             let status_i64 = resp.status().as_u16() as i64;
-            span.set_attribute(KeyValue::new("response.status_code", status_i64));
+            span.set_attribute(KeyValue::new(HTTP_RESPONSE_STATUS_CODE, status_i64));
             if resp.status().is_server_error() {
                 span.set_status(trace::Status::error("server error"));
             } else if resp.status().is_success() {
@@ -112,7 +116,7 @@ pub async fn proxy_to_upstream(
                 _ => return Err(err.to_string().into_lua_err()),
             };
             let status_i64 = status.as_u16() as i64;
-            span.set_attribute(KeyValue::new("response.status_code", status_i64));
+            span.set_attribute(KeyValue::new(HTTP_RESPONSE_STATUS_CODE, status_i64));
 
             let mut resp = LuaResponse::new(LuaBody::from(err.to_string()));
             *resp.status_mut() = status;
