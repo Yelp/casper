@@ -46,6 +46,14 @@ impl UserData for LuaCurrentSpan {
                 Ok(())
             })
         });
+
+        // Update the name of this (current) span.
+        methods.add_method_mut("update_name", |_, _, name: String| {
+            get_active_span(|span| {
+                span.update_name(name);
+                Ok(())
+            })
+        });
     }
 }
 
@@ -204,6 +212,32 @@ mod tests {
         let event = span.events.iter().next().unwrap();
         assert_eq!(&event.name, "event");
         assert_eq!(event.attributes[0], KeyValue::new("bar", 1));
+
+        Ok(())
+    }
+
+    #[test]
+    #[serial]
+    fn test_current_span_update_name() -> Result<()> {
+        let lua = Lua::new();
+        let trace = super::create_module(&lua)?;
+
+        let (tracer, provider, exporter) = build_test_tracer();
+        global::set_tracer_provider(provider);
+
+        tracer.in_span("root", |_cx| {
+            lua.load(chunk! {
+                $trace.current_span:update_name("new_root")
+            })
+            .exec()
+            .unwrap();
+        });
+
+        global::shutdown_tracer_provider(); // flush all spans
+        let spans = exporter.0.lock().unwrap();
+        assert_eq!(spans.len(), 1);
+        let span = &spans[0];
+        assert_eq!(span.name, "new_root");
 
         Ok(())
     }
