@@ -1,6 +1,6 @@
 use std::env;
 use std::rc::Rc;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 
 use clap::Parser;
@@ -74,11 +74,6 @@ async fn main_inner(args: Args) -> anyhow::Result<()> {
     let addr = config.main.listen.clone();
     let workers = config.main.workers;
 
-    // Get available CPU cores
-    let core_ids = Arc::new(Mutex::new(
-        core_affinity::get_core_ids().unwrap_or_default(),
-    ));
-
     Server::build()
         .bind("casper", &addr, move |conf| {
             conf.memory_pool(PoolId::P0);
@@ -90,12 +85,6 @@ async fn main_inner(args: Args) -> anyhow::Result<()> {
                 .build()
                 .unwrap();
             let id = context.id;
-
-            if config.main.pin_workers {
-                if let Some(id) = core_ids.lock().unwrap().pop() {
-                    core_affinity::set_for_current(id);
-                }
-            }
 
             // Construct default HTTP client and attach it to Lua
             let http_client = HttpClient::build()
