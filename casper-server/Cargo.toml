@@ -12,7 +12,6 @@ blake3 = "1.0"
 bytes = { version = "1", features = ["serde"] }
 bstr = "1.9"
 clap = { version = "4", features = ["derive", "env"] }
-core_affinity = "0.8.0"
 csv = "1.0"
 dyn-clone = "1"
 flexbuffers = "2"

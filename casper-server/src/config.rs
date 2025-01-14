@@ -28,9 +28,6 @@ pub struct MainConfig {
     #[serde(default = "MainConfig::default_workers")]
     pub workers: usize,
 
-    #[serde(default)]
-    pub pin_workers: bool,
-
     #[serde(default = "MainConfig::default_listen")]
     pub listen: String,
 
@@ -101,7 +98,6 @@ impl Default for MainConfig {
         MainConfig {
             service_name: None,
             workers: Self::default_workers(),
-            pin_workers: false,
             listen: Self::default_listen(),
             max_background_tasks: None,
         }
