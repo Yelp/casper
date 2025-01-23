@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use anyhow::{anyhow, bail, Context, Result};
-use fred::types::{ConnectionConfig, RedisConfig, TcpConfig, TlsConnector};
+use fred::types::config::{Config as RedisConfig, ConnectionConfig, TcpConfig, TlsConnector};
 use ntex::util::Bytes;
 use serde::Deserialize;
 
@@ -58,12 +58,14 @@ impl Default for ServerConfig {
 }
 
 impl ServerConfig {
-    fn into_redis_server_config(self) -> Result<fred::types::ServerConfig> {
+    fn into_redis_server_config(self) -> Result<fred::types::config::ServerConfig> {
         match self {
             ServerConfig::Centralized { endpoint } => {
                 let (host, port) = parse_host_port(&endpoint)
                     .with_context(|| format!("invalid redis endpoint `{endpoint}`"))?;
-                Ok(fred::types::ServerConfig::new_centralized(host, port))
+                Ok(fred::types::config::ServerConfig::new_centralized(
+                    host, port,
+                ))
             }
             ServerConfig::Clustered { endpoints } => {
                 let mut hosts = Vec::new();
@@ -72,7 +74,7 @@ impl ServerConfig {
                         .with_context(|| format!("invalid redis endpoint `{endpoint}`"))?;
                     hosts.push((host, port));
                 }
-                Ok(fred::types::ServerConfig::new_clustered(hosts))
+                Ok(fred::types::config::ServerConfig::new_clustered(hosts))
             }
         }
     }
