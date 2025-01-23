@@ -4,7 +4,7 @@ use std::sync::{Arc, OnceLock};
 
 use opentelemetry::global;
 use opentelemetry::metrics::{Counter, Histogram, MeterProvider as _};
-use opentelemetry_sdk::metrics::{self, SdkMeterProvider};
+use opentelemetry_sdk::metrics::SdkMeterProvider;
 use tokio::sync::RwLock;
 
 use crate::config::Config;
@@ -69,25 +69,7 @@ impl OpenTelemetryMetrics {
             .build()
             .expect("failed to create prometheus exporter");
 
-        let provider = SdkMeterProvider::builder()
-            .with_reader(exporter)
-            .with_view(
-                metrics::new_view(
-                    {
-                        let mut instrument = metrics::Instrument::new();
-                        instrument.kind = Some(metrics::InstrumentKind::Histogram);
-                        instrument
-                    },
-                    metrics::Stream::new().aggregation(
-                        metrics::Aggregation::ExplicitBucketHistogram {
-                            boundaries: BOUNDARIES.to_vec(),
-                            record_min_max: true,
-                        },
-                    ),
-                )
-                .expect("failed to create histogram view"),
-            )
-            .build();
+        let provider = SdkMeterProvider::builder().with_reader(exporter).build();
 
         let meter = provider.meter("casper");
         global::set_meter_provider(provider);
@@ -103,7 +85,7 @@ impl OpenTelemetryMetrics {
                 .with_callback(move |instr| {
                     instr.observe(counter2.get(), &[]);
                 })
-                .init();
+                .build();
             counter
         };
 
@@ -118,7 +100,7 @@ impl OpenTelemetryMetrics {
                 .with_callback(move |instr| {
                     instr.observe(counter2.get(), &[]);
                 })
-                .init();
+                .build();
             counter
         };
 
@@ -131,7 +113,7 @@ impl OpenTelemetryMetrics {
                 .with_callback(move |instr| {
                     instr.observe(counter2.get(), &[]);
                 })
-                .init();
+                .build();
             counter
         };
 
@@ -148,7 +130,7 @@ impl OpenTelemetryMetrics {
                         instr.observe(used_memory_total, &[]);
                     }
                 })
-                .init();
+                .build();
             used_memory
         };
 
@@ -160,7 +142,7 @@ impl OpenTelemetryMetrics {
                     instr.observe(n.get() as u64, &[]);
                 }
             })
-            .init();
+            .build();
 
         // Common (prometheus) labels for all metrics
         let mut extra_labels = config
@@ -190,7 +172,7 @@ impl OpenTelemetryMetrics {
                 if let Some(description) = conf.description {
                     counter = counter.with_description(description);
                 }
-                counters.insert(key, counter.init());
+                counters.insert(key, counter.build());
             }
         }
 
@@ -198,17 +180,18 @@ impl OpenTelemetryMetrics {
             connections_counter: meter
                 .u64_counter("http_connections")
                 .with_description("Total number of HTTP connections processed by the application.")
-                .init(),
+                .build(),
             active_connections_counter,
 
             requests_counter: meter
                 .u64_counter("http_requests")
                 .with_description("Total number of HTTP requests processed by the application.")
-                .init(),
+                .build(),
             requests_histogram: meter
                 .f64_histogram("http_request_duration_seconds")
                 .with_description("HTTP request latency in seconds.")
-                .init(),
+                .with_boundaries(BOUNDARIES.to_vec())
+                .build(),
             active_requests_counter,
 
             storage_counter: meter
@@ -216,35 +199,38 @@ impl OpenTelemetryMetrics {
                 .with_description(
                     "Total number of requests being processed by the storage backend.",
                 )
-                .init(),
+                .build(),
             storage_histogram: meter
                 .f64_histogram("storage_request_duration_seconds")
                 .with_description("The storage backend request latency in seconds.")
-                .init(),
+                .with_boundaries(BOUNDARIES.to_vec())
+                .build(),
 
             filter_histogram: meter
                 .f64_histogram("filter_request_duration_seconds")
                 .with_description("Filter only request latency in seconds.")
-                .init(),
+                .with_boundaries(BOUNDARIES.to_vec())
+                .build(),
             filter_error_counter: meter
                 .u64_counter("filter_errors")
                 .with_description("Total number of errors thrown by filter.")
-                .init(),
+                .build(),
 
             handler_error_counter: meter
                 .u64_counter("handler_errors")
                 .with_description("Total number of errors thrown by handler.")
-                .init(),
+                .build(),
 
             active_tasks_counter,
             task_histogram: meter
                 .f64_histogram("task_duration_seconds")
                 .with_description("Task running duration in seconds.")
-                .init(),
+                .with_boundaries(BOUNDARIES.to_vec())
+                .build(),
             task_error_counter: meter
                 .u64_counter("task_errors")
                 .with_description("Total number of errors thrown by task.")
-                .init(),
+                .build(),
 
             lua_used_memory,
 
@@ -273,10 +259,7 @@ macro_rules! requests_counter_inc {
     ($attrs_map:expr) => {{
         let attrs = $attrs_map
             .iter()
-            .map(|(key, value)| ::opentelemetry::KeyValue {
-                key: key.clone(),
-                value: value.clone(),
-            })
+            .map(|(key, value)| ::opentelemetry::KeyValue::new(key.clone(), value.clone()))
             .collect::<Vec<_>>();
         crate::metrics::global().requests_counter.add(1, &attrs);
     }};
@@ -286,10 +269,7 @@ macro_rules! requests_histogram_rec {
     ($start:expr, $attrs_map:expr) => {{
         let attrs = $attrs_map
             .iter()
-            .map(|(key, value)| ::opentelemetry::KeyValue {
-                key: key.clone(),
-                value: value.clone(),
-            })
+            .map(|(key, value)| ::opentelemetry::KeyValue::new(key.clone(), value.clone()))
             .collect::<Vec<_>>();
         crate::metrics::global()
             .requests_histogram

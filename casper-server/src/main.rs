@@ -43,9 +43,6 @@ async fn main_inner(args: Args) -> anyhow::Result<()> {
         env::set_var("OTEL_SERVICE_NAME", service_name);
     }
 
-    // Set opentelemetry global error handler
-    crate::otel::set_error_handler();
-
     // Init tracing subsystem
     crate::trace::init(&config);
 
@@ -151,7 +148,6 @@ mod handler;
 mod http;
 mod lua;
 mod middleware;
-mod otel;
 mod storage;
 mod types;
 mod utils;

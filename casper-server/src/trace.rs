@@ -40,6 +40,7 @@ fn init_opentelemetry(config: &Config) {
         Sampler::ParentBased(Box::new(Sampler::AlwaysOn))
     };
 
+    #[allow(deprecated)] // Wait for the opentelemetry 0.28 release
     let mut pipeline_builder = opentelemetry_zipkin::new_pipeline()
         .with_http_client(spawn_http_client())
         .with_trace_config(

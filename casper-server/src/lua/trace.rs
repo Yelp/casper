@@ -1,9 +1,7 @@
 use itertools::Itertools;
 use mlua::{Lua, Result, Table, Table as LuaTable, UserData, UserDataMethods, Value as LuaValue};
 use opentelemetry::global::BoxedSpan;
-use opentelemetry::trace::{
-    get_active_span, Span, SpanKind, Status as SpanStatus, Tracer as _, TracerProvider as _,
-};
+use opentelemetry::trace::{get_active_span, Span, SpanKind, Status as SpanStatus, Tracer as _};
 use opentelemetry::{global, KeyValue};
 
 // Handler to a current span (resolved on each method call)
@@ -62,11 +60,7 @@ struct LuaSpan(BoxedSpan);
 impl LuaSpan {
     /// Create a new span
     fn new(_: &Lua, (name, kind): (String, Option<String>)) -> Result<LuaSpan> {
-        let tracer = global::tracer_provider()
-            .tracer_builder("casper-opentelemetry")
-            .with_version(env!("CARGO_PKG_VERSION"))
-            .with_schema_url(opentelemetry_semantic_conventions::SCHEMA_URL)
-            .build();
+        let tracer = global::tracer("casper-opentelemetry");
 
         let mut builder = tracer.span_builder(name);
         match kind.as_deref() {

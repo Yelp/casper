@@ -92,7 +92,7 @@ impl RedisMetrics {
             internal_cache_counter: meter
                 .u64_counter("redis_internal_cache_requests")
                 .with_description("Total number of Redis requests served from the internal cache.")
-                .init(),
+                .build(),
         }
     }
 

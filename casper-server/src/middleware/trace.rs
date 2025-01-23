@@ -6,7 +6,7 @@ use ntex::http::body::{Body, BodySize, MessageBody, ResponseBody};
 use ntex::service::{forward_ready, forward_shutdown, Middleware, Service, ServiceCtx};
 use ntex::util::Bytes;
 use ntex::web::{ErrorRenderer, WebRequest, WebResponse};
-use opentelemetry::trace::{self, FutureExt, TraceContextExt, Tracer, TracerProvider as _};
+use opentelemetry::trace::{self, FutureExt, TraceContextExt, Tracer};
 use opentelemetry::{global, Context as OtelContext, KeyValue};
 use opentelemetry_semantic_conventions::trace::{
     HTTP_REQUEST_METHOD, HTTP_RESPONSE_STATUS_CODE, NETWORK_PEER_ADDRESS, URL_PATH, URL_QUERY,
@@ -34,11 +34,7 @@ impl<S> Middleware<S> for RequestTracing {
     type Service = RequestTracingService<S>;
 
     fn create(&self, service: S) -> Self::Service {
-        let tracer = global::tracer_provider()
-            .tracer_builder("casper-opentelemetry")
-            .with_version(env!("CARGO_PKG_VERSION"))
-            .with_schema_url(opentelemetry_semantic_conventions::SCHEMA_URL)
-            .build();
+        let tracer = global::tracer("casper-opentelemetry");
 
         RequestTracingService {
             config: self.config.clone(),
