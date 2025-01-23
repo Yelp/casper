@@ -31,12 +31,13 @@ num_cpus = "1.13"
 num_threads = "0.1"
 once_cell = "1"
 openssl = "0.10"
-opentelemetry = { version = "0.24", features = ["metrics"] }
-opentelemetry-http = "0.13"
-opentelemetry-prometheus = "0.17"
-opentelemetry-semantic-conventions = "0.16"
-opentelemetry-zipkin = { version = "0.22", default-features = false }
-opentelemetry_sdk = { version = "0.24", features = ["rt-tokio-current-thread"] }
+opentelemetry = { version = "0.27", features = ["metrics"] }
+opentelemetry-http = "0.27"
+opentelemetry-prometheus = "0.27"
+opentelemetry-semantic-conventions = "0.27"
+opentelemetry-zipkin = { version = "0.27", default-features = false }
+opentelemetry_sdk = { version = "0.27", features = ["rt-tokio-current-thread"] }
+opentelemetry-appender-tracing = "0.27.0"
 ouroboros = "0.18"
 parking_lot = "0.12"
 percent-encoding = "2.2"
