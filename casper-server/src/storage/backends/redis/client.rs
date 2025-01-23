@@ -8,12 +8,11 @@ use std::time::{Duration, Instant, SystemTime};
 use anyhow::{anyhow, Context, Result};
 use base64::Engine as _;
 use bitflags::bitflags;
-use fred::clients::RedisPool;
-use fred::error::RedisError;
+use fred::clients::Pool as RedisPool;
+use fred::error::Error as RedisError;
 use fred::interfaces::{ClientLike, KeysInterface};
-use fred::types::{
-    Expiration, PerformanceConfig, ReconnectPolicy, RedisKey, RedisValue, SetOptions,
-};
+use fred::types::config::{PerformanceConfig, ReconnectPolicy};
+use fred::types::{Expiration, Key as RedisKey, SetOptions, Value as RedisValue};
 use futures::future::{try_join, try_join_all};
 use futures::stream::{self, StreamExt, TryStreamExt};
 use moka::future::Cache;
@@ -505,7 +504,7 @@ impl RedisBackend {
             if refresh_ttl && rand::random::<u8>() % 100 < 1 {
                 // Refresh TTL with 1% probability
                 self.pool
-                    .expire::<(), _>(make_redis_key(&skey), SURROGATE_KEYS_TTL)
+                    .expire::<(), _>(make_redis_key(&skey), SURROGATE_KEYS_TTL, None)
                     .await?;
             }
             anyhow::Ok(())
