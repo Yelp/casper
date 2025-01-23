@@ -14,7 +14,7 @@ bstr = "1.9"
 clap = { version = "4", features = ["derive", "env"] }
 csv = "1.0"
 dyn-clone = "1"
-flexbuffers = "2"
+flexbuffers = "25"
 form_urlencoded = "1"
 futures = "0.3"
 futures-util = "0.3"
