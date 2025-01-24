@@ -35,7 +35,7 @@ pub struct AppContextInner {
     pub id: usize,
     pub config: Arc<Config>,
 
-    pub lua: Rc<Lua>,
+    pub lua: Lua,
     pub filters: Vec<Filter>,
     pub handler: Option<Function>,
     pub access_log: Option<Function>,
@@ -97,7 +97,6 @@ impl AppContextInner {
         let lua_options = LuaOptions::new().thread_pool_size(LUA_THREAD_POOL_SIZE);
         let lua = Lua::new_with(LuaStdLib::ALL_SAFE, lua_options)
             .with_context(|| "Failed to create Lua instance")?;
-        let lua = Rc::new(lua);
 
         let mut worker_ctx = AppContextInner {
             id: NEXT_ID.fetch_add(1, Ordering::SeqCst),
@@ -142,7 +141,7 @@ impl AppContextInner {
 
         // Start task scheduler
         let max_background_tasks = self.config.main.max_background_tasks;
-        lua::tasks::start_task_scheduler(lua.clone(), max_background_tasks);
+        lua::tasks::start_task_scheduler(&lua, max_background_tasks);
 
         // Enable sandboxing before loading user code
         lua.sandbox(true)?;

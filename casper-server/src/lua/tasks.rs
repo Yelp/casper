@@ -1,10 +1,8 @@
-use std::rc::Rc;
 use std::result::Result as StdResult;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use mlua::{
-    AnyUserData, ExternalError, ExternalResult, Function, Lua, RegistryKey, Result, Table,
-    UserData, Value,
+    AnyUserData, ExternalError, ExternalResult, Function, Lua, Result, Table, UserData, Value,
 };
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 use tokio::sync::oneshot;
@@ -14,7 +12,7 @@ use tracing::warn;
 
 // TODO: Support recurring tasks
 
-type TaskJoinHandle = JoinHandle<Result<RegistryKey>>;
+type TaskJoinHandle = JoinHandle<Result<Value>>;
 
 #[derive(Debug)]
 struct Task {
@@ -44,14 +42,14 @@ impl UserData for TaskHandle {
     }
 
     fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
-        methods.add_async_function("join", |lua, this: AnyUserData| async move {
+        methods.add_async_function("join", |_, this: AnyUserData| async move {
             let mut this = this.take::<Self>()?;
             if let Some(rx) = this.join_handle_rx.take() {
                 this.join_handle = Some(rx.await.expect("Failed to get task join handle"));
             }
             let result = lua_try!(this.join_handle.unwrap().await);
-            let key = lua_try!(result);
-            Ok(Ok(lua.registry_value::<Value>(&key)?))
+            let result = lua_try!(result);
+            Ok(Ok(result))
         });
 
         methods.add_async_function("abort", |_, this: AnyUserData| async move {
@@ -129,7 +127,8 @@ fn spawn_task(lua: &Lua, arg: Value) -> Result<StdResult<TaskHandle, String>> {
     }))
 }
 
-pub fn start_task_scheduler(lua: Rc<Lua>, max_background_tasks: Option<u64>) {
+pub fn start_task_scheduler(lua: &Lua, max_background_tasks: Option<u64>) {
+    let lua = lua.clone();
     let mut task_rx = lua
         .remove_app_data::<UnboundedReceiver<Task>>()
         .expect("Failed to get task receiver");
@@ -138,8 +137,6 @@ pub fn start_task_scheduler(lua: Rc<Lua>, max_background_tasks: Option<u64>) {
 
     tokio::task::spawn_local(async move {
         while let Some(task) = task_rx.recv().await {
-            let lua = lua.clone();
-
             let join_handle = tokio::task::spawn_local(async move {
                 let start = Instant::now();
                 let _task_count_guard = tasks_counter_inc!();
@@ -149,12 +146,9 @@ pub fn start_task_scheduler(lua: Rc<Lua>, max_background_tasks: Option<u64>) {
                     Some(timeout) => ntex::time::timeout(timeout, task_future).await,
                     None => Ok(task_future.await),
                 };
-
-                let result = match result {
-                    Ok(result) => result.and_then(|v| lua.create_registry_value(v)),
-                    // Outer Result errors will always be timeouts
-                    Err(_) => Err("task exceeded timeout".to_string()).into_lua_err(),
-                };
+                // Outer Result errors will always be timeouts
+                let result = result
+                    .unwrap_or_else(|_| Err("task exceeded timeout".to_string()).into_lua_err());
 
                 // Record task metrics
                 match task.name {
@@ -182,7 +176,7 @@ pub fn start_task_scheduler(lua: Rc<Lua>, max_background_tasks: Option<u64>) {
     });
 }
 
-pub fn stop_task_scheduler(lua: &Rc<Lua>) {
+pub fn stop_task_scheduler(lua: &Lua) {
     lua.remove_app_data::<UnboundedSender<Task>>();
     lua.remove_app_data::<UnboundedReceiver<Task>>();
 }
@@ -216,7 +210,7 @@ mod tests {
             })?,
         )?;
 
-        super::start_task_scheduler(lua.clone(), Some(2));
+        super::start_task_scheduler(&lua, Some(2));
 
         // Test normal task run and result collection
         lua.load(chunk! {
