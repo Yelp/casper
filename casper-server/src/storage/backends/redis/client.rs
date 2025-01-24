@@ -65,12 +65,24 @@ struct SurrogateKeyItem {
 }
 
 bitflags! {
-    #[derive(Default, Serialize, Deserialize)]
+    #[derive(Default, Debug)]
     struct Flags: u32 {
         const UNUSED             = 0b00000001;
         const HEADERS_COMPRESSED = 0b00000010; // Headers compression
         const BODY_COMPRESSED    = 0b00000100; // Body compression
         const ENCRYPTED          = 0b00001000;
+    }
+}
+
+impl serde::Serialize for Flags {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        bitflags_serde_legacy::serialize(self, "Flags", serializer)
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for Flags {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        bitflags_serde_legacy::deserialize("Flags", deserializer)
     }
 }
 
