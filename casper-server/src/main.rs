@@ -1,5 +1,4 @@
 use std::env;
-use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -91,7 +90,7 @@ async fn main_inner(args: Args) -> anyhow::Result<()> {
             context.lua.set_app_data(http_client);
 
             // Track Lua used memory every 10 seconds
-            let lua = Rc::clone(&context.lua);
+            let lua = context.lua.clone();
 
             tokio::task::spawn_local(async move {
                 loop {
