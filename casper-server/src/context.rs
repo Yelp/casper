@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
-use mlua::{Function, Lua, LuaOptions, OwnedFunction, StdLib as LuaStdLib, Table};
+use mlua::{Function, Lua, LuaOptions, StdLib as LuaStdLib, Table};
 
 use crate::config::Config;
 use crate::lua::{self, LuaStorage};
@@ -27,8 +27,8 @@ pub struct AppContextBuilder {
 
 pub struct Filter {
     pub name: String,
-    pub on_request: Option<OwnedFunction>,
-    pub on_response: Option<OwnedFunction>,
+    pub on_request: Option<Function>,
+    pub on_response: Option<Function>,
 }
 
 pub struct AppContextInner {
@@ -37,9 +37,9 @@ pub struct AppContextInner {
 
     pub lua: Rc<Lua>,
     pub filters: Vec<Filter>,
-    pub handler: Option<OwnedFunction>,
-    pub access_log: Option<OwnedFunction>,
-    pub error_log: Option<OwnedFunction>,
+    pub handler: Option<Function>,
+    pub access_log: Option<Function>,
+    pub error_log: Option<Function>,
 
     storage_backends: Vec<Backend>,
 }
@@ -155,27 +155,24 @@ impl AppContextInner {
 
             self.filters.push(Filter {
                 name: filter.name.clone(),
-                on_request: on_request.map(|x| x.into_owned()),
-                on_response: on_response.map(|x| x.into_owned()),
+                on_request,
+                on_response,
             });
         }
 
         // Load main handler
         if let Some(handler) = &self.config.http.handler {
-            let handler: Option<Function> = lua.load(handler.code.trim()).eval()?;
-            self.handler = handler.map(|x| x.into_owned());
+            self.handler = lua.load(handler.code.trim()).eval()?;
         }
 
         // Load access logger
         if let Some(logger) = &self.config.http.access_log {
-            let access_log: Option<Function> = lua.load(logger.code.trim()).eval()?;
-            self.access_log = access_log.map(|x| x.into_owned());
+            self.access_log = lua.load(logger.code.trim()).eval()?;
         }
 
         // Load error logger
         if let Some(logger) = &self.config.http.error_log {
-            let error_log: Option<Function> = lua.load(&logger.code).eval()?;
-            self.error_log = error_log.map(|x| x.into_owned());
+            self.error_log = lua.load(&logger.code).eval()?;
         }
 
         Ok(())

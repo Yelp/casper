@@ -201,26 +201,26 @@ impl<Err> FromRequest<Err> for LuaRequest {
     }
 }
 
-impl<'lua> FromLua<'lua> for LuaRequest {
-    fn from_lua(value: Value<'lua>, lua: &'lua Lua) -> LuaResult<Self> {
+impl FromLua for LuaRequest {
+    fn from_lua(value: Value, lua: &Lua) -> LuaResult<Self> {
         let mut request = LuaRequest::new(LuaBody::None);
         let params = match lua.unpack::<Option<Table>>(value)? {
             Some(params) => params,
             None => return Ok(request),
         };
 
-        if let Ok(Some(method)) = params.raw_get::<_, Option<LuaString>>("method") {
-            *request.method_mut() = Method::from_bytes(method.as_bytes()).into_lua_err()?;
+        if let Ok(Some(method)) = params.raw_get::<Option<LuaString>>("method") {
+            *request.method_mut() = Method::from_bytes(&method.as_bytes()).into_lua_err()?;
         }
 
-        if let Ok(Some(uri)) = params.raw_get::<_, Option<LuaString>>("uri") {
-            *request.uri_mut() = Uri::try_from(uri.as_bytes())
+        if let Ok(Some(uri)) = params.raw_get::<Option<LuaString>>("uri") {
+            *request.uri_mut() = Uri::try_from(&*uri.as_bytes())
                 .map_err(|err| format!("invalid uri: {err}"))
                 .into_lua_err()?;
         }
 
-        if let Ok(Some(version)) = params.raw_get::<_, Option<LuaString>>("version") {
-            *request.version_mut() = match version.as_bytes() {
+        if let Ok(Some(version)) = params.raw_get::<Option<LuaString>>("version") {
+            *request.version_mut() = match &*version.as_bytes() {
                 b"1.0" => Version::HTTP_10,
                 b"1.1" => Version::HTTP_11,
                 b"2" | b"2.0" => Version::HTTP_2,
@@ -228,20 +228,20 @@ impl<'lua> FromLua<'lua> for LuaRequest {
             };
         }
 
-        if let Ok(Some(timeout)) = params.raw_get::<_, Option<f64>>("timeout") {
+        if let Ok(Some(timeout)) = params.raw_get::<Option<f64>>("timeout") {
             if timeout > 0. {
                 request.timeout = Some(Duration::from_secs_f64(timeout));
             }
         }
 
         let headers = params
-            .raw_get::<_, LuaHttpHeaders>("headers")
+            .raw_get::<LuaHttpHeaders>("headers")
             .map_err(|err| format!("invalid headers: {err}"))
             .into_lua_err()?;
         *request.headers_mut() = headers.into();
 
         let body = params
-            .raw_get::<_, LuaBody>("body")
+            .raw_get::<LuaBody>("body")
             .map_err(|err| format!("invalid body: {err}"))
             .into_lua_err()?;
         *request.body_mut() = EitherBody::Body(body);
@@ -252,7 +252,7 @@ impl<'lua> FromLua<'lua> for LuaRequest {
 
 #[allow(clippy::await_holding_refcell_ref)]
 impl UserData for LuaRequest {
-    fn add_fields<'lua, F: UserDataFields<'lua, Self>>(fields: &mut F) {
+    fn add_fields<F: UserDataFields<Self>>(fields: &mut F) {
         fields.add_field_method_get("method", |lua, this| this.method().as_str().into_lua(lua));
         fields.add_field_method_set("method", |_, this, method: String| {
             *this.method_mut() = Method::from_bytes(method.as_bytes()).into_lua_err()?;
@@ -265,7 +265,7 @@ impl UserData for LuaRequest {
 
         fields.add_field_method_get("uri", |_, this| Ok(this.uri().to_string()));
         fields.add_field_method_set("uri", |_, this, uri: LuaString| {
-            *this.uri_mut() = Uri::try_from(uri.as_bytes()).into_lua_err()?;
+            *this.uri_mut() = Uri::try_from(&*uri.as_bytes()).into_lua_err()?;
             Ok(())
         });
 
@@ -279,7 +279,7 @@ impl UserData for LuaRequest {
         });
     }
 
-    fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
+    fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
         // Static constructor
         methods.add_function("new", |lua, params: Value| {
             LuaRequest::from_lua(params, lua)
@@ -351,14 +351,14 @@ impl UserData for LuaRequest {
         methods.add_method_mut(
             "add_header",
             |_, this, (name, value): (String, LuaString)| {
-                this.headers_mut().add(&name, value.as_bytes())
+                this.headers_mut().add(&name, &value.as_bytes())
             },
         );
 
         methods.add_method_mut(
             "set_header",
             |_, this, (name, value): (String, LuaString)| {
-                this.headers_mut().set(&name, value.as_bytes())
+                this.headers_mut().set(&name, &value.as_bytes())
             },
         );
 

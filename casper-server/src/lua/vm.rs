@@ -5,7 +5,7 @@ use mlua::{Function, Lua, RegistryKey, Result, Table, UserData};
 struct CompiledFunction(RegistryKey);
 
 impl UserData for CompiledFunction {
-    fn add_methods<'lua, M: mlua::UserDataMethods<'lua, Self>>(methods: &mut M) {
+    fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
         methods.add_method("with_environment", |lua, this, env: Table| {
             let function = lua.registry_value::<Function>(&this.0)?;
             let new_function = function.deep_clone();
@@ -46,7 +46,7 @@ mod tests {
     async fn test() -> Result<()> {
         let lua = Lua::new();
 
-        let sleep = Function::wrap_async(|_, ()| async {
+        let sleep = Function::wrap_async(|| async {
             tokio::time::sleep(tokio::time::Duration::from_secs_f32(0.01)).await;
             Ok("done")
         });

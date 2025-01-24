@@ -33,8 +33,10 @@ function crypto.sha1(input: Bytes | string, raw: boolean?): string
     return nil :: any
 end
 */
-fn sha1<'l>(lua: &'l Lua, (input, raw): (FlexBytes, Option<bool>)) -> Result<LuaString<'l>> {
-    let hashsum = openssl::hash::hash(MessageDigest::sha1(), input.as_ref()).into_lua_err()?;
+fn sha1(lua: &Lua, (input, raw): (FlexBytes, Option<bool>)) -> Result<LuaString> {
+    let hashsum = input
+        .borrow_bytes(|b| openssl::hash::hash(MessageDigest::sha1(), b))
+        .into_lua_err()?;
     if !raw.unwrap_or(false) {
         return lua.create_string(hex::encode(hashsum));
     }
@@ -51,8 +53,10 @@ function crypto.sha256(input: Bytes | string): string
     return nil :: any
 end
 */
-fn sha256<'l>(lua: &'l Lua, (input, raw): (FlexBytes, Option<bool>)) -> Result<LuaString<'l>> {
-    let hashsum = openssl::hash::hash(MessageDigest::sha256(), input.as_ref()).into_lua_err()?;
+fn sha256(lua: &Lua, (input, raw): (FlexBytes, Option<bool>)) -> Result<LuaString> {
+    let hashsum = input
+        .borrow_bytes(|b| openssl::hash::hash(MessageDigest::sha256(), b))
+        .into_lua_err()?;
     if !raw.unwrap_or(false) {
         return lua.create_string(hex::encode(hashsum));
     }
@@ -69,7 +73,7 @@ function crypto.blake3(input: Bytes | string): string
 end
 */
 fn blake3(_: &Lua, input: FlexBytes) -> Result<String> {
-    Ok(hex::encode(blake3::hash(input.as_ref()).as_bytes()))
+    Ok(input.borrow_bytes(|b| hex::encode(blake3::hash(b).as_bytes())))
 }
 
 /*
@@ -92,7 +96,7 @@ function crypto.json_digest(input: Bytes | string): string
 end
 */
 fn json_digest(_: &Lua, input: FlexBytes) -> Result<StdResult<String, String>> {
-    let json_val: JsonValue = lua_try!(json_from_slice(input.as_ref()));
+    let json_val: JsonValue = lua_try!(input.borrow_bytes(|b| json_from_slice(b)));
     let hash = blake3::hash(lua_try!(json_to_vec_pretty(&json_val)).as_ref());
     Ok(Ok(hex::encode(hash.as_bytes())))
 }
@@ -141,17 +145,17 @@ function crypto.encrypt(cipher: string, key: string, iv: string?, data: Bytes | 
     return nil :: any
 end
 */
-async fn encrypt<'lua>(
-    _: &'lua Lua,
+async fn encrypt(
+    _: Lua,
     (cipher, key, iv, data, padding): (
-        LuaString<'lua>,
+        LuaString,
         BString,
         Option<BString>,
-        FlexBytes<'lua>,
+        FlexBytes,
         Option<bool>,
     ),
 ) -> Result<StdResult<BString, String>> {
-    let t = lua_try!(ciper_from_str(cipher.as_bytes()));
+    let t = lua_try!(ciper_from_str(&cipher.as_bytes()));
     let data = data.into_bytes();
     let result = spawn_blocking(move || {
         let iv = iv.as_ref().map(|iv| iv.as_ref());
@@ -177,17 +181,17 @@ function crypto.decrypt(cipher: string, key: string, iv: string?, data: Bytes | 
     return nil :: any
 end
 */
-async fn decrypt<'lua>(
-    _: &'lua Lua,
+async fn decrypt(
+    _: Lua,
     (cipher, key, iv, data, padding): (
-        LuaString<'lua>,
+        LuaString,
         BString,
         Option<BString>,
-        FlexBytes<'lua>,
+        FlexBytes,
         Option<bool>,
     ),
 ) -> Result<StdResult<BString, String>> {
-    let t = lua_try!(ciper_from_str(cipher.as_bytes()));
+    let t = lua_try!(ciper_from_str(&cipher.as_bytes()));
     let data = data.into_bytes();
     let result = spawn_blocking(move || {
         let iv = iv.as_ref().map(|iv| iv.as_ref());
@@ -245,7 +249,7 @@ mod tests {
         let crypto = super::create_module(&lua)?;
         lua.globals().set(
             "hex_encode",
-            Function::wrap(|_, x: BString| Ok(hex::encode(x))),
+            Function::wrap(|x: BString| Ok(hex::encode(x))),
         )?;
 
         lua.load(chunk! {

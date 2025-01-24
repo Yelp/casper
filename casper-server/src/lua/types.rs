@@ -2,12 +2,12 @@ use mlua::{ErrorContext, FromLua, Lua, Result as LuaResult, String as LuaString,
 use ntex::util::Bytes;
 
 /// A Lua string or a byte array.
-pub(crate) enum FlexBytes<'a> {
-    String(LuaString<'a>),
+pub(crate) enum FlexBytes {
+    String(LuaString),
     Bytes(Bytes),
 }
 
-impl<'lua> FlexBytes<'lua> {
+impl FlexBytes {
     /// Returns the Bytes (owned).
     pub fn into_bytes(self) -> Bytes {
         match self {
@@ -15,19 +15,17 @@ impl<'lua> FlexBytes<'lua> {
             FlexBytes::Bytes(b) => b,
         }
     }
-}
 
-impl AsRef<[u8]> for FlexBytes<'_> {
-    fn as_ref(&self) -> &[u8] {
+    pub fn borrow_bytes<T>(&self, f: impl FnOnce(&[u8]) -> T) -> T {
         match self {
-            FlexBytes::String(s) => s.as_bytes(),
-            FlexBytes::Bytes(b) => b.as_ref(),
+            FlexBytes::String(s) => f(&s.as_bytes()),
+            FlexBytes::Bytes(b) => f(b.as_ref()),
         }
     }
 }
 
-impl<'lua> FromLua<'lua> for FlexBytes<'lua> {
-    fn from_lua(value: Value<'lua>, lua: &'lua Lua) -> LuaResult<Self> {
+impl FromLua for FlexBytes {
+    fn from_lua(value: Value, lua: &Lua) -> LuaResult<Self> {
         let flexbytes = match value {
             Value::UserData(ud) => FlexBytes::Bytes(
                 ud.borrow::<Bytes>()
@@ -52,7 +50,7 @@ mod tests {
         let lua = Lua::new();
 
         let flexbytes = lua.unpack::<FlexBytes>("hello".into_lua(&lua)?)?;
-        assert_eq!(flexbytes.as_ref(), b"hello");
+        flexbytes.borrow_bytes(|b| assert_eq!(b, b"hello"));
 
         let f = lua.create_function(|_, _: FlexBytes| Ok(()))?;
         lua.load(chunk! {

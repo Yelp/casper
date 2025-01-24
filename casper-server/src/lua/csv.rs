@@ -49,11 +49,11 @@ function csv.encode_record(array: { string | number }): string
     return nil :: any
 end
 */
-fn encode_record<'lua>(lua: &'lua Lua, record: Table) -> Result<LuaString<'lua>> {
+fn encode_record(lua: &Lua, record: Table) -> Result<LuaString> {
     let mut rec = ByteRecord::new();
     for field in record.sequence_values::<LuaString>() {
         let field = field?;
-        rec.push_field(field.as_bytes());
+        rec.push_field(&field.as_bytes());
     }
     if rec.is_empty() {
         return lua.create_string("");

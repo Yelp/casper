@@ -60,7 +60,7 @@ impl LoggerMiddleware<()> {
             let access_log_handler = app_ctx.access_log.as_ref().unwrap(); // never fails
 
             access_log_handler
-                .call_async::<_, ()>((log_data?, lua_ctx))
+                .call_async::<()>((log_data?, lua_ctx))
                 .await
         };
 

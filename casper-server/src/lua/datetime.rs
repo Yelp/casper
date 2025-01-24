@@ -21,7 +21,7 @@ impl DateTime {
 }
 
 impl UserData for DateTime {
-    fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
+    fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
         methods.add_method("unix_timestamp", |_, this, ()| {
             Ok(((this.unix_timestamp_nanos() / 1000) as f64) / 1_000_000.0)
         });

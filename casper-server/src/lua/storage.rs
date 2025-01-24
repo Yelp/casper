@@ -34,11 +34,7 @@ where
     /// Returns `nil` if response is not found.
     /// In case of error returns a second value with error message.
     #[instrument(skip_all, fields(name = self.0.name(), backend = self.0.backend_type()))]
-    async fn get_response<'l>(
-        &self,
-        lua: &'l Lua,
-        key: Value<'l>,
-    ) -> LuaDoubleResult<Option<LuaResponse>> {
+    async fn get_response(&self, lua: &Lua, key: Value) -> LuaDoubleResult<Option<LuaResponse>> {
         let start = Instant::now();
 
         let key = calculate_primary_key(lua, key).context("failed to calculate primary key")?;
@@ -61,7 +57,7 @@ where
     ///   string - error message
     ///   `false` - if response is not found
     #[instrument(skip_all, fields(name = self.0.name(), backend = self.0.backend_type()))]
-    async fn get_responses<'l>(&self, lua: &'l Lua, keys: Table<'l>) -> LuaResult<Vec<Value<'l>>> {
+    async fn get_responses(&self, lua: &Lua, keys: Table) -> LuaResult<Vec<Value>> {
         let start = Instant::now();
 
         let keys = keys
@@ -100,11 +96,11 @@ where
     ///   string - error message
     ///   `true` - if response was deleted
     #[instrument(skip_all, fields(name = self.0.name(), backend = self.0.backend_type()))]
-    async fn delete_responses<'l>(
+    async fn delete_responses(
         &self,
-        lua: &'l Lua,
-        keys: Table<'l>,
-    ) -> LuaResult<(bool, Option<Vec<Value<'l>>>)> {
+        lua: &Lua,
+        keys: Table,
+    ) -> LuaResult<(bool, Option<Vec<Value>>)> {
         let start = Instant::now();
 
         let primary_keys: Option<Vec<Value>> = keys.raw_get("keys").context("invalid `keys`")?;
@@ -127,7 +123,7 @@ where
         if let Some(keys) = surrogate_keys {
             item_keys.extend(
                 keys.into_iter()
-                    .map(|s| ItemKey::Surrogate(Key::copy_from_slice(s.as_bytes()))),
+                    .map(|s| ItemKey::Surrogate(Key::copy_from_slice(&s.as_bytes()))),
             );
         }
 
@@ -156,7 +152,7 @@ where
     /// Returns number of written bytes to the cache if the response was stored.
     /// In case of errors returns `nil` and a string with error message.
     #[instrument(skip_all, fields(name = self.0.name(), backend = self.0.backend_type()))]
-    async fn store_response<'l>(&self, lua: &'l Lua, item: Table<'l>) -> LuaDoubleResult<usize> {
+    async fn store_response(&self, lua: &Lua, item: Table) -> LuaDoubleResult<usize> {
         let start = Instant::now();
 
         let key: Value = item.raw_get("key").context("invalid `key`")?;
@@ -178,7 +174,7 @@ where
         let surrogate_keys = surrogate_keys
             .unwrap_or_default()
             .into_iter()
-            .map(|s| Key::copy_from_slice(s.as_bytes()))
+            .map(|s| Key::copy_from_slice(&s.as_bytes()))
             .collect();
 
         let result = self
@@ -207,11 +203,11 @@ where
     ///   string - error message
     ///   number - number of bytes written to the cache
     #[instrument(skip_all, fields(name = self.0.name(), backend = self.0.backend_type()))]
-    async fn store_responses<'l>(
+    async fn store_responses(
         &self,
-        lua: &'l Lua,
-        lua_items: Table<'l>,
-    ) -> LuaResult<(Option<usize>, Option<Vec<Value<'l>>>)> {
+        lua: &Lua,
+        lua_items: Table,
+    ) -> LuaResult<(Option<usize>, Option<Vec<Value>>)> {
         let start = Instant::now();
 
         // Read rest of the fields
@@ -246,7 +242,7 @@ where
             let surrogate_keys = surrogate_keys
                 .unwrap_or_default()
                 .into_iter()
-                .map(|s| Key::copy_from_slice(s.as_bytes()))
+                .map(|s| Key::copy_from_slice(&s.as_bytes()))
                 .collect::<Vec<_>>();
 
             items.push((i, key, resp, body, surrogate_keys, ttl, encrypt));
@@ -297,25 +293,25 @@ where
     T: Storage<Body = Body> + 'static,
     <T as Storage>::Error: Into<Box<dyn StdError + Send + Sync>>,
 {
-    fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
-        methods.add_async_method("get_response", |lua, this, args| {
-            this.get_response(lua, args)
+    fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
+        methods.add_async_method("get_response", |lua, this, args| async move {
+            this.get_response(&lua, args).await
         });
 
-        methods.add_async_method("get_responses", |lua, this, args| {
-            this.get_responses(lua, args)
+        methods.add_async_method("get_responses", |lua, this, args| async move {
+            this.get_responses(&lua, args).await
         });
 
-        methods.add_async_method("delete_responses", |lua, this, args| {
-            this.delete_responses(lua, args)
+        methods.add_async_method("delete_responses", |lua, this, args| async move {
+            this.delete_responses(&lua, args).await
         });
 
-        methods.add_async_method("store_response", |lua, this, args| {
-            this.store_response(lua, args)
+        methods.add_async_method("store_response", |lua, this, args| async move {
+            this.store_response(&lua, args).await
         });
 
-        methods.add_async_method("store_responses", |lua, this, args| {
-            this.store_responses(lua, args)
+        methods.add_async_method("store_responses", |lua, this, args| async move {
+            this.store_responses(&lua, args).await
         });
     }
 }
@@ -334,12 +330,12 @@ fn calculate_primary_key(lua: &Lua, key: Value) -> LuaResult<Key> {
         match key {
             Value::Table(t) => {
                 for v in t.sequence_values::<LuaString>() {
-                    hasher.update(v?.as_bytes());
+                    hasher.update(&v?.as_bytes());
                 }
             }
             _ => {
                 let s = LuaString::from_lua(key, lua)?;
-                hasher.update(s.as_bytes());
+                hasher.update(&s.as_bytes());
             }
         }
 

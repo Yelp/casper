@@ -56,7 +56,7 @@ impl Regex {
 }
 
 impl UserData for Regex {
-    fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
+    fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
         /*
         --- @within Regex
         --- Returns true if there is a match for the regex anywhere in the given text.
@@ -67,7 +67,7 @@ impl UserData for Regex {
         end
         */
         methods.add_method("is_match", |_, this, text: LuaString| {
-            Ok(this.0.is_match(text.as_bytes()))
+            Ok(this.0.is_match(&text.as_bytes()))
         });
 
         /*
@@ -81,7 +81,7 @@ impl UserData for Regex {
         end
         */
         methods.add_method("match", |lua, this, text: LuaString| {
-            let text = text.as_bytes().into();
+            let text = (*text.as_bytes()).into();
             let caps = Captures::try_new(text, |text| this.0.captures(text).ok_or(()));
             match caps {
                 Ok(caps) => Ok(Value::UserData(lua.create_userdata(caps)?)),
@@ -92,7 +92,7 @@ impl UserData for Regex {
         // Returns low level information about raw offsets of each submatch.
         methods.add_method("captures_read", |lua, this, text: LuaString| {
             let mut locs = this.capture_locations();
-            match this.captures_read(&mut locs, text.as_bytes()) {
+            match this.captures_read(&mut locs, &text.as_bytes()) {
                 Some(_) => Ok(Value::UserData(
                     lua.create_userdata(CaptureLocations(locs))?,
                 )),
@@ -112,7 +112,7 @@ impl UserData for Regex {
         */
         methods.add_method("split", |lua, this, text: LuaString| {
             lua.create_sequence_from(
-                this.split(text.as_bytes())
+                this.split(&text.as_bytes())
                     .map(|s| lua.create_string(s).unwrap()),
             )
         });
@@ -131,7 +131,7 @@ impl UserData for Regex {
         */
         methods.add_method("splitn", |lua, this, (text, limit): (LuaString, usize)| {
             lua.create_sequence_from(
-                this.splitn(text.as_bytes(), limit)
+                this.splitn(&text.as_bytes(), limit)
                     .map(|s| lua.create_string(s).unwrap()),
             )
         });
@@ -139,7 +139,7 @@ impl UserData for Regex {
         methods.add_method(
             "replace",
             |lua, this, (text, rep): (LuaString, LuaString)| {
-                lua.create_string(this.replace(text.as_bytes(), rep.as_bytes()))
+                lua.create_string(this.replace(&text.as_bytes(), &*rep.as_bytes()))
             },
         );
     }
@@ -165,7 +165,7 @@ struct Captures {
 }
 
 impl UserData for Captures {
-    fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
+    fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
         methods.add_meta_method(MetaMethod::Index, |lua, this, key: Value| match key {
             Value::String(s) => {
                 let name = s.to_string_lossy();
@@ -187,7 +187,7 @@ impl UserData for Captures {
 struct CaptureLocations(regex::bytes::CaptureLocations);
 
 impl UserData for CaptureLocations {
-    fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
+    fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
         // Returns the total number of capture groups.
         methods.add_method("len", |_, this, ()| Ok(this.0.len()));
 
@@ -213,21 +213,21 @@ impl Deref for RegexSet {
 }
 
 impl UserData for RegexSet {
-    fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
+    fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
         methods.add_function("new", |_, patterns: Vec<String>| {
             let set = lua_try!(regex::bytes::RegexSet::new(patterns).map(RegexSet));
             Ok(Ok(set))
         });
 
         methods.add_method("is_match", |_, this, text: LuaString| {
-            Ok(this.is_match(text.as_bytes()))
+            Ok(this.is_match(&text.as_bytes()))
         });
 
         methods.add_method("len", |_, this, ()| Ok(this.len()));
 
         methods.add_method("matches", |_, this, text: LuaString| {
             Ok(this
-                .matches(text.as_bytes())
+                .matches(&text.as_bytes())
                 .iter()
                 .map(|i| i + 1)
                 .collect::<Vec<_>>())
@@ -261,7 +261,7 @@ function module.escape(text: string): string
 end
 */
 fn regex_escape(_: &Lua, text: LuaString) -> LuaResult<String> {
-    Ok(regex::escape(text.to_str()?))
+    Ok(regex::escape(&text.to_str()?))
 }
 
 /*
@@ -276,7 +276,7 @@ end
 */
 fn regex_is_match(lua: &Lua, (re, text): (String, LuaString)) -> LuaResult<Result<bool, String>> {
     let re = lua_try!(Regex::new(lua, re));
-    Ok(Ok(re.is_match(text.as_bytes())))
+    Ok(Ok(re.is_match(&text.as_bytes())))
 }
 
 /*
@@ -289,12 +289,9 @@ function module.match(re: string, text: string): ({string}?, string?)
     return nil :: any
 end
 */
-fn regex_match<'lua>(
-    lua: &'lua Lua,
-    (re, text): (String, LuaString),
-) -> LuaResult<Result<Value<'lua>, String>> {
+fn regex_match(lua: &Lua, (re, text): (String, LuaString)) -> LuaResult<Result<Value, String>> {
     let re = lua_try!(Regex::new(lua, re));
-    match re.captures(text.as_bytes()) {
+    match re.captures(&text.as_bytes()) {
         Some(caps) => {
             let mut it = caps
                 .iter()

@@ -88,10 +88,10 @@ function utils.base64_decode(data: string, padding: boolean?): string
     return nil :: any
 end
 */
-fn base64_decode<'lua>(
-    lua: &'lua Lua,
+fn base64_decode(
+    lua: &Lua,
     (data, padding): (LuaString, Option<bool>),
-) -> Result<StdResult<LuaString<'lua>, String>> {
+) -> Result<StdResult<LuaString, String>> {
     let data = if padding.unwrap_or_default() {
         lua_try!(base64::engine::general_purpose::STANDARD.decode(data.as_bytes()))
     } else {
@@ -128,10 +128,10 @@ function utils.base64url_decode(data: string, padding: boolean?): string
     return nil :: any
 end
 */
-fn base64url_decode<'lua>(
-    lua: &'lua Lua,
+fn base64url_decode(
+    lua: &Lua,
     (data, padding): (LuaString, Option<bool>),
-) -> Result<StdResult<LuaString<'lua>, String>> {
+) -> Result<StdResult<LuaString, String>> {
     let data = if padding.unwrap_or_default() {
         lua_try!(base64::engine::general_purpose::URL_SAFE.decode(data.as_bytes()))
     } else {
@@ -164,7 +164,7 @@ function utils.hex_decode(data: string): (string?, string?)
 end
 */
 fn hex_decode(_: &Lua, data: LuaString) -> Result<StdResult<BString, String>> {
-    Ok(Ok(BString::new(lua_try!(hex::decode(data)))))
+    Ok(Ok(BString::new(lua_try!(hex::decode(data.as_bytes())))))
 }
 
 pub fn create_module(lua: &Lua) -> Result<Table> {

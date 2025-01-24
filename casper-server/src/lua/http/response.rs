@@ -219,8 +219,8 @@ impl Responder for LuaResponse {
     }
 }
 
-impl<'lua> FromLua<'lua> for LuaResponse {
-    fn from_lua(value: Value<'lua>, lua: &'lua Lua) -> LuaResult<Self> {
+impl FromLua for LuaResponse {
+    fn from_lua(value: Value, lua: &Lua) -> LuaResult<Self> {
         let mut response = LuaResponse::new(LuaBody::None);
 
         let params = match lua.unpack::<Option<Table>>(value)? {
@@ -228,20 +228,20 @@ impl<'lua> FromLua<'lua> for LuaResponse {
             None => return Ok(response),
         };
 
-        if let Ok(Some(status)) = params.raw_get::<_, Option<u16>>("status") {
+        if let Ok(Some(status)) = params.raw_get::<Option<u16>>("status") {
             *response.status_mut() = StatusCode::from_u16(status)
                 .map_err(|err| err.to_string())
                 .into_lua_err()?;
         }
 
         let headers = params
-            .raw_get::<_, LuaHttpHeaders>("headers")
+            .raw_get::<LuaHttpHeaders>("headers")
             .map_err(|err| format!("invalid headers: {err}"))
             .into_lua_err()?;
         *response.headers_mut() = headers.into();
 
         let body = params
-            .raw_get::<_, LuaBody>("body")
+            .raw_get::<LuaBody>("body")
             .map_err(|err| format!("invalid body: {err}"))
             .into_lua_err()?;
         *response.body_mut() = EitherBody::Body(body);
@@ -251,7 +251,7 @@ impl<'lua> FromLua<'lua> for LuaResponse {
 }
 
 impl UserData for LuaResponse {
-    fn add_fields<'lua, F: UserDataFields<'lua, Self>>(fields: &mut F) {
+    fn add_fields<F: UserDataFields<Self>>(fields: &mut F) {
         fields.add_field_method_get("is_proxied", |_, this| Ok(this.is_proxied));
         fields.add_field_method_get("is_stored", |_, this| Ok(this.is_stored));
         fields.add_field_method_get("is_encrypted", |_, this| {
@@ -282,7 +282,7 @@ impl UserData for LuaResponse {
         });
     }
 
-    fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
+    fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
         // Static constructor
         methods.add_function("new", |lua, (arg, body): (Value, Value)| {
             let params = match arg {
@@ -294,7 +294,7 @@ impl UserData for LuaResponse {
             LuaResponse::from_lua(params, lua)
         });
 
-        methods.add_async_method_mut("clone", |_, this, ()| async move { this.clone().await });
+        methods.add_async_method_mut("clone", |_, mut this, ()| async move { this.clone().await });
 
         methods.add_method("header", |lua, this, name: String| {
             LuaHttpHeadersExt::get(this.headers(), lua, &name)
@@ -322,14 +322,14 @@ impl UserData for LuaResponse {
         methods.add_method_mut(
             "add_header",
             |_, this, (name, value): (String, LuaString)| {
-                this.headers_mut().add(&name, value.as_bytes())
+                this.headers_mut().add(&name, &value.as_bytes())
             },
         );
 
         methods.add_method_mut(
             "set_header",
             |_, this, (name, value): (String, LuaString)| {
-                this.headers_mut().set(&name, value.as_bytes())
+                this.headers_mut().set(&name, &value.as_bytes())
             },
         );
 
@@ -353,7 +353,7 @@ impl UserData for LuaResponse {
             Ok(())
         });
 
-        methods.add_async_method_mut("body_json", |lua, this, timeout: Option<f64>| async move {
+        methods.add_async_method_mut("body_json", |lua, mut this, timeout: Option<f64>| async move {
             // Check that content type is JSON
             match this.mime_type() {
                 Ok(Some(m)) if m.subtype() == mime::JSON || m.suffix() == Some(mime::JSON) => {}
@@ -362,7 +362,7 @@ impl UserData for LuaResponse {
             let body = this.body_mut();
             body.set_timeout(timeout.map(Duration::from_secs_f64));
             let json = lua_try!(body.json().await);
-            Ok(Ok(JsonObject::from(json).into_lua(lua)?))
+            Ok(Ok(JsonObject::from(json).into_lua(&lua)?))
         });
 
         // Metric labels manipulation
@@ -376,7 +376,7 @@ impl UserData for LuaResponse {
                 Value::Number(n) => labels.insert(key, OTValue::F64(n)),
                 v => match lua.coerce_string(v) {
                     Ok(Some(s)) => {
-                        let s = s.to_string_lossy().into_owned();
+                        let s = s.to_string_lossy();
                         labels.insert(key, OTValue::String(s.into()))
                     }
                     _ => None,

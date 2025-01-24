@@ -9,7 +9,7 @@ use opentelemetry::{global, KeyValue};
 struct LuaCurrentSpan;
 
 impl UserData for LuaCurrentSpan {
-    fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
+    fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
         // Record an event in the context of this (current) span.
         methods.add_method(
             "add_event",
@@ -75,7 +75,7 @@ impl LuaSpan {
 }
 
 impl UserData for LuaSpan {
-    fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
+    fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
         // Record an event in the context of this span.
         methods.add_method_mut(
             "add_event",
