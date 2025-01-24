@@ -14,7 +14,7 @@ impl<'a> RequestHeaderCarrier<'a> {
     }
 }
 
-impl<'a> Extractor for RequestHeaderCarrier<'a> {
+impl Extractor for RequestHeaderCarrier<'_> {
     fn get(&self, key: &str) -> Option<&str> {
         self.headers.get(key).and_then(|v| v.to_str().ok())
     }
@@ -35,7 +35,7 @@ impl<'a> RequestHeaderCarrierMut<'a> {
     }
 }
 
-impl<'a> Injector for RequestHeaderCarrierMut<'a> {
+impl Injector for RequestHeaderCarrierMut<'_> {
     fn set(&mut self, key: &str, value: String) {
         let header_name = HeaderName::from_str(key).expect("invalid tracing header name");
         let header_value = HeaderValue::from_str(&value).expect("invalid tracing header value");

@@ -91,7 +91,7 @@ pub trait Storage {
 
     async fn delete_responses(&self, key: ItemKey) -> Result<(), Self::Error>;
 
-    async fn store_response<'a>(&self, item: Item<'a>) -> Result<usize, Self::Error>;
+    async fn store_response(&self, item: Item<'_>) -> Result<usize, Self::Error>;
 
     //
     // Provided implementation
