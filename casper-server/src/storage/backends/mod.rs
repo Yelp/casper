@@ -88,7 +88,7 @@ impl Storage for Backend {
     }
 
     #[inline]
-    async fn store_response<'a>(&self, item: Item<'a>) -> Result<usize, Self::Error> {
+    async fn store_response(&self, item: Item<'_>) -> Result<usize, Self::Error> {
         match self {
             Backend::Memory(inner) => inner.store_response(item).await,
             Backend::Redis(inner) => inner.store_response(item).await,

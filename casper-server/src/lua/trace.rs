@@ -141,7 +141,7 @@ fn into_attributes(attributes: LuaTable) -> Vec<KeyValue> {
 fn into_status(status: Option<String>) -> SpanStatus {
     match status {
         None => SpanStatus::Unset,
-        Some(msg) if msg.to_ascii_lowercase() == "ok" => SpanStatus::Ok,
+        Some(msg) if msg.eq_ignore_ascii_case("ok") => SpanStatus::Ok,
         Some(err) => SpanStatus::error(err),
     }
 }

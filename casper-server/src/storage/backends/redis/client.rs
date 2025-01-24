@@ -374,7 +374,7 @@ impl RedisBackend {
         }
     }
 
-    async fn store_response_inner<'a>(&self, item: Item<'a>) -> Result<usize> {
+    async fn store_response_inner(&self, item: Item<'_>) -> Result<usize> {
         let mut stored_bytes = 0;
         let mut headers = Bytes::from(encode_headers(&item.headers)?);
         let mut body = item.body;
@@ -559,7 +559,7 @@ impl Storage for RedisBackend {
             .with_context(|| format!("Failed to delete Response(s) for key `{}`", key))
     }
 
-    async fn store_response<'a>(&self, item: Item<'a>) -> Result<usize, Self::Error> {
+    async fn store_response(&self, item: Item<'_>) -> Result<usize, Self::Error> {
         self.lazy_connect();
         let key = item.key.clone();
         let store_timeout = self.get_store_timeout();

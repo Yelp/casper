@@ -210,7 +210,7 @@ impl Storage for MemoryBackend {
         results
     }
 
-    async fn store_response<'a>(&self, item: Item<'a>) -> Result<usize, Self::Error> {
+    async fn store_response(&self, item: Item<'_>) -> Result<usize, Self::Error> {
         self.store_responses([item]).await.remove(0)
     }
 
