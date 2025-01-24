@@ -22,7 +22,7 @@ impl LuaUdpSocket {
 }
 
 impl UserData for LuaUdpSocket {
-    fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
+    fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
         methods.add_async_method("connect", |_, this, addr: String| async move {
             lua_try!(this.connect(addr).await);
             Ok(Ok(Value::Boolean(true)))
@@ -34,7 +34,7 @@ impl UserData for LuaUdpSocket {
 
         methods.add_async_method("send", |_, this, buf: Option<LuaString>| async move {
             let n = match buf {
-                Some(buf) => lua_try!(this.send(buf.as_bytes()).await),
+                Some(buf) => lua_try!(this.send(&buf.as_bytes()).await),
                 None => 0,
             };
             Ok(Ok(n))
@@ -44,7 +44,7 @@ impl UserData for LuaUdpSocket {
             "send_to",
             |_, this, (dst, buf): (String, Option<LuaString>)| async move {
                 let n = match buf {
-                    Some(buf) => lua_try!(this.send_to(buf.as_bytes(), dst).await),
+                    Some(buf) => lua_try!(this.send_to(&buf.as_bytes(), dst).await),
                     None => 0,
                 };
                 Ok(Ok(n))

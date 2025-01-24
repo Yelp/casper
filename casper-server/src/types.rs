@@ -1,16 +1,16 @@
 use std::ops::Deref;
 
-use mlua::{IntoLua, Lua, OwnedTable, Result as LuaResult, Value};
+use mlua::{IntoLua, Lua, Table as LuaTable, Result as LuaResult, Value};
 
 // Value stored in response extensions to indicate that response is encrypted
 #[derive(Clone, Copy, Debug, Default)]
 pub struct EncryptedExt(pub bool);
 
 #[derive(Clone, Debug)]
-pub(crate) struct LuaContext(pub(crate) OwnedTable);
+pub(crate) struct LuaContext(pub(crate) LuaTable);
 
 impl Deref for LuaContext {
-    type Target = OwnedTable;
+    type Target = LuaTable;
 
     #[inline]
     fn deref(&self) -> &Self::Target {
@@ -18,9 +18,9 @@ impl Deref for LuaContext {
     }
 }
 
-impl<'lua> IntoLua<'lua> for LuaContext {
+impl IntoLua for LuaContext {
     #[inline]
-    fn into_lua(self, lua: &'lua Lua) -> LuaResult<Value<'lua>> {
+    fn into_lua(self, lua: &Lua) -> LuaResult<Value> {
         self.0.into_lua(lua)
     }
 }
@@ -30,6 +30,6 @@ impl LuaContext {
         let ctx = lua
             .create_table()
             .expect("Failed to create Lua context table");
-        LuaContext(ctx.into_owned())
+        LuaContext(ctx)
     }
 }

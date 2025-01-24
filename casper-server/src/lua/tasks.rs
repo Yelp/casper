@@ -3,8 +3,8 @@ use std::result::Result as StdResult;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use mlua::{
-    AnyUserData, ExternalError, ExternalResult, Function, Lua, OwnedFunction, RegistryKey, Result,
-    Table, UserData, Value,
+    AnyUserData, ExternalError, ExternalResult, Function, Lua, RegistryKey, Result, Table,
+    UserData, Value,
 };
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 use tokio::sync::oneshot;
@@ -21,7 +21,7 @@ struct Task {
     id: u64,
     name: Option<String>,
     timeout: Option<Duration>,
-    handler: OwnedFunction,
+    handler: Function,
     join_handle_tx: oneshot::Sender<TaskJoinHandle>,
 }
 
@@ -38,12 +38,12 @@ struct MaxBackgroundTasks(Option<u64>);
 static NEXT_TASK_ID: AtomicU64 = AtomicU64::new(1);
 
 impl UserData for TaskHandle {
-    fn add_fields<'lua, F: mlua::UserDataFields<'lua, Self>>(fields: &mut F) {
+    fn add_fields<F: mlua::UserDataFields<Self>>(fields: &mut F) {
         fields.add_field_method_get("id", |_, this| Ok(this.id));
         fields.add_field_method_get("name", |lua, this| lua.pack(this.name.as_deref()));
     }
 
-    fn add_methods<'lua, M: mlua::UserDataMethods<'lua, Self>>(methods: &mut M) {
+    fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
         methods.add_async_function("join", |lua, this: AnyUserData| async move {
             let mut this = this.take::<Self>()?;
             if let Some(rx) = this.join_handle_rx.take() {
@@ -63,7 +63,7 @@ impl UserData for TaskHandle {
             Ok(())
         });
 
-        methods.add_async_method_mut("is_finished", |_, this, ()| async move {
+        methods.add_async_method_mut("is_finished", |_, mut this, ()| async move {
             if let Some(rx) = this.join_handle_rx.take() {
                 this.join_handle = Some(rx.await.expect("Failed to get task join handle"));
             }
@@ -92,14 +92,13 @@ fn spawn_task(lua: &Lua, arg: Value) -> Result<StdResult<TaskHandle, String>> {
     let mut name = None;
     let mut timeout = None;
     let handler = match arg {
-        Value::Function(task_fn) => task_fn.into_owned(),
+        Value::Function(task_fn) => task_fn,
         Value::Table(params) => {
-            name = params.get::<_, Option<String>>("name")?;
+            name = params.get::<Option<String>>("name")?;
             timeout = params
-                .get::<_, Option<f64>>("timeout")?
+                .get::<Option<f64>>("timeout")?
                 .map(Duration::from_secs_f64);
-            let task_fn = params.get::<_, Function>("handler")?;
-            task_fn.into_owned()
+            params.get::<Function>("handler")?
         }
         v => {
             let err = format!(
@@ -144,7 +143,7 @@ pub fn start_task_scheduler(lua: Rc<Lua>, max_background_tasks: Option<u64>) {
             let join_handle = tokio::task::spawn_local(async move {
                 let start = Instant::now();
                 let _task_count_guard = tasks_counter_inc!();
-                let task_future = task.handler.call_async::<_, Value>(());
+                let task_future = task.handler.call_async::<Value>(());
 
                 let result = match task.timeout {
                     Some(timeout) => ntex::time::timeout(timeout, task_future).await,

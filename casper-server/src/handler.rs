@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::ops::Deref;
 use std::time::Instant;
 
 use anyhow::{anyhow, Result};
@@ -31,7 +32,7 @@ pub(crate) async fn handler(
     let lua_ctx = LuaContext::new(lua);
 
     // Execute inner handler to get response
-    let mut resp_result = handler_inner(req, app_ctx, lua_ctx.clone()).await;
+    let mut resp_result = handler_inner(req, app_ctx, &lua_ctx).await;
 
     // Collect response labels
     match resp_result {
@@ -61,7 +62,7 @@ pub(crate) async fn handler(
 pub(crate) async fn handler_inner(
     req: LuaRequest,
     app_ctx: State<AppContext>,
-    lua_ctx: LuaContext,
+    lua_ctx: &LuaContext,
 ) -> Result<LuaResponse> {
     let lua = app_ctx.lua.clone();
 
@@ -83,7 +84,7 @@ pub(crate) async fn handler_inner(
         }
 
         match on_request
-            .call_async::<_, Value>((lua_req.clone(), lua_ctx.clone()))
+            .call_async::<Value>((&lua_req, lua_ctx.deref()))
             .await
         {
             // Early Response?
@@ -112,8 +113,7 @@ pub(crate) async fn handler_inner(
     // Otherwise call handler function
     let lua_resp = match (early_resp, &app_ctx.handler) {
         (Some(resp), _) => resp,
-        (None, Some(handler)) => match handler.call_async((lua_req.clone(), lua_ctx.clone())).await
-        {
+        (None, Some(handler)) => match handler.call_async((&lua_req, lua_ctx.deref())).await {
             Ok(Value::UserData(resp)) if resp.is::<LuaResponse>() => resp,
             Ok(r) => {
                 handler_error_counter_add!(1);
@@ -153,7 +153,7 @@ pub(crate) async fn handler_inner(
         }
 
         if let Err(err) = on_response
-            .call_async::<_, ()>((lua_resp.clone(), lua_ctx.clone()))
+            .call_async::<()>((&lua_resp, lua_ctx.deref()))
             .await
         {
             filter_error_counter_add!(1, "name" => name.clone(), "phase" => "on_response");

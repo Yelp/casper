@@ -54,8 +54,8 @@ impl From<Client> for LuaHttpClient {
     }
 }
 
-impl<'lua> FromLua<'lua> for LuaHttpClient {
-    fn from_lua(value: Value<'lua>, lua: &'lua Lua) -> LuaResult<Self> {
+impl FromLua for LuaHttpClient {
+    fn from_lua(value: Value, lua: &Lua) -> LuaResult<Self> {
         if value == Value::Nil {
             return Ok(LuaHttpClient::from(Client::new()));
         }
@@ -65,14 +65,14 @@ impl<'lua> FromLua<'lua> for LuaHttpClient {
 
         let no_decompress = params.raw_get("no_decompress").unwrap_or(false);
 
-        if let Ok(Some(val)) = params.raw_get::<_, Option<u8>>("max_redirects") {
+        if let Ok(Some(val)) = params.raw_get::<Option<u8>>("max_redirects") {
             match val {
                 0 => client_builder = client_builder.disable_redirects(),
                 _ => client_builder = client_builder.max_redirects(val as usize),
             }
         }
 
-        if let Ok(Some(val)) = params.raw_get::<_, Option<u64>>("timeout") {
+        if let Ok(Some(val)) = params.raw_get::<Option<u64>>("timeout") {
             match val {
                 0 => client_builder = client_builder.disable_timeout(),
                 _ => client_builder = client_builder.timeout(Duration::from_secs(val)),
@@ -83,19 +83,19 @@ impl<'lua> FromLua<'lua> for LuaHttpClient {
 
         let mut connector = Connector::new();
 
-        if let Ok(Some(val)) = params.raw_get::<_, Option<u64>>("connect_timeout") {
+        if let Ok(Some(val)) = params.raw_get::<Option<u64>>("connect_timeout") {
             connector = connector.timeout(Duration::from_secs(val));
         }
 
-        if let Ok(Some(val)) = params.raw_get::<_, Option<u16>>("keep_alive") {
+        if let Ok(Some(val)) = params.raw_get::<Option<u16>>("keep_alive") {
             connector = connector.keep_alive(Seconds::new(val));
         }
 
-        if let Ok(Some(val)) = params.raw_get::<_, Option<u16>>("lifetime") {
+        if let Ok(Some(val)) = params.raw_get::<Option<u16>>("lifetime") {
             connector = connector.lifetime(Seconds::new(val));
         }
 
-        if let Ok(Some(val)) = params.raw_get::<_, Option<u64>>("max_connections") {
+        if let Ok(Some(val)) = params.raw_get::<Option<u64>>("max_connections") {
             connector = connector.limit(val as usize);
         }
 
@@ -107,7 +107,7 @@ impl<'lua> FromLua<'lua> for LuaHttpClient {
 }
 
 impl UserData for LuaHttpClient {
-    fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
+    fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
         methods.add_function("new", |_lua, _params: Value| {
             Ok(LuaHttpClient::from(Client::new()))
         });

@@ -6,7 +6,7 @@ use mlua::{Function, Lua, Result, String as LuaString, Table, Value};
 /// Reads the entire contents of a file and returns a Lua string.
 ///
 /// In case of error, returns nil and a string containing the error message.
-async fn read(lua: &'_ Lua, path: String) -> Result<StdResult<LuaString<'_>, String>> {
+async fn read(lua: Lua, path: String) -> Result<StdResult<LuaString, String>> {
     let data = lua_try!(tokio::fs::read(path).await);
     Ok(Ok(lua.create_string(data)?))
 }
@@ -14,10 +14,7 @@ async fn read(lua: &'_ Lua, path: String) -> Result<StdResult<LuaString<'_>, Str
 /// Writes the entire contents to a file.
 ///
 /// In case of error, returns nil and a string containing the error message.
-async fn write(
-    _: &'_ Lua,
-    (path, data): (String, LuaString<'_>),
-) -> Result<StdResult<bool, String>> {
+async fn write(_: Lua, (path, data): (String, LuaString)) -> Result<StdResult<bool, String>> {
     lua_try!(tokio::fs::write(path, data.as_bytes()).await);
     Ok(Ok(true))
 }
@@ -34,7 +31,7 @@ async fn write(
 ///     - len: The length of the file
 ///
 /// In case of error, returns nil and a string containing the error message.
-async fn metadata(lua: &'_ Lua, path: String) -> Result<StdResult<Table<'_>, String>> {
+async fn metadata(lua: Lua, path: String) -> Result<StdResult<Table, String>> {
     let metadata = lua_try!(tokio::fs::metadata(path).await);
 
     let table = lua.create_table()?;
@@ -64,7 +61,7 @@ async fn metadata(lua: &'_ Lua, path: String) -> Result<StdResult<Table<'_>, Str
 /// Reads the contents of a directory and returns a Lua table containing the file names.
 ///
 /// In case of error, returns nil and a string containing the error message.
-async fn read_dir(lua: &Lua, path: String) -> Result<StdResult<Table<'_>, String>> {
+async fn read_dir(lua: Lua, path: String) -> Result<StdResult<Table, String>> {
     let result = tokio::task::spawn_blocking(move || {
         let dir = std::fs::read_dir(path)?;
         dir.into_iter()
@@ -81,7 +78,7 @@ async fn read_dir(lua: &Lua, path: String) -> Result<StdResult<Table<'_>, String
 /// The directory will be automatically deleted when the function returns.
 ///
 /// In case of error, returns nil and a string containing the error message.
-async fn tempdir_scope<'l>(_: &'l Lua, f: Function<'l>) -> Result<StdResult<Value<'l>, String>> {
+async fn tempdir_scope(_: Lua, f: Function) -> Result<StdResult<Value, String>> {
     let dir = lua_try!(tempfile::tempdir());
     Ok(Ok(f.call_async(dir.path().display().to_string()).await?))
 }

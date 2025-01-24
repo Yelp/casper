@@ -14,10 +14,10 @@ use super::super::Regex;
 
 pub trait LuaHttpHeadersExt {
     /// Returns a first value of the header of Nil if not found.
-    fn get<'lua>(&self, lua: &'lua Lua, name: &str) -> LuaResult<Value<'lua>>;
+    fn get(&self, lua: &Lua, name: &str) -> LuaResult<Value>;
 
     /// Returns a table with the header values of Nil if not found.
-    fn get_all<'lua>(&self, lua: &'lua Lua, name: &str) -> LuaResult<Value<'lua>>;
+    fn get_all(&self, lua: &Lua, name: &str) -> LuaResult<Value>;
 
     /// Returns a number of values of the header.
     fn get_cnt(&self, lua: &Lua, name: &str) -> LuaResult<usize>;
@@ -36,14 +36,10 @@ pub trait LuaHttpHeadersExt {
 
     /// Converts internal representation of headers to a Lua table with a specific metatable
     /// for case-insensitive access.
-    fn to_table<'lua>(&self, lua: &'lua Lua, names_filter: Value<'lua>) -> LuaResult<Table<'lua>>;
+    fn to_table(&self, lua: &Lua, names_filter: Value) -> LuaResult<Table>;
 
     /// Serializes headers to a JSON string.
-    fn to_json<'lua>(
-        &self,
-        lua: &'lua Lua,
-        pretty: Option<bool>,
-    ) -> LuaResult<Result<LuaString<'lua>, String>>;
+    fn to_json(&self, lua: &Lua, pretty: Option<bool>) -> LuaResult<Result<LuaString, String>>;
 }
 
 #[derive(Clone, Debug, Default)]
@@ -80,8 +76,8 @@ impl DerefMut for LuaHttpHeaders {
     }
 }
 
-impl<'lua> FromLua<'lua> for LuaHttpHeaders {
-    fn from_lua(value: Value<'lua>, lua: &'lua Lua) -> LuaResult<Self> {
+impl FromLua for LuaHttpHeaders {
+    fn from_lua(value: Value, lua: &Lua) -> LuaResult<Self> {
         match value {
             Value::Nil => Ok(Self::new()),
             Value::Table(table) => {
@@ -93,14 +89,14 @@ impl<'lua> FromLua<'lua> for LuaHttpHeaders {
                         for value in values.sequence_values::<LuaString>() {
                             headers.append(
                                 name.clone(),
-                                HeaderValue::from_bytes(value?.as_bytes()).into_lua_err()?,
+                                HeaderValue::from_bytes(&value?.as_bytes()).into_lua_err()?,
                             );
                         }
                     } else {
                         let value = lua.unpack::<LuaString>(value)?;
                         headers.append(
                             HeaderName::from_bytes(name.as_bytes()).into_lua_err()?,
-                            HeaderValue::from_bytes(value.as_bytes()).into_lua_err()?,
+                            HeaderValue::from_bytes(&value.as_bytes()).into_lua_err()?,
                         );
                     }
                     Ok(())
@@ -138,7 +134,7 @@ impl From<LuaHttpHeaders> for HeaderMap {
 }
 
 impl UserData for LuaHttpHeaders {
-    fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
+    fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
         methods.add_function("new", |lua, arg: Value| LuaHttpHeaders::from_lua(arg, lua));
 
         methods.add_method("get", |lua, this, name: String| {
@@ -163,11 +159,11 @@ impl UserData for LuaHttpHeaders {
         methods.add_method_mut("del", |_, this, name: String| this.del(&name));
 
         methods.add_method_mut("add", |_, this, (name, value): (String, LuaString)| {
-            this.add(&name, value.as_bytes())
+            this.add(&name, &value.as_bytes())
         });
 
         methods.add_method_mut("set", |_, this, (name, value): (String, LuaString)| {
-            this.set(&name, value.as_bytes())
+            this.set(&name, &value.as_bytes())
         });
 
         methods.add_method("to_table", |lua, this, filter| this.to_table(lua, filter));
@@ -186,7 +182,7 @@ impl UserData for LuaHttpHeaders {
                         let name = HeaderName::from_bytes(name.as_bytes()).into_lua_err()?;
                         for (i, v) in t.sequence_values::<LuaString>().enumerate() {
                             let hdr_value =
-                                HeaderValue::from_bytes(v?.as_bytes()).into_lua_err()?;
+                                HeaderValue::from_bytes(&v?.as_bytes()).into_lua_err()?;
                             if i == 0 {
                                 this.insert(name.clone(), hdr_value);
                             } else {
@@ -198,7 +194,7 @@ impl UserData for LuaHttpHeaders {
                         this.remove(&name);
                     }
                     _ => {
-                        this.set(&name, LuaString::from_lua(value, lua)?.as_bytes())?;
+                        this.set(&name, &LuaString::from_lua(value, lua)?.as_bytes())?;
                     }
                 }
                 Ok(())
@@ -213,8 +209,8 @@ impl UserData for LuaHttpHeaders {
             };
 
             let next = lua.create_function(move |lua, ud: Table| {
-                let this = ud.raw_get::<_, UserDataRef<Self>>(1)?;
-                let mut it = ud.raw_get::<_, UserDataRefMut<LuaHttpHeadersIter>>(2)?;
+                let this = ud.raw_get::<UserDataRef<Self>>(1)?;
+                let mut it = ud.raw_get::<UserDataRefMut<LuaHttpHeadersIter>>(2)?;
 
                 it.next += 1;
                 match it.names.get(it.next - 1) {
@@ -240,14 +236,14 @@ struct LuaHttpHeadersIter {
 impl UserData for LuaHttpHeadersIter {}
 
 impl LuaHttpHeadersExt for HeaderMap {
-    fn get<'lua>(&self, lua: &'lua Lua, name: &str) -> LuaResult<Value<'lua>> {
+    fn get(&self, lua: &Lua, name: &str) -> LuaResult<Value> {
         if let Some(val) = self.get(name) {
             return lua.create_string(val.as_bytes()).map(Value::String);
         }
         Ok(Value::Nil)
     }
 
-    fn get_all<'lua>(&self, lua: &'lua Lua, name: &str) -> LuaResult<Value<'lua>> {
+    fn get_all(&self, lua: &Lua, name: &str) -> LuaResult<Value> {
         let vals = self.get_all(name);
         let vals = vals
             .map(|val| lua.create_string(val.as_bytes()))
@@ -292,12 +288,12 @@ impl LuaHttpHeadersExt for HeaderMap {
         Ok(())
     }
 
-    fn to_table<'lua>(&self, lua: &'lua Lua, names_filter: Value<'lua>) -> LuaResult<Table<'lua>> {
+    fn to_table(&self, lua: &Lua, names_filter: Value) -> LuaResult<Table> {
         let names_filter = match names_filter {
             Value::Nil => None,
             Value::Table(t) => Some(
                 t.sequence_values::<LuaString>()
-                    .map(|s| s.and_then(|s| HeaderName::from_bytes(s.as_bytes()).into_lua_err()))
+                    .map(|s| s.and_then(|s| HeaderName::from_bytes(&s.as_bytes()).into_lua_err()))
                     .collect::<LuaResult<HashSet<_>>>()?,
             ),
             val => {
@@ -327,11 +323,7 @@ impl LuaHttpHeadersExt for HeaderMap {
         Ok(lua_headers)
     }
 
-    fn to_json<'lua>(
-        &self,
-        lua: &'lua Lua,
-        pretty: Option<bool>,
-    ) -> LuaResult<Result<LuaString<'lua>, String>> {
+    fn to_json(&self, lua: &Lua, pretty: Option<bool>) -> LuaResult<Result<LuaString, String>> {
         let mut writer = Vec::new();
         if pretty.unwrap_or_default() {
             let mut serializer = serde_json::Serializer::pretty(&mut writer);

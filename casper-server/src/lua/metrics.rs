@@ -6,7 +6,7 @@ use opentelemetry::KeyValue;
 struct U64Counter(Counter<u64>);
 
 impl UserData for U64Counter {
-    fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
+    fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
         methods.add_method(
             "add",
             |_, this, (value, attributes): (u64, Option<Table>)| {
@@ -32,7 +32,7 @@ fn from_lua_attributes(attributes: Option<Table>) -> Result<Vec<KeyValue>> {
                     attrs.push(KeyValue::new(k, n));
                 }
                 Value::String(v) => {
-                    attrs.push(KeyValue::new(k, v.to_string_lossy().into_owned()));
+                    attrs.push(KeyValue::new(k, v.to_string_lossy()));
                 }
                 _ => {}
             }

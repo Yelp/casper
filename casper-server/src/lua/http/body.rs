@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 use futures::{Stream, TryStreamExt};
 use mlua::{
     AnyUserData, Error as LuaError, ErrorContext as _, ExternalError, FromLua, Lua,
-    OwnedAnyUserData, Result as LuaResult, String as LuaString, UserData, Value,
+    Result as LuaResult, String as LuaString, UserData, Value,
 };
 use ntex::http::body::{self, BodySize, BoxedBodyStream, MessageBody, ResponseBody, SizedStream};
 use ntex::http::Payload;
@@ -104,7 +104,7 @@ pub enum EitherBody {
     /// The body is available directly
     Body(LuaBody),
     /// The body is stored in Lua in UserData
-    UserData(OwnedAnyUserData),
+    UserData(AnyUserData),
 }
 
 impl fmt::Debug for EitherBody {
@@ -132,12 +132,12 @@ macro_rules! borrow_body {
 
 impl EitherBody {
     #[allow(clippy::wrong_self_convention)]
-    pub(crate) fn to_userdata<'lua>(&mut self, lua: &'lua Lua) -> LuaResult<AnyUserData<'lua>> {
+    pub(crate) fn to_userdata(&mut self, lua: &Lua) -> LuaResult<AnyUserData> {
         match self {
             EitherBody::Body(tmp_body) => {
                 // Move body to Lua registry
                 let lua_body = lua.create_userdata(mem::take(tmp_body))?;
-                *self = EitherBody::UserData(lua_body.clone().into_owned());
+                *self = EitherBody::UserData(lua_body.clone());
                 Ok(lua_body)
             }
             EitherBody::UserData(ud) => match lua.pack(ud.clone())? {
@@ -184,7 +184,6 @@ impl From<EitherBody> for LuaBody {
         match body {
             EitherBody::Body(inner) => inner,
             EitherBody::UserData(ud) => ud
-                .to_ref()
                 .take::<LuaBody>()
                 .expect("Failed to take out body from Lua UserData"),
         }
@@ -321,22 +320,21 @@ impl MessageBody for LuaBody {
     }
 }
 
-impl<'lua> FromLua<'lua> for LuaBody {
-    fn from_lua(lua_value: Value<'lua>, _: &'lua Lua) -> LuaResult<Self> {
+impl FromLua for LuaBody {
+    fn from_lua(lua_value: Value, _: &Lua) -> LuaResult<Self> {
         match lua_value {
             Value::Nil => Ok(LuaBody::None),
             Value::String(s) => Ok(LuaBody::Bytes(Bytes::from(s.as_bytes().to_vec()))),
             Value::Table(t) => {
                 let mut data = BytesMut::new();
                 for chunk in t.sequence_values::<LuaString>() {
-                    data.extend_from_slice(chunk?.as_bytes());
+                    data.extend_from_slice(&chunk?.as_bytes());
                 }
                 Ok(LuaBody::Bytes(data.freeze()))
             }
-            Value::Function(f) => {
-                let func = f.into_owned();
+            Value::Function(func) => {
                 let stream = futures::stream::poll_fn(move |_| {
-                    match func.call::<_, Option<LuaString>>(()) {
+                    match func.call::<Option<LuaString>>(()) {
                         Ok(Some(chunk)) => {
                             Poll::Ready(Some(Ok(Bytes::from(chunk.as_bytes().to_vec()))))
                         }
@@ -366,7 +364,7 @@ impl<'lua> FromLua<'lua> for LuaBody {
 
 #[allow(clippy::await_holding_refcell_ref)]
 impl UserData for LuaBody {
-    fn add_methods<'lua, M: mlua::UserDataMethods<'lua, Self>>(methods: &mut M) {
+    fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
         // Static constructor
         methods.add_function("new", |_, body: LuaBody| Ok(body));
 
@@ -379,14 +377,14 @@ impl UserData for LuaBody {
         });
 
         // Discards the body without reading it
-        methods.add_async_method_mut("discard", |_, this, ()| async move {
+        methods.add_async_method_mut("discard", |_, mut this, ()| async move {
             *this = LuaBody::None;
             Ok(())
         });
 
         // Reads the body
         // Returns `bytes` (userdata) or `nil, error`
-        methods.add_async_method_mut("read", |lua, this, ()| async move {
+        methods.add_async_method_mut("read", |lua, mut this, ()| async move {
             let bytes = lua_try!(this.read().await);
             let data = bytes.map(|b| lua.create_any_userdata(b)).transpose()?;
             Ok(Ok(data))
@@ -426,19 +424,19 @@ impl UserData for LuaBody {
         });
 
         // Buffers the body into memory (if not already) and returns the buffered data
-        methods.add_async_method_mut("data", |lua, this, ()| async move {
+        methods.add_async_method_mut("data", |lua, mut this, ()| async move {
             let bytes = lua_try!(this.buffer().await);
             let data = bytes.map(|b| lua.create_any_userdata(b)).transpose()?;
             Ok(Ok(data))
         });
 
         // Buffers the body into memory (if not already) and parses it as JSON
-        methods.add_async_method_mut("json", |lua, this, ()| async move {
+        methods.add_async_method_mut("json", |lua, mut this, ()| async move {
             let json = lua_try!(this.json().await);
-            Ok(Ok(JsonObject::from(json).into_lua(lua)?))
+            Ok(Ok(JsonObject::from(json).into_lua(&lua)?))
         });
 
-        methods.add_async_method_mut("to_string", |lua, this, ()| async move {
+        methods.add_async_method_mut("to_string", |lua, mut this, ()| async move {
             let bytes = lua_try!(this.buffer().await);
             let data = bytes.map(|b| lua.create_string(&b)).transpose()?;
             Ok(Ok(data))

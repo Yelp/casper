@@ -2,9 +2,9 @@ use std::rc::Rc;
 use std::result::Result as StdResult;
 
 use mlua::{
-    AnyUserData, Error as LuaError, Function, Integer as LuaInteger, IntoLuaMulti, Lua,
-    LuaSerdeExt, MetaMethod, MultiValue, Result, SerializeOptions, Table, UserData,
-    UserDataMethods, UserDataRefMut, Value, Variadic,
+    AnyUserData, Error as LuaError, Integer as LuaInteger, IntoLuaMulti, Lua, LuaSerdeExt,
+    MetaMethod, MultiValue, Result, SerializeOptions, Table, UserData, UserDataMethods,
+    UserDataRefMut, Value, Variadic,
 };
 use ntex::util::Bytes;
 use ouroboros::self_referencing;
@@ -42,7 +42,7 @@ impl YamlValue {
         let current = self.current();
         let value = match key {
             Value::Integer(index) if index > 0 => current.get(index as usize - 1),
-            Value::String(key) => key.to_str().ok().and_then(|s| current.get(s)),
+            Value::String(key) => key.to_str().ok().and_then(|s| current.get(&*s)),
             Value::UserData(ud) => current.get(ud.borrow::<Self>().ok()?.current()),
             _ => None,
         }?;
@@ -61,7 +61,7 @@ impl YamlValue {
                     Ok(Value::Number(n))
                 } else {
                     Err(LuaError::ToLuaConversionError {
-                        from: "number",
+                        from: "number".to_string(),
                         to: "integer or float",
                         message: Some("number is too big to fit in a Lua integer".to_owned()),
                     })
@@ -82,7 +82,7 @@ impl YamlValue {
 }
 
 impl UserData for YamlValue {
-    fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
+    fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
         // Recursively converts this userdata to a Lua table.
         methods.add_method("dump", |lua, this, ()| lua.to_value(this.current()));
 
@@ -93,9 +93,7 @@ impl UserData for YamlValue {
                     Value::Integer(i) if i >= 1 => Ok(Some(IndexKey::Index(i as usize - 1))),
                     Value::Integer(i) => Ok(Some(IndexKey::String(i.to_string()))),
                     Value::Number(n) => Ok(Some(IndexKey::String(n.to_string()))),
-                    Value::String(s) => {
-                        Ok(Some(IndexKey::String(s.to_string_lossy().into_owned())))
-                    }
+                    Value::String(s) => Ok(Some(IndexKey::String(s.to_string_lossy()))),
                     _ => Ok(None),
                 })
                 .collect::<Result<Option<Vec<_>>>>()?;
@@ -117,7 +115,7 @@ impl UserData for YamlValue {
             match this.current() {
                 serde_yaml::Value::Sequence(_) => {
                     let next =
-                        Function::wrap(|lua, mut it: UserDataRefMut<LuaYamlSequenceIter>| {
+                        lua.create_function(|lua, mut it: UserDataRefMut<LuaYamlSequenceIter>| {
                             it.next += 1;
                             match it.value.get(Value::Integer(it.next - 1)) {
                                 Some(next_value) => Ok(Variadic::from_iter([
@@ -126,7 +124,7 @@ impl UserData for YamlValue {
                                 ])),
                                 None => Ok(Variadic::new()),
                             }
-                        });
+                        })?;
 
                     let iter_ud = AnyUserData::wrap(LuaYamlSequenceIter {
                         value: this.clone(),
@@ -136,17 +134,18 @@ impl UserData for YamlValue {
                     (next, iter_ud).into_lua_multi(lua)
                 }
                 serde_yaml::Value::Mapping(_) => {
-                    let next = Function::wrap(|lua, mut it: UserDataRefMut<LuaYamlMapIter>| {
-                        let root = it.borrow_value().root.clone();
-                        it.with_iter_mut(move |iter| match iter.next() {
-                            Some((key, value)) => {
-                                let key = YamlValue::new(&root, key).into_lua(lua)?;
-                                let value = YamlValue::new(&root, value).into_lua(lua)?;
-                                Ok(Variadic::from_iter([key, value]))
-                            }
-                            None => Ok(Variadic::new()),
-                        })
-                    });
+                    let next =
+                        lua.create_function(|lua, mut it: UserDataRefMut<LuaYamlMapIter>| {
+                            let root = it.borrow_value().root.clone();
+                            it.with_iter_mut(move |iter| match iter.next() {
+                                Some((key, value)) => {
+                                    let key = YamlValue::new(&root, key).into_lua(lua)?;
+                                    let value = YamlValue::new(&root, value).into_lua(lua)?;
+                                    Ok(Variadic::from_iter([key, value]))
+                                }
+                                None => Ok(Variadic::new()),
+                            })
+                        })?;
 
                     let iter_ud = AnyUserData::wrap(
                         LuaYamlMapIterBuilder {
@@ -197,14 +196,14 @@ fn traverse_value<'a>(
 
 fn try_with_slice<R>(value: Value, f: impl FnOnce(&[u8]) -> R) -> Result<R> {
     match value {
-        Value::String(s) => Ok(f(s.as_bytes())),
+        Value::String(s) => Ok(f(&s.as_bytes())),
         Value::UserData(ud) if ud.is::<Bytes>() => {
             let bytes = ud.borrow::<Bytes>()?;
             Ok(f(bytes.as_ref()))
         }
         _ => Err(LuaError::FromLuaConversionError {
             from: value.type_name(),
-            to: "string",
+            to: "string".to_string(),
             message: None,
         }),
     }
@@ -213,27 +212,24 @@ fn try_with_slice<R>(value: Value, f: impl FnOnce(&[u8]) -> R) -> Result<R> {
 fn from_lua_options(t: Option<Table>) -> SerializeOptions {
     let mut options = SerializeOptions::default();
     if let Some(t) = t {
-        if let Ok(enabled) = t.raw_get::<_, bool>("set_array_mt") {
+        if let Ok(enabled) = t.raw_get::<bool>("set_array_mt") {
             options.set_array_metatable = enabled;
         }
     }
     options
 }
 
-async fn read<'l>(
-    lua: &'l Lua,
-    (path, options): (String, Option<Table<'l>>),
-) -> Result<StdResult<Value<'l>, String>> {
+async fn read(
+    lua: Lua,
+    (path, options): (String, Option<Table>),
+) -> Result<StdResult<Value, String>> {
     let data = lua_try!(tokio::fs::read(path).await);
     let mut yaml: serde_yaml::Value = lua_try!(serde_yaml::from_slice(&data));
     lua_try!(yaml.apply_merge());
     lua.to_value_with(&yaml, from_lua_options(options)).map(Ok)
 }
 
-async fn write<'l>(
-    _: &'l Lua,
-    (path, value): (String, Value<'l>),
-) -> Result<StdResult<bool, String>> {
+async fn write(_: Lua, (path, value): (String, Value)) -> Result<StdResult<bool, String>> {
     let data = lua_try!(serde_yaml::to_string(&value));
     lua_try!(tokio::fs::write(path, data).await);
     Ok(Ok(true))
@@ -243,10 +239,10 @@ fn encode_yaml(_: &Lua, value: Value) -> Result<StdResult<String, String>> {
     Ok(Ok(lua_try!(serde_yaml::to_string(&value))))
 }
 
-fn decode_yaml<'l>(
-    lua: &'l Lua,
+fn decode_yaml(
+    lua: &Lua,
     (data, options): (Value, Option<Table>),
-) -> Result<StdResult<Value<'l>, String>> {
+) -> Result<StdResult<Value, String>> {
     let mut yaml: serde_yaml::Value = match data {
         Value::Nil => return Ok(Err("input is nil".to_string())),
         _ => lua_try!(try_with_slice(data, |s| serde_yaml::from_slice(s))?),
@@ -255,7 +251,7 @@ fn decode_yaml<'l>(
     lua.to_value_with(&yaml, from_lua_options(options)).map(Ok)
 }
 
-fn decode_yaml_native<'l>(lua: &'l Lua, data: Value) -> Result<StdResult<Value<'l>, String>> {
+fn decode_yaml_native(lua: &Lua, data: Value) -> Result<StdResult<Value, String>> {
     let mut yaml: serde_yaml::Value = match data {
         Value::Nil => return Ok(Err("input is nil".to_string())),
         _ => lua_try!(try_with_slice(data, |s| serde_yaml::from_slice(s))?),

@@ -1133,9 +1133,9 @@ checksum = "7943c866cc5cd64cbc25b2e01621d07fa8eb2a1a23160ee81ce38704e97b8ecf"
 
 [[package]]
 name = "itertools"
-version = "0.12.1"
+version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ba291022dbbd398a455acf126c1e341954079855bc60dfdda641363bd6922569"
+checksum = "413ee7dfc52ee1a4949ceeb7dbc8a33f2d6c088194d9f922fb8318faf1f01186"
 dependencies = [
  "either",
 ]
@@ -1307,18 +1307,20 @@ dependencies = [
 
 [[package]]
 name = "mlua"
-version = "0.9.9"
+version = "0.10.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d111deb18a9c9bd33e1541309f4742523bfab01d276bfa9a27519f6de9c11dc7"
+checksum = "9ea43c3ffac2d0798bd7128815212dd78c98316b299b7a902dabef13dc7b6b8d"
 dependencies = [
+ "anyhow",
  "bstr",
+ "either",
  "erased-serde",
  "futures-util",
  "libloading",
  "mlua-sys",
  "mlua_derive",
  "num-traits",
- "once_cell",
+ "parking_lot",
  "rustc-hash",
  "serde",
  "serde-value",
@@ -1338,13 +1340,13 @@ dependencies = [
 
 [[package]]
 name = "mlua_derive"
-version = "0.9.3"
+version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "09697a6cec88e7f58a02c7ab5c18c611c6907c8654613df9cc0192658a4fb859"
+checksum = "870d71c172fcf491c6b5fb4c04160619a2ee3e5a42a1402269c66bcbf1dd4deb"
 dependencies = [
  "itertools",
  "once_cell",
- "proc-macro-error",
+ "proc-macro-error2",
  "proc-macro2",
  "quote",
  "regex",
@@ -2030,27 +2032,25 @@ dependencies = [
 ]
 
 [[package]]
-name = "proc-macro-error"
-version = "1.0.4"
+name = "proc-macro-error-attr2"
+version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "da25490ff9892aab3fcf7c36f08cfb902dd3e71ca0f9f9517bea02a73a5ce38c"
+checksum = "96de42df36bb9bba5542fe9f1a054b8cc87e172759a1868aa05c1f3acc89dfc5"
 dependencies = [
- "proc-macro-error-attr",
  "proc-macro2",
  "quote",
- "syn 1.0.109",
- "version_check",
 ]
 
 [[package]]
-name = "proc-macro-error-attr"
-version = "1.0.4"
+name = "proc-macro-error2"
+version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a1be40180e52ecc98ad80b184934baf3d0d29f979574e439af5a55274b35f869"
+checksum = "11ec05c52be0a07b08061f7dd003e7d7092e0472bc731b4af7bb1ef876109802"
 dependencies = [
+ "proc-macro-error-attr2",
  "proc-macro2",
  "quote",
- "version_check",
+ "syn 2.0.96",
 ]
 
 [[package]]
