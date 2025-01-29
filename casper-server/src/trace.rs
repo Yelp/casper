@@ -7,25 +7,10 @@ use ntex::time::Millis;
 use opentelemetry_http::{HttpClient, HttpError, Request, Response};
 use opentelemetry_sdk::trace::{self, RandomIdGenerator, Sampler};
 use tokio::sync::{mpsc, oneshot};
-use tracing_subscriber::layer::SubscriberExt;
-use tracing_subscriber::util::SubscriberInitExt as _;
-use tracing_subscriber::EnvFilter;
 
 use crate::config::Config;
 
 pub fn init(config: &Config) {
-    init_opentelemetry(config);
-
-    let env_filter = EnvFilter::try_from_default_env().unwrap_or(EnvFilter::new("info"));
-    let fmt_layer = tracing_subscriber::fmt::layer();
-
-    tracing_subscriber::registry()
-        .with(env_filter)
-        .with(fmt_layer)
-        .init();
-}
-
-fn init_opentelemetry(config: &Config) {
     let tracing_conf = match config.tracing {
         Some(ref tracing_conf) if tracing_conf.enabled => tracing_conf,
         _ => return,
