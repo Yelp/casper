@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use clap::Parser;
-use ntex::http::client::Client as HttpClient;
+use ntex::http::client::{Client as HttpClient, Connector as HttpConnector};
 use ntex::http::HttpService;
 use ntex::io::Io;
 use ntex::rt::System;
@@ -86,7 +86,9 @@ async fn main_inner(args: Args) -> anyhow::Result<()> {
             let id = context.id;
 
             // Construct default HTTP client and attach it to Lua
+            let connector = HttpConnector::new().limit(2000);
             let http_client = HttpClient::build()
+                .connector(connector.finish())
                 .disable_redirects()
                 .disable_timeout()
                 .finish();
