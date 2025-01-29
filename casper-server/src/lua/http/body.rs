@@ -333,8 +333,8 @@ impl FromLua for LuaBody {
                 Ok(LuaBody::Bytes(data.freeze()))
             }
             Value::Function(func) => {
-                let stream = futures::stream::poll_fn(move |_| {
-                    match func.call::<Option<LuaString>>(()) {
+                let stream =
+                    futures::stream::poll_fn(move |_| match func.call::<Option<LuaString>>(()) {
                         Ok(Some(chunk)) => {
                             Poll::Ready(Some(Ok(Bytes::from(chunk.as_bytes().to_vec()))))
                         }
@@ -343,8 +343,7 @@ impl FromLua for LuaBody {
                             error!("{err:#}");
                             Poll::Ready(Some(Err(Box::new(err) as Box<dyn StdError>)))
                         }
-                    }
-                });
+                    });
                 Ok(LuaBody::from(BoxedBodyStream::new(stream)))
             }
             Value::UserData(ud) => {

@@ -353,17 +353,20 @@ impl UserData for LuaResponse {
             Ok(())
         });
 
-        methods.add_async_method_mut("body_json", |lua, mut this, timeout: Option<f64>| async move {
-            // Check that content type is JSON
-            match this.mime_type() {
-                Ok(Some(m)) if m.subtype() == mime::JSON || m.suffix() == Some(mime::JSON) => {}
-                _ => return Ok(Err("wrong content type".to_string())),
-            };
-            let body = this.body_mut();
-            body.set_timeout(timeout.map(Duration::from_secs_f64));
-            let json = lua_try!(body.json().await);
-            Ok(Ok(JsonObject::from(json).into_lua(&lua)?))
-        });
+        methods.add_async_method_mut(
+            "body_json",
+            |lua, mut this, timeout: Option<f64>| async move {
+                // Check that content type is JSON
+                match this.mime_type() {
+                    Ok(Some(m)) if m.subtype() == mime::JSON || m.suffix() == Some(mime::JSON) => {}
+                    _ => return Ok(Err("wrong content type".to_string())),
+                };
+                let body = this.body_mut();
+                body.set_timeout(timeout.map(Duration::from_secs_f64));
+                let json = lua_try!(body.json().await);
+                Ok(Ok(JsonObject::from(json).into_lua(&lua)?))
+            },
+        );
 
         // Metric labels manipulation
         methods.add_method_mut("set_label", |lua, this, (key, value): (String, Value)| {

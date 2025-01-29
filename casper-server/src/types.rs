@@ -1,6 +1,6 @@
 use std::ops::Deref;
 
-use mlua::{IntoLua, Lua, Table as LuaTable, Result as LuaResult, Value};
+use mlua::{IntoLua, Lua, Result as LuaResult, Table as LuaTable, Value};
 
 // Value stored in response extensions to indicate that response is encrypted
 #[derive(Clone, Copy, Debug, Default)]
