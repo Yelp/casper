@@ -42,6 +42,9 @@ async fn main_inner(args: Args) -> anyhow::Result<()> {
         env::set_var("OTEL_SERVICE_NAME", service_name);
     }
 
+    // Init logging subsystem
+    crate::logs::init(&config);
+
     // Init tracing subsystem
     crate::trace::init(&config);
 
@@ -145,6 +148,7 @@ mod config;
 mod context;
 mod handler;
 mod http;
+mod logs;
 mod lua;
 mod middleware;
 mod storage;
