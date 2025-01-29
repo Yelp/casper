@@ -141,7 +141,7 @@ impl AppContextInner {
 
         // Start task scheduler
         let max_background_tasks = self.config.main.max_background_tasks;
-        lua::tasks::start_task_scheduler(&lua, max_background_tasks);
+        lua::tasks::start_task_scheduler(lua, max_background_tasks);
 
         // Enable sandboxing before loading user code
         lua.sandbox(true)?;
