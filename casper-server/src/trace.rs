@@ -5,18 +5,33 @@ use bytes::Bytes;
 use ntex::rt::Arbiter;
 use ntex::time::Millis;
 use opentelemetry_http::{HttpClient, HttpError, Request, Response};
-use opentelemetry_sdk::trace::{self, RandomIdGenerator, Sampler};
+use opentelemetry_sdk::runtime::TokioCurrentThread;
+use opentelemetry_sdk::trace::span_processor_with_async_runtime::BatchSpanProcessor;
+use opentelemetry_sdk::trace::{RandomIdGenerator, Sampler, SdkTracerProvider};
 use tokio::sync::{mpsc, oneshot};
 
 use crate::config::Config;
 
-pub fn init(config: &Config) {
+pub fn init(config: &Config) -> Option<SdkTracerProvider> {
     let tracing_conf = match config.tracing {
         Some(ref tracing_conf) if tracing_conf.enabled => tracing_conf,
-        _ => return,
+        _ => return None,
     };
 
     opentelemetry::global::set_text_map_propagator(opentelemetry_zipkin::Propagator::new());
+
+    let mut exporter_builder =
+        opentelemetry_zipkin::ZipkinExporter::builder().with_http_client(spawn_http_client());
+
+    if let Some(collector_endpoint) = &tracing_conf.collector_endpoint {
+        exporter_builder = exporter_builder.with_collector_endpoint(collector_endpoint);
+    }
+
+    let exporter = exporter_builder
+        .build()
+        .expect("Failed to create zipkin exporter");
+
+    let span_processor = BatchSpanProcessor::builder(exporter, TokioCurrentThread).build();
 
     let sampler = if tracing_conf.mode.as_deref() == Some("firehose") {
         // In "firehose" mode we always sample but propagate the original sampling decision.
@@ -25,30 +40,27 @@ pub fn init(config: &Config) {
         Sampler::ParentBased(Box::new(Sampler::AlwaysOn))
     };
 
-    #[allow(deprecated)] // Wait for the opentelemetry 0.28 release
-    let mut pipeline_builder = opentelemetry_zipkin::new_pipeline()
-        .with_http_client(spawn_http_client())
-        .with_trace_config(
-            trace::Config::default()
-                .with_sampler(sampler)
-                .with_id_generator(RandomIdGenerator::default()),
-        );
+    let mut provider_builder = SdkTracerProvider::builder()
+        .with_span_processor(span_processor)
+        .with_id_generator(RandomIdGenerator::default())
+        .with_sampler(sampler);
 
     if let Some(service_name) = &config.main.service_name {
-        pipeline_builder = pipeline_builder.with_service_name(service_name);
+        provider_builder = provider_builder.with_resource(
+            opentelemetry_sdk::Resource::builder_empty()
+                .with_service_name(service_name.clone())
+                .build(),
+        );
     }
 
-    if let Some(collector_endpoint) = &tracing_conf.collector_endpoint {
-        pipeline_builder = pipeline_builder.with_collector_endpoint(collector_endpoint);
-    }
+    let provider = provider_builder.build();
+    opentelemetry::global::set_tracer_provider(provider.clone());
 
-    pipeline_builder
-        .install_batch(opentelemetry_sdk::runtime::TokioCurrentThread)
-        .expect("Failed to create zipkin tracer");
+    Some(provider)
 }
 
 type BatchHttpClientRequest = (
-    Request<Vec<u8>>,
+    Request<Bytes>,
     oneshot::Sender<Result<Response<Bytes>, HttpError>>,
 );
 
@@ -63,7 +75,7 @@ impl fmt::Debug for BatchHttpClient {
 
 #[async_trait::async_trait]
 impl HttpClient for BatchHttpClient {
-    async fn send(&self, request: Request<Vec<u8>>) -> Result<Response<Bytes>, HttpError> {
+    async fn send_bytes(&self, request: Request<Bytes>) -> Result<Response<Bytes>, HttpError> {
         let (tx, rx) = oneshot::channel();
         self.0.send((request, tx)).await?;
         rx.await?
@@ -92,7 +104,7 @@ fn spawn_http_client() -> BatchHttpClient {
                     );
                 }
                 // Send
-                match req.send_body(inner_req.into_body()).await {
+                match req.send_body(inner_req.into_body().to_vec()).await {
                     Ok(mut inner_resp) if inner_resp.status().is_success() => {
                         let status = inner_resp.status().as_u16();
                         let body = inner_resp.body().await.unwrap_or_default().to_vec();

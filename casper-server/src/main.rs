@@ -46,7 +46,7 @@ async fn main_inner(args: Args) -> anyhow::Result<()> {
     crate::logs::init(&config);
 
     // Init tracing subsystem
-    crate::trace::init(&config);
+    let provider = crate::trace::init(&config);
 
     // Init metrics subsystem
     crate::metrics::init(&config);
@@ -131,7 +131,10 @@ async fn main_inner(args: Args) -> anyhow::Result<()> {
         .run()
         .await?;
 
-    opentelemetry::global::shutdown_tracer_provider(); // sending remaining spans
+    // Send remaining tracing spans
+    if let Some(Err(err)) = provider.map(|p| p.shutdown()) {
+        eprintln!("Failed to shutdown tracing provider: {err}");
+    }
 
     Ok(())
 }

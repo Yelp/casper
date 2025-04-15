@@ -161,14 +161,14 @@ pub fn create_module(lua: &Lua) -> Result<Table> {
 
 #[cfg(test)]
 mod tests {
+    use std::future::Future;
     use std::sync::{Arc, Mutex};
 
-    use futures_util::future::BoxFuture;
     use mlua::{chunk, Lua, Result};
     use opentelemetry::trace::{SpanKind, Status as SpanStatus, Tracer as _, TracerProvider as _};
     use opentelemetry::{global, KeyValue};
-    use opentelemetry_sdk::export::trace::{ExportResult, SpanData, SpanExporter};
-    use opentelemetry_sdk::trace::{Tracer, TracerProvider};
+    use opentelemetry_sdk::error::OTelSdkResult;
+    use opentelemetry_sdk::trace::{SdkTracerProvider, SpanData, SpanExporter, Tracer};
     use serial_test::serial;
 
     #[test]
@@ -178,8 +178,6 @@ mod tests {
         let trace = super::create_module(&lua)?;
 
         let (tracer, provider, exporter) = build_test_tracer();
-        global::set_tracer_provider(provider);
-
         tracer.in_span("root", |_cx| {
             lua.load(chunk! {
                 local span = $trace.current_span
@@ -192,7 +190,7 @@ mod tests {
             .unwrap();
         });
 
-        global::shutdown_tracer_provider(); // flush all spans
+        provider.shutdown().unwrap(); // flush all spans
         let spans = exporter.0.lock().unwrap();
         assert_eq!(spans.len(), 1);
         let span = &spans[0];
@@ -217,8 +215,6 @@ mod tests {
         let trace = super::create_module(&lua)?;
 
         let (tracer, provider, exporter) = build_test_tracer();
-        global::set_tracer_provider(provider);
-
         tracer.in_span("root", |_cx| {
             lua.load(chunk! {
                 $trace.current_span:update_name("new_root")
@@ -227,7 +223,7 @@ mod tests {
             .unwrap();
         });
 
-        global::shutdown_tracer_provider(); // flush all spans
+        provider.shutdown().unwrap(); // flush all spans
         let spans = exporter.0.lock().unwrap();
         assert_eq!(spans.len(), 1);
         let span = &spans[0];
@@ -243,8 +239,6 @@ mod tests {
         let trace = super::create_module(&lua)?;
 
         let (tracer, provider, exporter) = build_test_tracer();
-        global::set_tracer_provider(provider);
-
         tracer.in_span("root", |_cx| {
             lua.load(chunk! {
                 local span = $trace.new_span("TBC", "client")
@@ -258,7 +252,7 @@ mod tests {
             .unwrap();
         });
 
-        global::shutdown_tracer_provider(); // flush all spans
+        provider.shutdown().unwrap(); // flush all spans
         let spans = exporter.0.lock().unwrap();
         assert_eq!(spans.len(), 2);
         let span = &spans[0];
@@ -277,12 +271,13 @@ mod tests {
         Ok(())
     }
 
-    fn build_test_tracer() -> (Tracer, TracerProvider, TestExporter) {
+    fn build_test_tracer() -> (Tracer, SdkTracerProvider, TestExporter) {
         let exporter = TestExporter::default();
-        let provider = TracerProvider::builder()
+        let provider = SdkTracerProvider::builder()
             .with_simple_exporter(exporter.clone())
             .build();
         let tracer = provider.tracer("test");
+        global::set_tracer_provider(provider.clone());
         (tracer, provider, exporter)
     }
 
@@ -290,7 +285,7 @@ mod tests {
     struct TestExporter(Arc<Mutex<Vec<SpanData>>>);
 
     impl SpanExporter for TestExporter {
-        fn export(&mut self, mut batch: Vec<SpanData>) -> BoxFuture<'static, ExportResult> {
+        fn export(&self, mut batch: Vec<SpanData>) -> impl Future<Output = OTelSdkResult> + Send {
             let spans = self.0.clone();
             Box::pin(async move {
                 if let Ok(mut inner) = spans.lock() {

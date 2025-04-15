@@ -52,7 +52,7 @@ impl<S> MetricsService<S> {
                         let mut label = prometheus::proto::LabelPair::new();
                         label.set_name(key.clone());
                         label.set_value(value.clone());
-                        metric.mut_label().push(label);
+                        metric.label.push(label);
                     }
                 }
             }
