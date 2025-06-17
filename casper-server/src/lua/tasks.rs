@@ -1,4 +1,3 @@
-use std::rc::Rc;
 use std::result::Result as StdResult;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -133,7 +132,7 @@ fn spawn_task(lua: &Lua, arg: Value) -> Result<StdResult<TaskHandle, String>> {
 }
 
 pub fn start_task_scheduler(lua: &Lua, max_background_tasks: Option<u64>) {
-    let lua = Rc::new(lua.clone());
+    let lua = lua.clone();
     let mut task_rx = lua
         .remove_app_data::<UnboundedReceiver<Task>>()
         .expect("Failed to get task receiver");
@@ -279,10 +278,10 @@ mod tests {
                 sleep(0.1)
                 result = "hello"
             end)
-            assert(handle:is_finished() == false)
+            assert(handle:is_finished() == false, "task should not be finished yet")
             handle:abort()
             sleep(0.2)
-            assert(result == nil)
+            assert(result == nil, "result should be nil after abort")
         })
         .exec_async()
         .await
