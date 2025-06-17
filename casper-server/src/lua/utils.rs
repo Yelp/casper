@@ -3,8 +3,7 @@ use std::result::Result as StdResult;
 use base64::Engine as _;
 use bstr::BString;
 use mlua::{Lua, Result, String as LuaString, Table};
-use rand::distributions::Standard;
-use rand::{thread_rng, Rng as _};
+use rand::{distr::StandardUniform, rng as thread_rng, Rng as _};
 
 /*
 --- @class utils
@@ -22,7 +21,7 @@ function utils.random(): number
 end
 */
 fn random(_: &Lua, _: ()) -> Result<f64> {
-    Ok(thread_rng().sample(Standard))
+    Ok(thread_rng().sample(StandardUniform))
 }
 
 /*
@@ -40,7 +39,7 @@ fn random_range(_: &Lua, (low, high): (i64, i64)) -> Result<i64> {
     if low >= high {
         return Ok(low);
     }
-    Ok(thread_rng().gen_range(low..high))
+    Ok(thread_rng().random_range(low..high))
 }
 
 /*

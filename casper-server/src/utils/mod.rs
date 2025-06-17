@@ -1,4 +1,4 @@
-use rand::{distributions::Alphanumeric, thread_rng, Rng, RngCore};
+use rand::{distr::Alphanumeric, rng as thread_rng, Rng, RngCore};
 
 /// Generates a random string with a given length and charset
 ///
@@ -23,7 +23,7 @@ pub fn random_string(len: usize, charset: Option<&str>) -> String {
         Some(charset) => {
             let charset = charset.chars().collect::<Vec<_>>();
             (0..len)
-                .map(|_| charset[rng.gen_range(0..charset.len())])
+                .map(|_| charset[rng.random_range(0..charset.len())])
                 .collect()
         }
     }

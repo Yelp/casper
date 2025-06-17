@@ -21,7 +21,7 @@ futures = "0.3"
 futures-util = "0.3"
 hex = "0.4.3"
 http = "1.1"
-itertools = "0.13"
+itertools = "0.14"
 linked-hash-map = "0.5.4"
 log = "0.4"
 mime = "0.3.17"
@@ -43,16 +43,16 @@ parking_lot = "0.12"
 percent-encoding = "2.2"
 pin-project-lite = "0.2.8"
 prometheus = "0.14"
-rand = "0.8"
+rand = "0.9"
 regex = "1.9"
 scopeguard = "1.1.0"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-serde_qs = "0.13"
+serde_qs = "0.15"
 serde_yaml = "0.9"
 sys-info = "0.9"
 tempfile = "3"
-thiserror = "1"
+thiserror = "2"
 time = "0.3"
 tokio = { version = "1", features = ["full"] }
 tracing = "0.1"
@@ -66,7 +66,7 @@ tokio-stream = { version = "0.1", features = ["time"] }
 
 [dependencies.mlua]
 features = ["luau-jit", "async", "serialize", "macros", "anyhow"]
-version = "0.10.2"
+version = "0.10.3"
 
 [dependencies.fred]
 features = ["enable-native-tls"]
