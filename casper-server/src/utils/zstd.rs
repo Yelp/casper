@@ -167,7 +167,7 @@ where
 mod tests {
     use super::*;
     use futures::stream::{self, TryStreamExt};
-    use rand::distributions::{Alphanumeric, DistString};
+    use rand::distr::{Alphanumeric, SampleString};
 
     #[ntex::test]
     async fn test_compress_decompress() {
@@ -180,7 +180,7 @@ mod tests {
 
     #[ntex::test]
     async fn test_decompress_stream() {
-        let raw_data = Alphanumeric.sample_string(&mut rand::thread_rng(), OUTPUT_BUFFER_SIZE * 3);
+        let raw_data = Alphanumeric.sample_string(&mut rand::rng(), OUTPUT_BUFFER_SIZE * 3);
         let data = Bytes::from(raw_data);
         let compressed = compress_with_zstd(data.clone(), 0).await.unwrap();
 

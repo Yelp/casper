@@ -8,7 +8,7 @@ use futures::{ready, stream::Stream};
 use ntex::util::{Bytes, BytesMut};
 use openssl::symm::{decrypt_aead, encrypt_aead, Cipher, Crypter, Mode};
 use pin_project_lite::pin_project;
-use rand::{thread_rng, RngCore};
+use rand::{rng as thread_rng, RngCore};
 use tokio::task::{spawn_blocking, JoinHandle};
 
 /// Some constants used by AES256-GCM.
