@@ -324,10 +324,10 @@ impl Stream for IoPayloadStream {
                 Ok(Some(chunk)) => Ok(chunk),
                 Ok(None) => return Poll::Ready(None),
                 Err(RecvError::KeepAlive) => {
-                    Err(io::Error::new(io::ErrorKind::Other, "Keep-alive").into())
+                    Err(io::Error::other("Keep-alive").into())
                 }
                 Err(RecvError::Stop) => {
-                    Err(io::Error::new(io::ErrorKind::Other, "Dispatcher stopped").into())
+                    Err(io::Error::other("Dispatcher stopped").into())
                 }
                 Err(RecvError::WriteBackpressure) => {
                     ready!(this.io.poll_flush(cx, false))?;

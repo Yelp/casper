@@ -12,7 +12,7 @@ pub fn random_string(len: usize, charset: Option<&str>) -> String {
             .map(char::from)
             .collect(),
         Some("hex") => {
-            let mut buf = vec![0u8; (len + 1) / 2];
+            let mut buf = vec![0u8; len.div_ceil(2)];
             rng.fill_bytes(&mut buf);
             let mut s = hex::encode(&buf);
             if len % 2 != 0 {

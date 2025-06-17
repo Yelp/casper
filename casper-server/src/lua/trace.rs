@@ -121,7 +121,7 @@ impl UserData for LuaSpan {
 fn into_keyvalue(key: LuaValue, value: LuaValue) -> Result<KeyValue> {
     let key = key.to_string()?;
     match value {
-        LuaValue::Integer(i) => Ok(KeyValue::new(key, i as i64)),
+        LuaValue::Integer(i) => Ok(KeyValue::new(key, i)),
         LuaValue::Number(n) => Ok(KeyValue::new(key, n)),
         LuaValue::Boolean(b) => Ok(KeyValue::new(key, b)),
         // TODO: Support opentelemetry::Value::Array variant
