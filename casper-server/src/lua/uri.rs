@@ -44,7 +44,7 @@ fn normalize_uri(_: &Lua, uri: LuaString) -> LuaResult<String> {
                 .collect::<Vec<_>>()
                 .join("&");
 
-            parts.path_and_query = Some(format!("{}?{}", path, query).parse().into_lua_err()?)
+            parts.path_and_query = Some(format!("{path}?{query}").parse().into_lua_err()?)
         }
     }
 

@@ -43,7 +43,7 @@ where
                 data.reverse();
                 Bytes::from(data)
             })
-            .map_err(|_| IoError::new(IoErrorKind::Other, "failed to encrypt data"))
+            .map_err(|_| IoError::other("failed to encrypt data"))
     })
     .await?
 }
@@ -65,13 +65,13 @@ where
         let key = normalize_key(&key, cipher.key_len());
         decrypt_aead(cipher, &key, Some(iv), &[], data, tag)
             .map(Into::into)
-            .map_err(|_| IoError::new(IoErrorKind::Other, "failed to decrypt data"))
+            .map_err(|_| IoError::other("failed to decrypt data"))
     })
     .await?
 }
 
 /// Normalizes the key to the required length.
-fn normalize_key(key: &[u8], required_len: usize) -> Cow<[u8]> {
+fn normalize_key(key: &[u8], required_len: usize) -> Cow<'_, [u8]> {
     match key.len() {
         len if len > required_len => Cow::Borrowed(&key[..required_len]),
         len if len < required_len => {
@@ -144,9 +144,7 @@ where
                         let key = normalize_key(this.key, cipher.key_len());
                         let decrypter = Crypter::new(cipher, Mode::Decrypt, &key, Some(iv))
                             .and_then(|mut decr| decr.set_tag(tag).map(|_| decr))
-                            .map_err(|_| {
-                                IoError::new(IoErrorKind::Other, "failed to init decrypter")
-                            })?;
+                            .map_err(|_| IoError::other("failed to init decrypter"))?;
                         *this.input = Some(Bytes::copy_from_slice(&buffer[IV_SIZE + TAG_SIZE..]));
                         *this.decrypter = Some(decrypter);
                         *this.state = State::Decoding(None);

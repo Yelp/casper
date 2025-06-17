@@ -26,7 +26,7 @@ fn from_lua_attributes(attributes: Option<Table>) -> Result<Vec<KeyValue>> {
                     attrs.push(KeyValue::new(k, b));
                 }
                 Value::Integer(i) => {
-                    attrs.push(KeyValue::new(k, i as i64));
+                    attrs.push(KeyValue::new(k, i));
                 }
                 Value::Number(n) => {
                     attrs.push(KeyValue::new(k, n));

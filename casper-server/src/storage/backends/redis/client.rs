@@ -307,7 +307,7 @@ impl RedisBackend {
                 let data = client
                     .get::<Option<Vec<u8>>, _>(chunk_key)
                     .await
-                    .map_err(|err| io::Error::new(io::ErrorKind::Other, err))?;
+                    .map_err(io::Error::other)?;
                 match data {
                     Some(data) => Ok(Bytes::from(data)),
                     None => Err(io::Error::new(
@@ -568,7 +568,7 @@ impl Storage for RedisBackend {
             .await
             .map_err(anyhow::Error::new)
             .and_then(|x| x)
-            .with_context(|| format!("Failed to delete Response(s) for key `{}`", key))
+            .with_context(|| format!("Failed to delete Response(s) for key `{key}`"))
     }
 
     async fn store_response(&self, item: Item<'_>) -> Result<usize, Self::Error> {
@@ -599,7 +599,7 @@ fn make_redis_key(key: impl AsRef<[u8]>) -> RedisKey {
 #[inline]
 fn make_chunk_key(key: impl AsRef<[u8]>, n: u32) -> RedisKey {
     let key = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(key);
-    RedisKey::from(format!("{{{}}}|{}", key, n))
+    RedisKey::from(format!("{{{key}}}|{n}"))
 }
 
 #[cfg(test)]

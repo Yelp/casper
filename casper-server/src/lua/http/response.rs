@@ -272,7 +272,7 @@ impl UserData for LuaResponse {
         });
 
         fields.add_field_method_get("version", |lua, this| match this.version() {
-            Some(version) => format!("{:?}", version)[5..].into_lua(lua),
+            Some(version) => format!("{version:?}")[5..].into_lua(lua),
             None => Ok(Value::Nil),
         });
 
@@ -375,7 +375,7 @@ impl UserData for LuaResponse {
             match value {
                 Value::Nil => labels.remove(&key),
                 Value::Boolean(b) => labels.insert(key, OTValue::Bool(b)),
-                Value::Integer(i) => labels.insert(key, OTValue::I64(i as i64)),
+                Value::Integer(i) => labels.insert(key, OTValue::I64(i)),
                 Value::Number(n) => labels.insert(key, OTValue::F64(n)),
                 v => match lua.coerce_string(v) {
                     Ok(Some(s)) => {
