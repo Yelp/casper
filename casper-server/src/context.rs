@@ -124,10 +124,8 @@ impl AppContextInner {
         lua.set_compiler(mlua::Compiler::new().set_optimization_level(2));
 
         // Register core module
-        let core: Table = lua.load_from_function(
-            "core",
-            lua.create_function(|lua, ()| lua::core::create_module(lua))?,
-        )?;
+        let core = lua::core::create_module(lua)?;
+        lua.register_module("core", &core)?;
 
         // Set worker id
         core.set("worker_id", self.id)?;

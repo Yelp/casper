@@ -8,7 +8,7 @@ impl UserData for CompiledFunction {
     fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
         methods.add_method("with_environment", |lua, this, env: Table| {
             let function = lua.registry_value::<Function>(&this.0)?;
-            let new_function = function.deep_clone();
+            let new_function = function.deep_clone()?;
             new_function.set_environment(env)?;
             let new_key = lua.create_registry_value(new_function)?;
             Ok(CompiledFunction(new_key))
