@@ -323,12 +323,8 @@ impl Stream for IoPayloadStream {
             return Poll::Ready(Some(match ready!(this.io.poll_recv(&this.codec, cx)) {
                 Ok(Some(chunk)) => Ok(chunk),
                 Ok(None) => return Poll::Ready(None),
-                Err(RecvError::KeepAlive) => {
-                    Err(io::Error::other("Keep-alive").into())
-                }
-                Err(RecvError::Stop) => {
-                    Err(io::Error::other("Dispatcher stopped").into())
-                }
+                Err(RecvError::KeepAlive) => Err(io::Error::other("Keep-alive").into()),
+                Err(RecvError::Stop) => Err(io::Error::other("Dispatcher stopped").into()),
                 Err(RecvError::WriteBackpressure) => {
                     ready!(this.io.poll_flush(cx, false))?;
                     continue;

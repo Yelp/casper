@@ -43,4 +43,6 @@ impl Injector for RequestHeaderCarrierMut<'_> {
     }
 }
 
-pub struct ParentSamplingDecision(pub HeaderValue);
+/// A flag when attached to Context, indicates that the injected sampling decision should be "off",
+/// but (our) spans should still be exported.
+pub struct SilentOnSamplingDecision;

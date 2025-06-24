@@ -73,6 +73,7 @@ pub struct TracingConfig {
     pub start_new_traces: Option<bool>,
     pub collector_endpoint: Option<String>,
     pub sampler: Option<String>, // Can be "AlwaysOn", "AlwaysOff", "ParentBased", "SilentOn"
+    pub propagators: Option<Vec<String>>, // Supported values: "zipkin", "w3c"
 }
 
 pub(crate) fn read_config<P: AsRef<Path> + ?Sized>(path: &P) -> Result<Config> {
