@@ -66,8 +66,7 @@ tokio-stream = { version = "0.1", features = ["time"] }
 
 [dependencies.mlua]
 features = ["luau-jit", "async", "serde", "macros", "anyhow"]
-git = "https://github.com/mlua-rs/mlua"
-rev = "3f0c69b70b62ca01ab99e889b08e982511b35a95"
+version = "0.11.0-beta.3"
 
 [dependencies.fred]
 features = ["enable-native-tls"]
