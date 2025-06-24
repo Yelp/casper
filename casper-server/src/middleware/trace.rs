@@ -104,9 +104,9 @@ where
                 .build_with_context(span_builder, &parent_context);
             otel_cx = parent_context.with_span(span);
 
-            // In the firehose mode we need to propagate the sampling decision
+            // In the "SilentOn" mode we need to propagate the sampling decision
             // but ignore it in the app (e.g. always sample).
-            if self.config.mode.as_deref() == Some("firehose") {
+            if self.config.sampler.as_deref() == Some("SilentOn") {
                 if let Some(sampled) = req.headers().get("X-B3-Sampled") {
                     otel_cx = otel_cx.with_value(ParentSamplingDecision(sampled.clone()));
                 }

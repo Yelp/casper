@@ -72,7 +72,7 @@ pub struct TracingConfig {
     pub enabled: bool,
     pub start_new_traces: Option<bool>,
     pub collector_endpoint: Option<String>,
-    pub mode: Option<String>, // only one value is supported: "firehose"
+    pub sampler: Option<String>, // Can be "AlwaysOn", "AlwaysOff", "ParentBased", "SilentOn"
 }
 
 pub(crate) fn read_config<P: AsRef<Path> + ?Sized>(path: &P) -> Result<Config> {
