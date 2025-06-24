@@ -13,7 +13,7 @@ use opentelemetry_semantic_conventions::trace::{
 };
 
 use crate::config::TracingConfig;
-use crate::http::trace::{ParentSamplingDecision, RequestHeaderCarrier};
+use crate::http::trace::{RequestHeaderCarrier, SilentOnSamplingDecision};
 
 /// `RequestTracing` is a middleware to capture structured diagnostic when processing an HTTP request.
 #[derive(Default, Debug)]
@@ -107,9 +107,7 @@ where
             // In the "SilentOn" mode we need to propagate the sampling decision
             // but ignore it in the app (e.g. always sample).
             if self.config.sampler.as_deref() == Some("SilentOn") {
-                if let Some(sampled) = req.headers().get("X-B3-Sampled") {
-                    otel_cx = otel_cx.with_value(ParentSamplingDecision(sampled.clone()));
-                }
+                otel_cx = otel_cx.with_value(SilentOnSamplingDecision);
             }
         }
 

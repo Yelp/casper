@@ -4,7 +4,9 @@ use std::str::FromStr;
 use bytes::Bytes;
 use ntex::rt::Arbiter;
 use ntex::time::Millis;
+use opentelemetry::propagation::{TextMapCompositePropagator, TextMapPropagator};
 use opentelemetry_http::{HttpClient, HttpError, Request, Response};
+use opentelemetry_sdk::propagation::TraceContextPropagator;
 use opentelemetry_sdk::runtime::TokioCurrentThread;
 use opentelemetry_sdk::trace::span_processor_with_async_runtime::BatchSpanProcessor;
 use opentelemetry_sdk::trace::{RandomIdGenerator, Sampler, SdkTracerProvider};
@@ -18,7 +20,16 @@ pub fn init(config: &Config) -> Option<SdkTracerProvider> {
         _ => return None,
     };
 
-    opentelemetry::global::set_text_map_propagator(opentelemetry_zipkin::Propagator::new());
+    // We support multiple trace context propagators
+    let mut propagators: Vec<Box<dyn TextMapPropagator + Send + Sync>> = Vec::new();
+    for prop in tracing_conf.propagators.as_deref().unwrap_or_default() {
+        match prop.as_str() {
+            "zipkin" => propagators.push(Box::new(opentelemetry_zipkin::Propagator::new())),
+            "w3c" => propagators.push(Box::new(TraceContextPropagator::new())),
+            _ => tracing::warn!("Unknown propagator: {prop}"),
+        }
+    }
+    opentelemetry::global::set_text_map_propagator(TextMapCompositePropagator::new(propagators));
 
     let mut exporter_builder =
         opentelemetry_zipkin::ZipkinExporter::builder().with_http_client(spawn_http_client());

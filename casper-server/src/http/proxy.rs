@@ -14,7 +14,7 @@ use opentelemetry_semantic_conventions::trace::{
 use scopeguard::defer;
 use tracing::{debug, instrument, Span};
 
-use crate::http::trace::{ParentSamplingDecision, RequestHeaderCarrierMut};
+use crate::http::trace::{RequestHeaderCarrierMut, SilentOnSamplingDecision};
 use crate::lua::{LuaBody, LuaRequest, LuaResponse};
 
 #[allow(clippy::declare_interior_mutable_const)]
@@ -82,9 +82,23 @@ pub async fn proxy_to_upstream(
             injector.inject_context(&cx, &mut RequestHeaderCarrierMut::new(req.headers_mut()));
         });
 
-        if let Some(sampled) = cx.get::<ParentSamplingDecision>() {
-            req.headers_mut()
-                .insert(HeaderName::from_static("x-b3-sampled"), sampled.0.clone());
+        if cx.get::<SilentOnSamplingDecision>().is_some() {
+            // Check if we need to rewrite the sampled flag in the request headers.
+            if let Some(sampled) = req.headers_mut().get_mut("x-b3-sampled") {
+                if sampled.as_bytes() == b"1" {
+                    // Rewrite the sampled flag to "0" if it is set to "1".
+                    *sampled = HeaderValue::from_static("0");
+                }
+            }
+
+            if let Some(traceparent) = req.headers_mut().get_mut("traceparent") {
+                if let Ok(traceparent_str) = traceparent.to_str() {
+                    // Rewrite the sampled flag in `traceparent` header to "00" if it is set to "01".
+                    if let Some(prefix) = traceparent_str.strip_suffix("-01") {
+                        *traceparent = HeaderValue::from_shared(format!("{prefix}-00")).unwrap();
+                    }
+                }
+            }
         }
     }
 
