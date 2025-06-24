@@ -33,11 +33,12 @@ pub fn init(config: &Config) -> Option<SdkTracerProvider> {
 
     let span_processor = BatchSpanProcessor::builder(exporter, TokioCurrentThread).build();
 
-    let sampler = if tracing_conf.mode.as_deref() == Some("firehose") {
-        // In "firehose" mode we always sample but propagate the original sampling decision.
-        Sampler::AlwaysOn
-    } else {
-        Sampler::ParentBased(Box::new(Sampler::AlwaysOn))
+    let sampler = match tracing_conf.sampler.as_deref() {
+        Some("AlwaysOn") => Sampler::AlwaysOn,
+        Some("AlwaysOff") => Sampler::AlwaysOff,
+        // This is a hack to enable sampling regardless of the parent sampling decision
+        Some("SilentOn") => Sampler::AlwaysOn,
+        _ => Sampler::ParentBased(Box::new(Sampler::AlwaysOn)),
     };
 
     let mut provider_builder = SdkTracerProvider::builder()
