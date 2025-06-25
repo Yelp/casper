@@ -71,7 +71,7 @@ pub struct TracingConfig {
     #[serde(default)]
     pub enabled: bool,
     pub start_new_traces: Option<bool>,
-    pub collector_endpoint: Option<String>,
+    pub collector_endpoint: Option<String>, // OTLP endpoint
     pub sampler: Option<String>, // Can be "AlwaysOn", "AlwaysOff", "ParentBased", "SilentOn"
     pub propagators: Option<Vec<String>>, // Supported values: "zipkin", "w3c"
 }

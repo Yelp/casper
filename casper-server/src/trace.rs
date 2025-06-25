@@ -6,6 +6,7 @@ use ntex::rt::Arbiter;
 use ntex::time::Millis;
 use opentelemetry::propagation::{TextMapCompositePropagator, TextMapPropagator};
 use opentelemetry_http::{HttpClient, HttpError, Request, Response};
+use opentelemetry_otlp::{WithExportConfig, WithHttpConfig};
 use opentelemetry_sdk::propagation::TraceContextPropagator;
 use opentelemetry_sdk::runtime::TokioCurrentThread;
 use opentelemetry_sdk::trace::span_processor_with_async_runtime::BatchSpanProcessor;
@@ -31,23 +32,25 @@ pub fn init(config: &Config) -> Option<SdkTracerProvider> {
     }
     opentelemetry::global::set_text_map_propagator(TextMapCompositePropagator::new(propagators));
 
-    let mut exporter_builder =
-        opentelemetry_zipkin::ZipkinExporter::builder().with_http_client(spawn_http_client());
+    let mut exporter_builder = opentelemetry_otlp::SpanExporter::builder()
+        .with_http()
+        .with_protocol(opentelemetry_otlp::Protocol::HttpBinary)
+        .with_http_client(spawn_http_client());
 
     if let Some(collector_endpoint) = &tracing_conf.collector_endpoint {
-        exporter_builder = exporter_builder.with_collector_endpoint(collector_endpoint);
+        exporter_builder = exporter_builder.with_endpoint(collector_endpoint);
     }
 
     let exporter = exporter_builder
         .build()
-        .expect("Failed to create zipkin exporter");
+        .expect("Failed to create opentelemetry exporter");
 
     let span_processor = BatchSpanProcessor::builder(exporter, TokioCurrentThread).build();
 
     let sampler = match tracing_conf.sampler.as_deref() {
         Some("AlwaysOn") => Sampler::AlwaysOn,
         Some("AlwaysOff") => Sampler::AlwaysOff,
-        // This is a hack to enable sampling regardless of the parent sampling decision
+        // This is a trick to enable sampling, but propagate the "sampling disabled" flag
         Some("SilentOn") => Sampler::AlwaysOn,
         _ => Sampler::ParentBased(Box::new(Sampler::AlwaysOn)),
     };
