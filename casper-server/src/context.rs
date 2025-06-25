@@ -125,7 +125,7 @@ impl AppContextInner {
 
         // Register core module
         let core = lua::core::create_module(lua)?;
-        lua.register_module("core", &core)?;
+        lua.register_module("@core", &core)?;
 
         // Set worker id
         core.set("worker_id", self.id)?;
