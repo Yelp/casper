@@ -195,7 +195,10 @@ pub fn stop_task_scheduler(lua: &Lua) {
     lua.remove_app_data::<UnboundedSender<Task>>();
 
     // Notify all tasks to stop
-    _ = lua.app_data_ref::<ShutdownNotifier>().unwrap().0.send(true);
+    if let Some(notifier) = lua.app_data_ref::<ShutdownNotifier>() {
+        _ = notifier.0.send(true);
+    }
+    lua.remove_app_data::<ShutdownNotifier>();
 }
 
 pub fn create_module(lua: &Lua) -> Result<Table> {
