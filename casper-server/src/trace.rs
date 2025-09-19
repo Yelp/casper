@@ -62,7 +62,7 @@ pub fn init(config: &Config) -> Option<SdkTracerProvider> {
 
     if let Some(service_name) = &config.main.service_name {
         provider_builder = provider_builder.with_resource(
-            opentelemetry_sdk::Resource::builder_empty()
+            opentelemetry_sdk::Resource::builder()
                 .with_service_name(service_name.clone())
                 .build(),
         );
