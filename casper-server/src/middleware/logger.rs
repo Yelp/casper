@@ -1,5 +1,6 @@
 use std::error::Error;
 use std::fmt::Debug;
+use std::rc::Rc;
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 
@@ -153,7 +154,7 @@ impl MessageBody for StreamLog {
     fn poll_next_chunk(
         &mut self,
         cx: &mut Context<'_>,
-    ) -> Poll<Option<Result<Bytes, Box<dyn Error>>>> {
+    ) -> Poll<Option<Result<Bytes, Rc<dyn Error>>>> {
         match futures::ready!(self.body.poll_next_chunk(cx)) {
             Some(Ok(chunk)) => {
                 self.body_size += chunk.len() as u64;

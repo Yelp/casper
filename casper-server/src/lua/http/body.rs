@@ -213,7 +213,7 @@ impl From<Bytes> for LuaBody {
 
 impl<S> From<BoxedBodyStream<S>> for LuaBody
 where
-    S: Stream<Item = Result<Bytes, Box<dyn StdError>>> + Unpin + 'static,
+    S: Stream<Item = Result<Bytes, Rc<dyn StdError>>> + Unpin + 'static,
 {
     #[inline(always)]
     fn from(body: BoxedBodyStream<S>) -> Self {
@@ -272,7 +272,7 @@ impl From<LuaBody> for body::Body {
             LuaBody::Payload {
                 payload, length, ..
             } => {
-                let payload = payload.map_err(|err| Box::new(err) as Box<dyn StdError>);
+                let payload = payload.map_err(|err| Rc::new(err) as Rc<dyn StdError>);
                 match length {
                     Some(length) => {
                         body::Body::Message(Box::new(SizedStream::new(length, payload)))
@@ -300,7 +300,7 @@ impl MessageBody for LuaBody {
     fn poll_next_chunk(
         &mut self,
         cx: &mut Context<'_>,
-    ) -> Poll<Option<Result<Bytes, Box<dyn StdError>>>> {
+    ) -> Poll<Option<Result<Bytes, Rc<dyn StdError>>>> {
         match *self {
             LuaBody::None => Poll::Ready(None),
             LuaBody::Bytes(ref bytes) => {
@@ -313,7 +313,7 @@ impl MessageBody for LuaBody {
                 ref mut payload, ..
             } => match futures::ready!(payload.poll_recv(cx)) {
                 Some(Ok(bytes)) => Poll::Ready(Some(Ok(bytes))),
-                Some(Err(err)) => Poll::Ready(Some(Err(Box::new(err)))),
+                Some(Err(err)) => Poll::Ready(Some(Err(Rc::new(err)))),
                 None => Poll::Ready(None),
             },
         }
@@ -341,7 +341,7 @@ impl FromLua for LuaBody {
                         Ok(None) => Poll::Ready(None),
                         Err(err) => {
                             error!("{err:#}");
-                            Poll::Ready(Some(Err(Box::new(err) as Box<dyn StdError>)))
+                            Poll::Ready(Some(Err(Rc::new(err) as Rc<dyn StdError>)))
                         }
                     });
                 Ok(LuaBody::from(BoxedBodyStream::new(stream)))
@@ -447,6 +447,7 @@ impl UserData for LuaBody {
 mod tests {
     use std::error::Error as StdError;
     use std::io::{Error as IoError, ErrorKind};
+    use std::rc::Rc;
     use std::time::Duration;
 
     use mlua::{chunk, Lua, Result as LuaResult, Value};
@@ -566,9 +567,9 @@ mod tests {
         super::super::super::bytes::register_types(&lua)?;
 
         fn make_body_stream() -> LuaBody {
-            let chunks: Vec<Result<_, Box<dyn StdError>>> = vec![
+            let chunks: Vec<Result<_, Rc<dyn StdError>>> = vec![
                 Ok("hello".into()),
-                Err(Box::new(IoError::new(ErrorKind::BrokenPipe, "broken pipe"))),
+                Err(Rc::new(IoError::new(ErrorKind::BrokenPipe, "broken pipe"))),
             ];
             let stream = stream::iter(chunks);
             LuaBody::from(BoxedBodyStream::new(stream))
@@ -669,7 +670,7 @@ mod tests {
         let lua = Lua::new();
         super::super::super::bytes::register_types(&lua)?;
 
-        let chunks: Vec<Result<_, Box<dyn StdError>>> =
+        let chunks: Vec<Result<_, Rc<dyn StdError>>> =
             vec![Ok("hello".into()), Ok(", ".into()), Ok("world".into())];
         let stream = stream::iter(chunks).throttle(Duration::from_millis(15));
         let mut body = LuaBody::from(BoxedBodyStream::new(Box::pin(stream)));
@@ -714,7 +715,7 @@ mod tests {
         .unwrap();
 
         // Test timeout while reading json
-        let chunks: Vec<Result<_, Box<dyn StdError>>> = vec![
+        let chunks: Vec<Result<_, Rc<dyn StdError>>> = vec![
             Ok("{\"hello\"".into()),
             Ok(":".into()),
             Ok("\"world\"}".into()),

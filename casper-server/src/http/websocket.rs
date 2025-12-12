@@ -133,7 +133,7 @@ async fn forward_websocket_upgrade(req: &LuaRequest) -> Result<LuaResponse, WsEr
         head.set_connection_type(ConnectionType::Upgrade);
         trace!("Ws handshake request: {head:?}");
         io.send(
-            (RequestHeadType::Owned(head), BodySize::None).into(),
+            (RequestHeadType::Owned(Box::new(head)), BodySize::None).into(),
             &codec,
         )
         .await?;

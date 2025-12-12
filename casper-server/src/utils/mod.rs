@@ -15,7 +15,7 @@ pub fn random_string(len: usize, charset: Option<&str>) -> String {
             let mut buf = vec![0u8; len.div_ceil(2)];
             rng.fill_bytes(&mut buf);
             let mut s = hex::encode(&buf);
-            if len % 2 != 0 {
+            if !len.is_multiple_of(2) {
                 s.pop();
             }
             s

@@ -1,5 +1,6 @@
 use std::error::Error;
 use std::fmt::Display;
+use std::rc::Rc;
 use std::task::{Context, Poll};
 
 use ntex::http::body::{Body, BodySize, MessageBody, ResponseBody};
@@ -163,7 +164,7 @@ impl MessageBody for StreamSpan {
     fn poll_next_chunk(
         &mut self,
         cx: &mut Context<'_>,
-    ) -> Poll<Option<Result<Bytes, Box<dyn Error>>>> {
+    ) -> Poll<Option<Result<Bytes, Rc<dyn Error>>>> {
         let _cx_guard = self.otel_cx.clone().attach();
         self.body.poll_next_chunk(cx)
     }

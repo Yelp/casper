@@ -1,6 +1,7 @@
 use std::error::Error as StdError;
 use std::io;
 use std::mem;
+use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
@@ -325,24 +326,24 @@ impl RedisBackend {
                 // Decrypt and decompress
                 let body_stream = AESDecoder::new(body_stream, encryption_key.unwrap().clone());
                 let body_stream =
-                    ZstdDecoder::new(body_stream).map_err(|err| Box::new(err) as Box<dyn StdError>);
+                    ZstdDecoder::new(body_stream).map_err(|err| Rc::new(err) as Rc<dyn StdError>);
                 Body::Message(Box::new(SizedStream::new(body_size, Box::pin(body_stream))))
             }
             (true, false) => {
                 // Decrypt only
                 let body_stream = AESDecoder::new(body_stream, encryption_key.unwrap().clone())
-                    .map_err(|err| Box::new(err) as Box<dyn StdError>);
+                    .map_err(|err| Rc::new(err) as Rc<dyn StdError>);
                 Body::Message(Box::new(SizedStream::new(body_size, Box::pin(body_stream))))
             }
             (false, true) => {
                 // Decompress only
                 let body_stream =
-                    ZstdDecoder::new(body_stream).map_err(|err| Box::new(err) as Box<dyn StdError>);
+                    ZstdDecoder::new(body_stream).map_err(|err| Rc::new(err) as Rc<dyn StdError>);
                 Body::Message(Box::new(SizedStream::new(body_size, Box::pin(body_stream))))
             }
             (false, false) => {
                 // Do nothing
-                let body_stream = body_stream.map_err(|err| Box::new(err) as Box<dyn StdError>);
+                let body_stream = body_stream.map_err(|err| Rc::new(err) as Rc<dyn StdError>);
                 Body::Message(Box::new(SizedStream::new(body_size, Box::pin(body_stream))))
             }
         };
